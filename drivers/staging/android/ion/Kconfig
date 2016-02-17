@@ -33,6 +33,12 @@ config ION_TEGRA
 	help
 	  Choose this option if you wish to use ion on an nVidia Tegra.
 
+config ION_RCAR
+	tristate "Ion for rcar"
+	depends on (ARCH_R8A7790 || ARCH_R8A7791 || ARCH_R8A7793 || ARCH_R8A7794 || ARCH_R8A7795) && ION
+	help
+	  Choose this option if you wish to use ion on an rcar.
+
 config ION_HISI
 	tristate "Ion for Hisilicon"
 	depends on ARCH_HISI && ION
