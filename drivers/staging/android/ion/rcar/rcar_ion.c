@@ -21,9 +21,15 @@
 #include "../ion_priv.h"
 #include <linux/module.h>
 #include <linux/idr.h>
+#include <linux/miscdevice.h>
+#include <linux/of.h>
+
+#define CONST_HEAP_ID
 
 static int num_heaps;
 static struct ion_heap **g_apsIonHeaps;
+static struct platform_device *ion_pdev = NULL;
+static struct ion_platform_heap **rcar_ion_heaps_data;
 struct ion_device *g_psIonDev;
 EXPORT_SYMBOL(g_psIonDev);
 
@@ -73,20 +79,22 @@ static int rcar_ion_heap_allocate(struct ion_heap *heap,
 	void *vaddr;
 	dma_addr_t dma_handle;
 
-	vaddr = dma_alloc_coherent(0, size, &dma_handle, GFP_KERNEL);
+	dev_dbg(&ion_pdev->dev, "rcar_ion_heap_allocate: size=%lu, align=%lu, flags=0x%lx", size, align, flags);
+
+	vaddr = dma_alloc_coherent(&ion_pdev->dev, size, &dma_handle, GFP_KERNEL);
 	if (!vaddr)
 		return -ENOMEM;
 
 	buffer->priv_phys = dma_handle;
 	buffer->size = size;
-    buffer->vaddr = vaddr;
+	buffer->vaddr = vaddr;
 
 	return 0;
 }
 
 static void rcar_ion_heap_free(struct ion_buffer *buffer)
 {
-	dma_free_coherent(0, buffer->size, buffer->vaddr, buffer->priv_phys);
+	dma_free_coherent(&ion_pdev->dev, buffer->size, buffer->vaddr, buffer->priv_phys);
 }
 
 static int rcar_ion_heap_phys(struct ion_heap *heap,
@@ -147,7 +155,7 @@ static int rcar_ion_map_user(struct ion_heap *heap,
 	unsigned long nr_vma_pages =
 		(vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
 	unsigned long nr_pages = PAGE_ALIGN(buffer->size) >> PAGE_SHIFT;
-    unsigned long pfn = virt_to_pfn(buffer->vaddr);
+    unsigned long pfn = ((unsigned long)((buffer->priv_phys) >> PAGE_SHIFT) + ion_pdev->dev.dma_pfn_offset);
 	unsigned long off = vma->vm_pgoff;
 
 	if (off < nr_pages && nr_vma_pages <= (nr_pages - off)) {
@@ -181,9 +189,6 @@ ion_heap *rcar_ion_heap_create(struct ion_platform_heap *heap_data)
 	if (!heap)
 		return ERR_PTR(-ENOMEM);
 
-	heap->ops = &rcar_ion_heap_ops;
-	heap->type = ION_HEAP_TYPE_CUSTOM;
-
 	if (IS_ERR_OR_NULL(heap)) {
 		pr_err("%s: error creating heap %s type %d base %llu size %zu\n",
 		       __func__, heap_data->name, heap_data->type,
@@ -191,8 +196,11 @@ ion_heap *rcar_ion_heap_create(struct ion_platform_heap *heap_data)
 		return ERR_PTR(-EINVAL);
 	}
 
+	heap->ops = &rcar_ion_heap_ops;
+	heap->type = heap_data->type;
 	heap->name = heap_data->name;
 	heap->id = heap_data->id;
+
 	return heap;
 }
 
@@ -300,30 +308,94 @@ static long rcar_ion_ioctl(struct ion_client *client, unsigned int cmd,
 	return 0;
 }
 
+static int rcar_ion_set_platform_data(struct platform_device *pdev)
+{
+	unsigned int id;
+	const char *heap_name;
+	enum ion_heap_type type = ION_HEAP_TYPE_CUSTOM;
+	int ret;
+	struct device_node *np;
+	struct ion_platform_heap *p_data;
+	const struct device_node *dt_node = pdev->dev.of_node;
+	int index = 0;
+
+	for_each_child_of_node(dt_node, np)
+		num_heaps++;
+
+	rcar_ion_heaps_data = devm_kzalloc(&pdev->dev,
+				  sizeof(struct ion_platform_heap *) *
+				  num_heaps,
+				  GFP_KERNEL);
+	if (!rcar_ion_heaps_data)
+		return -ENOMEM;
+
+	for_each_child_of_node(dt_node, np) {
+		ret = of_property_read_string(np, "heap-name", &heap_name);
+		if (ret < 0) {
+			pr_err("check the name of node %s\n", np->name);
+			continue;
+		}
+
+#ifndef CONST_HEAP_ID
+		ret = of_property_read_u32(np, "heap-id", &id);
+		if (ret < 0) {
+			pr_err("check the id %s\n", np->name);
+			continue;
+		}
+#else
+		id = ION_HEAP_TYPE_CUSTOM;
+#endif
+
+		p_data = devm_kzalloc(&pdev->dev,
+				      sizeof(struct ion_platform_heap),
+				      GFP_KERNEL);
+		if (!p_data)
+			return -ENOMEM;
+
+		p_data->name = heap_name;
+		p_data->base = 0;
+		p_data->size = 0;
+		p_data->id = id;
+		p_data->type = type;
+
+		pr_info("heap index %d : name %s base 0x%lx size 0x%lx id %d type %d\n",
+			index, p_data->name, p_data->base, p_data->size, p_data->id, p_data->type);
+
+		rcar_ion_heaps_data[index] = p_data;
+		index++;
+	}
+	return 0;
+}
+
 int rcar_ion_probe(struct platform_device *pdev)
 {
 	struct ion_platform_data *pdata = pdev->dev.platform_data;
 	int err;
 	int i;
 
-	num_heaps = pdata->nr;
-
-	g_apsIonHeaps = kzalloc(sizeof(struct ion_heap *) * pdata->nr, GFP_KERNEL);
-	if (!g_apsIonHeaps)
-		return -ENOMEM;
-
 	/* Create the ion devicenode */
 	g_psIonDev = ion_device_create(rcar_ion_ioctl);
-	if (IS_ERR_OR_NULL(g_psIonDev)) {
-		kfree(g_apsIonHeaps);
+	if (IS_ERR_OR_NULL(g_psIonDev))
+		return -ENOMEM;
+
+	err = rcar_ion_set_platform_data(pdev);
+	if (err) {
+		pr_err("ion set platform data error!\n");
+		ion_device_destroy(g_psIonDev);
+		return err;
+	}
+
+	g_apsIonHeaps = devm_kzalloc(&pdev->dev, sizeof(struct ion_heap *) * num_heaps, GFP_KERNEL);
+	if (!g_apsIonHeaps) {
+		ion_device_destroy(g_psIonDev);
 		return -ENOMEM;
 	}
 
 	/* Register all the heaps */
 	for (i = 0; i < num_heaps; i++) {
-		struct ion_platform_heap *psPlatHeapData = &pdata->heaps[i];
+		struct ion_platform_heap *psPlatHeapData = rcar_ion_heaps_data[i];
 
-		if (pdata->heaps[i].type == ION_HEAP_TYPE_CUSTOM)
+		if (psPlatHeapData->type == ION_HEAP_TYPE_CUSTOM)
 			g_apsIonHeaps[i] = rcar_ion_heap_create(psPlatHeapData);
 		else
 			g_apsIonHeaps[i] = ion_heap_create(psPlatHeapData);
@@ -335,7 +407,13 @@ int rcar_ion_probe(struct platform_device *pdev)
 		ion_device_add_heap(g_psIonDev, g_apsIonHeaps[i]);
 	}
 
-	return 0;
+	ion_pdev = pdev;
+
+	platform_set_drvdata(pdev, g_psIonDev);
+
+	dev_info(&pdev->dev, "Ion initialized!\n");
+
+ 	return 0;
 
 failHeapCreate:
 	for (i = 0; i < num_heaps; i++) {
@@ -367,25 +445,26 @@ int rcar_ion_remove(struct platform_device *pdev)
 	}
 	ion_device_destroy(g_psIonDev);
 	kfree(g_apsIonHeaps);
+	ion_pdev = NULL;
 
 	return 0;
 }
 
+static const struct of_device_id rcar_ion_of_table[] = {
+        { .compatible = "renesas,ion-rcar", },
+        { },
+};
+MODULE_DEVICE_TABLE(of, rcar_ion_of_table);
+
 static struct platform_driver ion_driver = {
 	.probe = rcar_ion_probe,
 	.remove = rcar_ion_remove,
-	.driver = { .name = "rcar-ion" }
+	.driver = {
+		.name = "rcar-ion",
+		.of_match_table = rcar_ion_of_table,
+		.owner = THIS_MODULE
+	 },
 };
 
-static int __init ion_init(void)
-{
-	return platform_driver_register(&ion_driver);
-}
-
-static void __exit ion_exit(void)
-{
-	platform_driver_unregister(&ion_driver);
-}
-
-module_init(ion_init);
-module_exit(ion_exit);
+module_platform_driver(ion_driver);
+MODULE_ALIAS("platform:ion-rcar");
