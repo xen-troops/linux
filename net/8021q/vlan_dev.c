@@ -242,6 +242,7 @@ int vlan_dev_change_flags(const struct net_device *dev, u32 flags, u32 mask)
 	}
 	return 0;
 }
+EXPORT_SYMBOL(vlan_dev_change_flags);
 
 void vlan_dev_get_realdev_name(const struct net_device *dev, char *result)
 {

@@ -203,7 +203,7 @@ out_vid_del:
 /*  Attach a VLAN device to a mac address (ie Ethernet Card).
  *  Returns 0 if the device was created or a negative error code otherwise.
  */
-static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
+struct net_device *register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 {
 	struct net_device *new_dev;
 	struct vlan_dev_priv *vlan;
@@ -213,11 +213,11 @@ static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 	int err;
 
 	if (vlan_id >= VLAN_VID_MASK)
-		return -ERANGE;
+		return ERR_PTR(-ERANGE);
 
 	err = vlan_check_real_dev(real_dev, htons(ETH_P_8021Q), vlan_id);
 	if (err < 0)
-		return err;
+		return ERR_PTR(err);
 
 	/* Gotta set up the fields for the device. */
 	switch (vn->name_type) {
@@ -249,7 +249,7 @@ static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 			       NET_NAME_UNKNOWN, vlan_setup);
 
 	if (new_dev == NULL)
-		return -ENOBUFS;
+		return ERR_PTR(-ENOBUFS);
 
 	dev_net_set(new_dev, net);
 	/* need 4 bytes for extra VLAN header info,
@@ -269,13 +269,14 @@ static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 	if (err < 0)
 		goto out_free_newdev;
 
-	return 0;
+	return new_dev;
 
 out_free_newdev:
 	if (new_dev->reg_state == NETREG_UNINITIALIZED)
 		free_netdev(new_dev);
-	return err;
+	return ERR_PTR(err);
 }
+EXPORT_SYMBOL(register_vlan_device);
 
 static void vlan_sync_address(struct net_device *dev,
 			      struct net_device *vlandev)
@@ -582,7 +583,11 @@ static int vlan_ioctl_handler(struct net *net, void __user *arg)
 		err = -EPERM;
 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 			break;
-		err = register_vlan_device(dev, args.u.VID);
+		{
+			struct net_device *new_dev;
+			new_dev = register_vlan_device(dev, args.u.VID);
+			err = IS_ERR(new_dev) ? PTR_ERR(new_dev) : 0;
+		}
 		break;
 
 	case DEL_VLAN_CMD:

@@ -199,6 +199,9 @@ extern void vlan_vids_del_by_dev(struct net_device *dev,
 
 extern bool vlan_uses_dev(const struct net_device *dev);
 
+extern struct net_device *register_vlan_device(struct net_device *real_dev, u16 vlan_id);
+extern int vlan_dev_change_flags(const struct net_device *dev, u32 flags, u32 mask);
+
 static inline int vlan_get_encap_level(struct net_device *dev)
 {
 	BUG_ON(!is_vlan_dev(dev));
