@@ -157,7 +157,7 @@ static struct mssr_mod_clk r8a7796_mod_clks[] __initdata = {
 	DEF_MOD("cmt1",			 302,	R8A7796_CLK_R),
 	DEF_MOD("cmt0",			 303,	R8A7796_CLK_R),
 	DEF_MOD("tpu0",			 304,	R8A7796_CLK_S3D4),
-	DEF_MOD("scif2",		 310,	R8A7796_CLK_S3D4),
+	/*DEF_MOD("scif2",		 310,	R8A7796_CLK_S3D4),*/
 	DEF_MOD("sdif3",		 311,	R8A7796_CLK_SD3),
 	DEF_MOD("sdif2",		 312,	R8A7796_CLK_SD2),
 	DEF_MOD("sdif1",		 313,	R8A7796_CLK_SD1),
