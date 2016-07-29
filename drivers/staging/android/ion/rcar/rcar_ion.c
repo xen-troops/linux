@@ -93,7 +93,7 @@ static long rcar_ion_get_phys_addr(struct ion_client *client, unsigned long arg)
             sizeof(struct rcar_ion_getphys_data)))
         return -EFAULT;
 
-    handle = ion_import_dma_buf(client, data.fd);
+    handle = ion_import_dma_buf_fd(client, data.fd);
     if (IS_ERR(handle))
         return PTR_ERR(handle);
 
