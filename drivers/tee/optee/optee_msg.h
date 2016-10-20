@@ -55,6 +55,11 @@
 #define OPTEE_MSG_ATTR_TYPE_TMEM_INPUT		0x9
 #define OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT		0xa
 #define OPTEE_MSG_ATTR_TYPE_TMEM_INOUT		0xb
+/*
+ * Special parameter type denoting that command buffer continues on
+ * specified page
+ */
+#define OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENT	0xc
 
 #define OPTEE_MSG_ATTR_TYPE_MASK		GENMASK(7, 0)
 

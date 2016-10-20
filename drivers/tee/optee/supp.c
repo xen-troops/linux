@@ -82,11 +82,10 @@ void optee_supp_release(struct optee_supp *supp)
  *
  * Returns result of operation to be passed to secure world
  */
-u32 optee_supp_thrd_req(struct tee_context *ctx, u32 func, size_t num_params,
+u32 optee_supp_thrd_req(struct optee *optee, u32 func, size_t num_params,
 			struct tee_param *param)
 
 {
-	struct optee *optee = tee_get_drvdata(ctx->teedev);
 	struct optee_supp *supp = &optee->supp;
 	struct optee_supp_req *req = kzalloc(sizeof(*req), GFP_KERNEL);
 	bool interruptable;
