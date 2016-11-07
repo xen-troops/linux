@@ -220,4 +220,15 @@ config SND_AC97_POWER_SAVE_DEFAULT
 
 	  See SND_AC97_POWER_SAVE for more details.
 
+config SND_XEN_FRONTEND
+	tristate "Xen virtual sound front-end driver support"
+	depends on SND_PCM && XEN
+	default n
+	help
+	  This driver implements a front-end for the Xen virtual
+	  sound driver.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called xen-sndfront.
+
 endif	# SND_DRIVERS
