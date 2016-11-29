@@ -15,6 +15,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/delay.h>
+#include <asm/pgtable.h>
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/slab.h>
@@ -248,10 +249,45 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_device *teedev,
 		goto bad;
 	}
 
-	arg->params[0].attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
-	arg->params[0].u.tmem.buf_ptr = pa;
-	arg->params[0].u.tmem.size = sz;
-	arg->params[0].u.tmem.shm_ref = (unsigned long)shm;
+	sz = tee_shm_get_size(shm);
+
+	if (tee_shm_is_registered(shm)) {
+		struct page **pages;
+		size_t page_num;
+		struct optee_msg_param *nested_params;
+
+		pages = tee_shm_get_pages(shm, &page_num);
+		nested_params = tee_shm_vmap(shm);
+		if (!pages || !page_num || IS_ERR_OR_NULL(nested_params)) {
+			arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
+			goto bad;
+		}
+
+		arg->params[0].attr = OPTEE_MSG_ATTR_TYPE_NESTED;
+		arg->params[0].u.nested.buf_ptr = page_to_phys(pages[0])
+			+ tee_shm_get_page_offset(shm);
+		arg->params[0].u.nested.params_num =
+			optee_round_up_params_count(page_num,
+				    (uintptr_t)nested_params & ~PAGE_MASK);
+		arg->params[0].u.nested.shm_ref = (unsigned long)shm;
+		if (!optee_fill_mem_ref_param(nested_params,
+					      OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT,
+					      pages, page_num, shm)) {
+			arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
+			tee_shm_vunmap(shm);
+			goto bad;
+		}
+		nested_params[0].u.tmem.size = sz;
+		nested_params[0].u.tmem.shm_ref = (unsigned long)shm;
+
+		tee_shm_vunmap(shm);
+	} else {
+		arg->params[0].attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
+		arg->params[0].u.tmem.buf_ptr = pa;
+		arg->params[0].u.tmem.size = sz;
+		arg->params[0].u.tmem.shm_ref = (unsigned long)shm;
+	}
+
 	arg->ret = TEEC_SUCCESS;
 	return;
 bad:

@@ -452,14 +452,22 @@ void optee_disable_shm_cache(struct optee *optee)
 	optee_cq_wait_final(&optee->call_queue, &w);
 }
 
-static size_t optee_round_up_params_count(size_t num_params)
+/**
+ * optee_round_up_params_count() - round up number of parameters to fit
+ * service entries (OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENTx)
+ *
+ * @num_params - number of actual parameters
+ * @pg_offset - offset of parameters array within a page
+ *
+ * return:
+ *   how many parameters to allocate
+ */
+size_t optee_round_up_params_count(size_t num_params, size_t pg_offset)
 {
 	/* If parameters won't fit in on page we need to allocate more
 	 * parameters to fit additinal page addresses.
-	 * We assume that parameters buffer starts on page boundary.
 	 */
-
-	size_t whole_size = OPTEE_MSG_GET_ARG_SIZE(num_params);
+	size_t whole_size = OPTEE_MSG_GET_ARG_SIZE(num_params) + pg_offset;
 
 	return num_params + (whole_size - 1) / PAGE_SIZE;
 }
@@ -529,7 +537,7 @@ int optee_shm_register(struct tee_device *teedev, struct tee_shm *shm,
 	if (!num_pages)
 		return -EINVAL;
 
-	shm_arg = get_msg_arg(teedev, optee_round_up_params_count(num_pages),
+	shm_arg = get_msg_arg(teedev, optee_round_up_params_count(num_pages, 0),
 			      &msg_arg, &msg_parg);
 	if (IS_ERR(shm_arg))
 		return PTR_ERR(shm_arg);
@@ -573,4 +581,19 @@ int optee_shm_unregister(struct tee_device *teedev, struct tee_shm *shm)
 		rc = -EINVAL;
 	tee_shm_free(shm_arg);
 	return rc;
+}
+
+int optee_shm_register_supp(struct tee_device *teedev, struct tee_shm *shm,
+			    struct page **pages, size_t num_pages)
+{
+	/*
+	 * We don't want to register supplicant memory in OP-TEE.
+	 * Instead information about it will be passed in RPC code.
+	 */
+	return 0;
+}
+
+int optee_shm_unregister_supp(struct tee_device *teedev, struct tee_shm *shm)
+{
+	return 0;
 }

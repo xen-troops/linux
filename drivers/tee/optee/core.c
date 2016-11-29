@@ -18,6 +18,7 @@
 #include <linux/errno.h>
 #include <linux/io.h>
 #include <linux/module.h>
+#include <linux/mm.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
@@ -29,6 +30,7 @@
 #include "optee_bench.h"
 #include "optee_private.h"
 #include "optee_smc.h"
+#include "shm_pool.h"
 
 #define DRIVER_NAME "optee"
 
@@ -339,8 +341,8 @@ static struct tee_driver_ops optee_supp_ops = {
 	.release = optee_release,
 	.supp_recv = optee_supp_recv,
 	.supp_send = optee_supp_send,
-	.shm_register = optee_shm_register,
-	.shm_unregister = optee_shm_unregister,
+	.shm_register = optee_shm_register_supp,
+	.shm_unregister = optee_shm_unregister_supp,
 };
 
 static struct tee_desc optee_supp_desc = {
@@ -405,7 +407,8 @@ static bool optee_msg_exchange_capabilities(optee_invoke_fn *invoke_fn,
 }
 
 static struct tee_shm_pool *
-optee_config_shm_memremap(optee_invoke_fn *invoke_fn, void **memremaped_shm)
+optee_config_shm_memremap(optee_invoke_fn *invoke_fn, void **memremaped_shm,
+			  u32 sec_caps)
 {
 	union {
 		struct arm_smccc_res smccc;
@@ -456,7 +459,11 @@ optee_config_shm_memremap(optee_invoke_fn *invoke_fn, void **memremaped_shm)
 	dmabuf_info.paddr = paddr + OPTEE_SHM_NUM_PRIV_PAGES * PAGE_SIZE;
 	dmabuf_info.size = size - OPTEE_SHM_NUM_PRIV_PAGES * PAGE_SIZE;
 
-	pool = tee_shm_pool_alloc_res_mem(&priv_info, &dmabuf_info);
+	/* If OP-TEE can work with unregistered SHM, we will use own pool */
+	if (sec_caps & OPTEE_SMC_SEC_CAP_UNREGISTERED_SHM)
+		pool = optee_shm_get_pool(&dmabuf_info);
+	else
+		pool = tee_shm_pool_alloc_res_mem(&priv_info, &dmabuf_info);
 	if (IS_ERR(pool)) {
 		memunmap(va);
 		goto out;
@@ -542,7 +549,7 @@ static struct optee *optee_probe(struct device_node *np)
 	if (!(sec_caps & OPTEE_SMC_SEC_CAP_HAVE_RESERVED_SHM))
 		return ERR_PTR(-EINVAL);
 
-	pool = optee_config_shm_memremap(invoke_fn, &memremaped_shm);
+	pool = optee_config_shm_memremap(invoke_fn, &memremaped_shm, sec_caps);
 	if (IS_ERR(pool))
 		return (void *)pool;
 
@@ -599,8 +606,13 @@ err:
 		tee_device_unregister(optee->teedev);
 		kfree(optee);
 	}
-	if (pool)
-		tee_shm_pool_free(pool);
+
+	if (pool) {
+		if (sec_caps & OPTEE_SMC_SEC_CAP_UNREGISTERED_SHM)
+			optee_shm_pool_free(pool);
+		else
+			tee_shm_pool_free(pool);
+	}
 	if (memremaped_shm)
 		memunmap(memremaped_shm);
 	return ERR_PTR(rc);
@@ -622,9 +634,13 @@ static void optee_remove(struct optee *optee)
 	tee_device_unregister(optee->supp_teedev);
 	tee_device_unregister(optee->teedev);
 
-	tee_shm_pool_free(optee->pool);
+	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_UNREGISTERED_SHM)
+		optee_shm_pool_free(optee->pool);
+	else
+		tee_shm_pool_free(optee->pool);
 	if (optee->memremaped_shm)
 		memunmap(optee->memremaped_shm);
+
 	optee_wait_queue_exit(&optee->wait_queue);
 	optee_supp_uninit(&optee->supp);
 	mutex_destroy(&optee->call_queue.mutex);

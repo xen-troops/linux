@@ -156,6 +156,10 @@ int optee_shm_register(struct tee_device *teedev, struct tee_shm *shm,
 		       struct page **pages, size_t num_pages);
 int optee_shm_unregister(struct tee_device *teedev, struct tee_shm *shm);
 
+int optee_shm_register_supp(struct tee_device *teedev, struct tee_shm *shm,
+			    struct page **pages, size_t num_pages);
+int optee_shm_unregister_supp(struct tee_device *teedev, struct tee_shm *shm);
+
 int optee_from_msg_param(struct tee_param *params, size_t num_params,
 			 const struct optee_msg_param *msg_params);
 int optee_to_msg_param(struct optee_msg_param *msg_params, size_t num_params,
@@ -164,6 +168,18 @@ int optee_to_msg_param(struct optee_msg_param *msg_params, size_t num_params,
 bool optee_fill_mem_ref_param(struct optee_msg_param *msg_params, uint32_t attr,
 			      struct page **pages, size_t num_pages,
 			      struct tee_shm *shm);
+
+/**
+ * optee_round_up_params_count() - round up number of parameters to fit
+ * service entries (OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENTx)
+ *
+ * @num_params - number of actual parameters
+ * @pg_offset - offset of parameters array within a page
+ *
+ * return:
+ *   how many parameters to allocate
+ */
+size_t optee_round_up_params_count(size_t num_params, size_t pg_offset);
 
 /*
  * Small helpers
