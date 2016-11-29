@@ -564,6 +564,28 @@ int tee_shm_get_pa(struct tee_shm *shm, size_t offs, phys_addr_t *pa)
 EXPORT_SYMBOL_GPL(tee_shm_get_pa);
 
 /**
+ * tee_shm_get_size() - Get size of shared memory buffer
+ * @shm:	Shared memory handle
+ * @returns size of shared memory
+ */
+ssize_t tee_shm_get_size(struct tee_shm *shm)
+{
+	return shm->size;
+}
+EXPORT_SYMBOL_GPL(tee_shm_get_size);
+
+/**
+ * tee_shm_get_page_offset() - Get shared buffer offset from page start
+ * @shm:	Shared memory handle
+ * @returns page offset of shared buffer
+ */
+ssize_t tee_shm_get_page_offset(struct tee_shm *shm)
+{
+	return shm->offset;
+}
+EXPORT_SYMBOL_GPL(tee_shm_get_page_offset);
+
+/**
  * tee_shm_get_from_id() - Find shared memory object and increase reference
  * count
  * @ctx:	Context owning the shared memory
