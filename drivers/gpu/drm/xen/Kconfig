@@ -23,3 +23,25 @@ config DRM_XENFRONT_CMA
 	help
 	  Use DRM CMA for buffer allocation.
 
+config DRM_XENZCOPY
+	tristate "Zero copy driver for Xen"
+	depends on DRM_XEN
+	depends on DRM
+	select DRM_KMS_HELPER
+	help
+	  Choose this option if you want to enable a zero copy
+	  DRM driver for Xen. This is implemented via mapping
+	  of foreign dumb buffer pages into current domain and
+	  exporting new dumb via PRIME interface. This allows
+	  domains to use buffers of unpriveledged ones without
+	  additional memory copying.
+
+config DRM_XENZCOPY_WA_SWIOTLB
+	bool "Workaround SWIOTLB"
+	depends on DRM_XENZCOPY
+	depends on SWIOTLB
+	help
+	  While exporting scatter-gather table use individual
+	  pages rather combining contiguous chunks. This may
+	  help systems which suffer from SWIOTLB buffer
+	  overflows.

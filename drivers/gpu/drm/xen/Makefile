@@ -10,3 +10,7 @@ ifneq ($(CONFIG_DRM_XENFRONT_CMA),y)
 endif
 
 obj-$(CONFIG_DRM_XENFRONT) += drm_xen_front.o
+
+drm_xen_zcopy-objs := xen_drm_zcopy.o
+
+obj-$(CONFIG_DRM_XENZCOPY) += drm_xen_zcopy.o
