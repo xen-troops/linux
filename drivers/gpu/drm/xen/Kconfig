@@ -1,0 +1,62 @@
+config DRM_XEN
+	bool "DRM Support for Xen guest OS (EXPERIMENTAL)"
+	depends on XEN
+	help
+	  Choose this option if you want to enable DRM support
+	  for Xen.
+
+config DRM_XEN_FRONTEND
+	tristate "Front-end paravirtualized driver for Xen guest OS"
+	depends on DRM_XEN
+	depends on DRM
+	select DRM_KMS_HELPER
+	select VIDEOMODE_HELPERS
+	select XEN_XENBUS_FRONTEND
+	help
+	  Choose this option if you want to enable a paravirtualized
+	  front-end DRM driver for Xen guest OSes.
+
+config DRM_XEN_FRONTEND_CMA
+	bool "Use DRM CMA to allocate dumb buffers"
+	depends on DRM_XEN_FRONTEND=y
+	select DRM_KMS_CMA_HELPER
+	select DRM_GEM_CMA_HELPER
+	help
+	  Use DRM CMA to allocate dumb buffers.
+	  This is only available for built-in driver, because
+	  there is a dependency on DMA ops which are only available
+	  for built-in code.
+	  Note: in this mode driver cannot use buffers allocated
+	  by backend.
+
+config DRM_XEN_ZCOPY
+	tristate "Zero copy driver for Xen"
+	depends on DRM_XEN
+	depends on DRM
+	select DRM_KMS_HELPER
+	help
+	  Choose this option if you want to enable a zero copy
+	  DRM driver for Xen. This is implemented via mapping
+	  of foreign dumb buffer pages into current domain and
+	  exporting new dumb via PRIME interface. This allows
+	  domains to use buffers of unpriveledged ones without
+	  additional memory copying.
+
+config DRM_XEN_ZCOPY_WA_SWIOTLB
+	bool "Workaround SWIOTLB"
+	depends on DRM_XEN_ZCOPY
+	depends on SWIOTLB
+	help
+	  While exporting scatter-gather table use individual
+	  pages rather combining contiguous chunks. This may
+	  help systems which suffer from SWIOTLB buffer
+	  overflows.
+
+config DRM_XEN_ZCOPY_CMA
+	bool "Use CMA to allocate buffers"
+	depends on DRM_XEN_ZCOPY=y
+	help
+	  Use CMA to allocate buffers.
+	  This is only available for built-in driver, because
+	  there is a dependency on DMA ops which are only available
+	  for built-in code.
