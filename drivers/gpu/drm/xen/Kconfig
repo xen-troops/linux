@@ -1,0 +1,47 @@
+config DRM_XEN
+	bool "DRM Support for Xen guest OS (EXPERIMENTAL)"
+	depends on XEN
+	help
+	  Choose this option if you want to enable DRM support
+	  for Xen.
+
+config DRM_XENFRONT
+	tristate "Front-end paravirtualized driver for Xen guest OS"
+	depends on DRM_XEN
+	depends on DRM
+	select DRM_KMS_HELPER
+	select VIDEOMODE_HELPERS
+	help
+	  Choose this option if you want to enable a paravirtualized
+	  front-end DRM driver for Xen guest OSes.
+
+config DRM_XENFRONT_CMA
+	bool "Use DRM CMA"
+	depends on DRM_XENFRONT
+	select DRM_KMS_CMA_HELPER
+	select DRM_GEM_CMA_HELPER
+	help
+	  Use DRM CMA for buffer allocation.
+
+config DRM_XENZCOPY
+	tristate "Zero copy driver for Xen"
+	depends on DRM_XEN
+	depends on DRM
+	select DRM_KMS_HELPER
+	help
+	  Choose this option if you want to enable a zero copy
+	  DRM driver for Xen. This is implemented via mapping
+	  of foreign dumb buffer pages into current domain and
+	  exporting new dumb via PRIME interface. This allows
+	  domains to use buffers of unpriveledged ones without
+	  additional memory copying.
+
+config DRM_XENZCOPY_WA_SWIOTLB
+	bool "Workaround SWIOTLB"
+	depends on DRM_XENZCOPY
+	depends on SWIOTLB
+	help
+	  While exporting scatter-gather table use individual
+	  pages rather combining contiguous chunks. This may
+	  help systems which suffer from SWIOTLB buffer
+	  overflows.
