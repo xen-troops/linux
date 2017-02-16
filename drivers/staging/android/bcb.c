@@ -44,7 +44,7 @@ static char *bootdev = "mmcblk0";
 module_param(bootdev, charp, S_IRUGO);
 MODULE_PARM_DESC(bootdev, "Block device for bootloader communication");
 
-static int partno = 3;
+static int partno = 2;
 module_param(partno, int, S_IRUGO);
 MODULE_PARM_DESC(partno, "Partition number for bootloader communication");
 
