@@ -35,7 +35,7 @@ struct bootloader_message {
 	/* Area for recovery console to stash its command line arguments
 	 * in case it is reset and the cache command file is erased.
 	 * Not used here. */
-	char recovery[1024];
+	char recovery[768];
 };
 
 /* TODO: device names/partition numbers are unstable. Add support for looking
