@@ -702,6 +702,7 @@ static irqreturn_t rcar_du_crtc_irq(int irq, void *arg)
 /* -----------------------------------------------------------------------------
  * Initialization
  */
+#define RGX_3DGE_CORE_CLOCK_SPEED 600000000
 
 int rcar_du_crtc_create(struct rcar_du_group *rgrp, unsigned int index)
 {
@@ -720,6 +721,7 @@ int rcar_du_crtc_create(struct rcar_du_group *rgrp, unsigned int index)
 	char *name;
 	int irq;
 	int ret;
+	static int setup_gfx_clk = false;
 
 	if (rcar_du_has(rcdu, RCAR_DU_FEATURE_VSPDL_SOURCE)) {
 		if (index == rcdu->info->vspdl_pair_ch)
@@ -756,6 +758,44 @@ int rcar_du_crtc_create(struct rcar_du_group *rgrp, unsigned int index)
 		return -EPROBE_DEFER;
 	}
 
+	if (!setup_gfx_clk) {
+		unsigned long new_rate, cur_rate;
+
+		strcpy(clk_name, "3dge");
+		clk = devm_clk_get(rcdu->dev, clk_name);
+		if (IS_ERR(clk)) {
+			dev_err(rcdu->dev, "no clk for GFX\n");
+			setup_gfx_clk = true;
+			goto gfx_skip;
+		}
+
+		new_rate = clk_round_rate(clk, RGX_3DGE_CORE_CLOCK_SPEED + 1000000);
+		if (new_rate <= 0) {
+			dev_err(rcdu->dev, "clk_round_rate for GFX clk failed. res = %ld\n", new_rate);
+			return -1;
+		}
+
+		cur_rate = clk_get_rate(clk);
+		if (cur_rate != new_rate) {
+			ret = clk_set_rate(clk, new_rate);
+			if (ret < 0) {
+				dev_err(rcdu->dev, "clk_set_rate for GFX clk failed. res = %d\n", ret);
+				return ret;
+			}
+		}
+
+		ret = clk_prepare_enable(clk);
+		if (ret < 0) {
+			dev_err(rcdu->dev, "clk_prepare_enable for GFX clk failed. res = %d\n", ret);
+			return ret;
+		}
+
+		dev_err(rcdu->dev, "GFX clk enabled\n");
+
+		setup_gfx_clk = true;
+	}
+
+gfx_skip:
 	init_waitqueue_head(&rcrtc->flip_wait);
 
 	rcrtc->group = rgrp;
