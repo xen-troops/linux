@@ -37,6 +37,7 @@ struct tee_device;
  * @dmabuf:	dmabuf used to for exporting to user space
  * @flags:	defined by TEE_SHM_* in tee_drv.h
  * @id:		unique id of a shared memory object on this device
+ * @vmapped:	userspace pages were mapped to kernel
  */
 struct tee_shm {
 	struct tee_device *teedev;
@@ -51,6 +52,7 @@ struct tee_shm {
 	struct dma_buf *dmabuf;
 	u32 flags;
 	int id;
+	bool vmapped;
 };
 
 struct tee_shm_pool_mgr;

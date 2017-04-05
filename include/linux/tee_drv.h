@@ -291,6 +291,24 @@ int tee_shm_pa2va(struct tee_shm *shm, phys_addr_t pa, void **va);
 void *tee_shm_get_va(struct tee_shm *shm, size_t offs);
 
 /**
+ * tee_shm_vmap() - Map registered pages to kernel space
+ * @shm:	Shared memory handle
+ * @returns pointer to registered shared buffer in kernel address space
+ *	or ERR_PTR()
+ *
+ * This function is not thread safe and have no reference counter
+ */
+void *tee_shm_vmap(struct tee_shm *shm);
+
+/**
+ * tee_shm_vunmap() - Unmap registered pages from kernel space
+ * @shm:	Shared memory handle
+ *
+ * This function unmaps pages previously mapped by tee_shm_vmap().
+ */
+void tee_shm_vunmap(struct tee_shm *shm);
+
+/**
  * tee_shm_get_pa() - Get physical address of a shared memory plus an offset
  * @shm:	Shared memory handle
  * @offs:	Offset from start of this shared memory
@@ -306,6 +324,14 @@ int tee_shm_get_pa(struct tee_shm *shm, size_t offs, phys_addr_t *pa);
  * @returns size of shared memory
  */
 ssize_t tee_shm_get_size(struct tee_shm *shm);
+
+/**
+ * tee_shm_get_pages() - Get list of pages that hold shared buffer
+ * @shm:	Shared memory handle
+ * @num_pages:	Number of pages will be stored there
+ * @returns pointer to pages array
+ */
+struct page **tee_shm_get_pages(struct tee_shm *shm, size_t *num_pages);
 
 /**
  * tee_shm_get_page_offset() - Get shared buffer offset from page start
