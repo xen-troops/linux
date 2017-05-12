@@ -20,6 +20,7 @@
 
 #include <drm/drm_sysfs.h>
 #include <drm/drmP.h>
+#include <drm/drm_encoder.h>
 #include "drm_internal.h"
 
 #define to_drm_minor(d) dev_get_drvdata(d)
@@ -229,16 +230,44 @@ static ssize_t modes_show(struct device *device,
 	return written;
 }
 
+static ssize_t connector_id_show(struct device *device,
+			   struct device_attribute *attr,
+			   char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(device);
+
+	if (connector == NULL)
+		return 0;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", connector->base.id);
+}
+
+static ssize_t encoder_type_show(struct device *device,
+			   struct device_attribute *attr,
+			   char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(device);
+
+	if (connector == NULL || connector->encoder == NULL)
+		return 0;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", connector->encoder->encoder_type);
+}
+
 static DEVICE_ATTR_RW(status);
 static DEVICE_ATTR_RO(enabled);
 static DEVICE_ATTR_RO(dpms);
 static DEVICE_ATTR_RO(modes);
+static DEVICE_ATTR_RO(connector_id);
+static DEVICE_ATTR_RO(encoder_type);
 
 static struct attribute *connector_dev_attrs[] = {
 	&dev_attr_status.attr,
 	&dev_attr_enabled.attr,
 	&dev_attr_dpms.attr,
 	&dev_attr_modes.attr,
+	&dev_attr_connector_id.attr,
+	&dev_attr_encoder_type.attr,
 	NULL
 };
 
