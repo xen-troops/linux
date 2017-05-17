@@ -47,7 +47,7 @@
 
 	chosen {
 		bootargs = "dom0_mem=752M console=dtuart dtuart=serial0 dom0_max_vcpus=4 bootscrub=0 flask_enforcing=1 loglvl=all";
-		xen,dom0-bootargs = "console=hvc0 root=/dev/mmcblk1p1 rw rootwait rootfstype=ext4 ignore_loglevel cma=128M";
+		xen,dom0-bootargs = "console=hvc0 root=/dev/nfs nfsroot=192.168.1.1:/tftpboot/dom0-rootfs ip=192.168.1.21 rw rootwait rootfstype=ext4 ignore_loglevel cma=128M";
 		modules {
 			#address-cells = <2>;
 			#size-cells = <2>;
