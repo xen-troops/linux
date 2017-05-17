@@ -46,72 +46,29 @@
 	};
 
 	chosen {
-		bootargs = "ignore_loglevel rw root=/dev/nfs ip=dhcp";
-		stdout-path = "serial0:115200n8";
+		bootargs = "dom0_mem=752M console=dtuart dtuart=serial0 dom0_max_vcpus=4 bootscrub=0 flask_enforcing=1 loglvl=all";
+		xen,dom0-bootargs = "console=hvc0 root=/dev/mmcblk1p1 rw rootwait rootfstype=ext4 ignore_loglevel cma=128M";
+		modules {
+			#address-cells = <2>;
+			#size-cells = <2>;
+			module@1 {
+				compatible = "xen,linux-zimage", "xen,multiboot-module";
+				reg = <0x0 0x7a000000 0x0 0x02000000>;
+			};
+			module@2 {
+				compatible = "xen,xsm-policy", "xen,multiboot-module";
+				reg = <0x0 0x7c000000 0x0 0x10000>;
+			};
+		};
 	};
 
 	memory@48000000 {
 		device_type = "memory";
 		/* first 128MB is reserved for secure area. */
-		reg = <0x0 0x48000000 0x0 0x38000000>;
-	};
-
-	memory@500000000 {
-		device_type = "memory";
-		reg = <0x5 0x00000000 0x0 0x40000000>;
-	};
-
-	memory@600000000 {
-		device_type = "memory";
-		reg = <0x6 0x00000000 0x0 0x40000000>;
-	};
-
-	memory@700000000 {
-		device_type = "memory";
-		reg = <0x7 0x00000000 0x0 0x40000000>;
-	};
-
-	reserved-memory {
-		#address-cells = <2>;
-		#size-cells = <2>;
-		ranges;
-
-		/* device specific region for Lossy Decompression */
-		lossy_decompress: linux,lossy_decompress {
-			no-map;
-			reg = <0x00000000 0x54000000 0x0 0x03000000>;
-		};
-
-		/* For Audio DSP */
-		adsp_reserved: linux,adsp {
-			compatible = "shared-dma-pool";
-			reusable;
-			reg = <0x00000000 0x57000000 0x0 0x01000000>;
-		};
-
-		/* global autoconfigured region for contiguous allocations */
-		linux,cma {
-			compatible = "shared-dma-pool";
-			reusable;
-			reg = <0x00000000 0x58000000 0x0 0x18000000>;
-			linux,cma-default;
-		};
-
-		/* device specific region for contiguous allocations */
-		mmp_reserved: linux,multimedia {
-			compatible = "shared-dma-pool";
-			reusable;
-			reg = <0x00000000 0x70000000 0x0 0x10000000>;
-		};
-	};
-
-	mmngr {
-		compatible = "renesas,mmngr";
-		memory-region = <&mmp_reserved>, <&lossy_decompress>;
-	};
-
-	mmngrbuf {
-		compatible = "renesas,mmngrbuf";
+		reg = <0x0 0x48000000 0x0 0x38000000>,
+			  <0x5 0x00000000 0x0 0x40000000>,
+			  <0x6 0x00000000 0x0 0x40000000>,
+			  <0x7 0x00000000 0x0 0x40000000>;
 	};
 
 	avb-mch {
@@ -611,11 +568,6 @@
 		groups = "du_rgb888", "du_sync", "du_clk_out_0", "du_disp";
 		function = "du";
 	};
-};
-
-&adsp {
-	status = "okay";
-	memory-region = <&adsp_reserved>;
 };
 
 &scif1 {
