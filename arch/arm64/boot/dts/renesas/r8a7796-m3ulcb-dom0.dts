@@ -24,54 +24,41 @@
 	};
 
 	chosen {
-		stdout-path = "serial0:115200n8";
+		bootargs = "dom0_mem=512M console=dtuart dtuart=serial0 dom0_max_vcpus=4 bootscrub=0 flask_enforcing=1 loglvl=all";
+		xen,dom0-bootargs = "console=hvc0 root=/dev/nfs nfsroot=192.168.1.100:/srv/dom0 ip=192.168.1.10 rw rootwait ignore_loglevel nfsrootdebug cma=64M";
+		modules {
+			#address-cells = <2>;
+			#size-cells = <2>;
+			module@1 {
+				compatible = "xen,linux-zimage", "xen,multiboot-module";
+				reg = <0x0 0x7a000000 0x0 0x02000000>;
+			};
+			module@2 {
+				compatible = "xen,xsm-policy", "xen,multiboot-module";
+				reg = <0x0 0x7c000000 0x0 0x10000>;
+			};
+		};
 	};
 
 	memory@48000000 {
 		device_type = "memory";
 		/* first 128MB is reserved for secure area. */
-		reg = <0x0 0x48000000 0x0 0x38000000>;
+		reg = <0x0 0x48000000 0x0 0x38000000>,
+		      <0x6 0x00000000 0x0 0x40000000>;
 	};
 
-	memory@600000000 {
-		device_type = "memory";
-		reg = <0x6 0x00000000 0x0 0x40000000>;
-	};
-
-	reserved-memory {
-		#address-cells = <2>;
-		#size-cells = <2>;
-		ranges;
-
-		/* device specific region for Lossy Decompression */
-		lossy_decompress: linux,lossy_decompress {
-			no-map;
-			reg = <0x00000000 0x54000000 0x0 0x03000000>;
+	soc {
+		pll: pll@fff00000 {
+			reg = <0 0xfff00000 0 0x1000>;
 		};
 
-		/* global autoconfigured region for contiguous allocations */
-		linux,cma {
-			compatible = "shared-dma-pool";
-			reusable;
-			reg = <0x00000000 0x58000000 0x0 0x18000000>;
-			linux,cma-default;
+		avs: avs@e60a0000 {
+			reg = <0 0xe60a0000 0 0x1000>;
 		};
 
-		/* device specific region for contiguous allocations */
-		mmp_reserved: linux,multimedia {
-			compatible = "shared-dma-pool";
-			reusable;
-			reg = <0x00000000 0x70000000 0x0 0x10000000>;
+		lossy: lossy@47fd7000 {
+			reg = <0 0x47fd7000 0 0x1000>;
 		};
-	};
-
-	mmngr {
-		compatible = "renesas,mmngr";
-		memory-region = <&mmp_reserved>, <&lossy_decompress>;
-	};
-
-	mmngrbuf {
-		compatible = "renesas,mmngrbuf";
 	};
 
 	leds {
