@@ -163,6 +163,29 @@ bool xen_arch_need_swiotlb(struct device *dev,
 		!is_device_dma_coherent(dev));
 }
 
+/*
+ * Create userspace mapping for the DMA-coherent memory.
+ */
+static int xen_swiotlb_dma_mmap(struct device *dev, struct vm_area_struct *vma,
+			 void *cpu_addr, dma_addr_t dma_addr, size_t size,
+			 unsigned long attrs)
+{
+	if (__generic_dma_ops(dev)->mmap)
+		return __generic_dma_ops(dev)->mmap(dev, vma, cpu_addr, dma_addr, size, attrs);
+
+	return dma_common_mmap(dev, vma, cpu_addr, dma_addr, size);
+}
+
+static int xen_swiotlb_get_sgtable(struct device *dev, struct sg_table *sgt,
+				 void *cpu_addr, dma_addr_t handle, size_t size,
+				 unsigned long attrs)
+{
+	if (__generic_dma_ops(dev)->get_sgtable)
+		return __generic_dma_ops(dev)->get_sgtable(dev, sgt, cpu_addr, handle,
+								 size, attrs);
+	return dma_common_get_sgtable(dev, sgt, cpu_addr, handle, size);
+}
+
 int xen_create_contiguous_region(phys_addr_t pstart, unsigned int order,
 				 unsigned int address_bits,
 				 dma_addr_t *dma_handle)
@@ -199,6 +222,8 @@ static struct dma_map_ops xen_swiotlb_dma_ops = {
 	.unmap_page = xen_swiotlb_unmap_page,
 	.dma_supported = xen_swiotlb_dma_supported,
 	.set_dma_mask = xen_swiotlb_set_dma_mask,
+	.mmap = xen_swiotlb_dma_mmap,
+	.get_sgtable = xen_swiotlb_get_sgtable,
 };
 
 int __init xen_mm_init(void)
