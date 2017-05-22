@@ -349,14 +349,22 @@
 	pinctrl-names = "default";
 	status = "okay";
 
+	/* add gsx domain if gsx is passthroughed */
+	power-domains = <&sysc R8A7795_PD_3DG_E>;
+
 	/* update <du_dotclkin0/3> to <programmable_clk0/1> */
+	/* add gsx clk (3dge) if gsx is passthroughed */
 	clocks = <&cpg CPG_MOD 724>,
 		 <&cpg CPG_MOD 723>,
 		 <&cpg CPG_MOD 722>,
 		 <&cpg CPG_MOD 721>,
 		 <&cpg CPG_MOD 727>,
 		 <&programmable_clk0>, <&du_dotclkin1>, <&du_dotclkin2>,
-		 <&programmable_clk1>;
+		 <&programmable_clk1>,
+		 <&cpg CPG_MOD 112>;
+	clock-names = "du.0", "du.1", "du.2", "du.3",
+				  "lvds.0", "dclkin.0", "dclkin.1",
+				  "dclkin.2", "dclkin.3", "3dge";
 
 	backlight-gpios = <&gpio6 7 GPIO_ACTIVE_HIGH>;
 
