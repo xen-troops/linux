@@ -137,6 +137,7 @@ u32 optee_do_call_with_arg(struct tee_device *teedev, phys_addr_t parg)
 	struct optee *optee = tee_get_drvdata(teedev);
 	struct optee_call_waiter w;
 	struct optee_rpc_param param = { };
+	struct optee_call_ctx call_ctx = { };
 	u32 ret;
 
 	param.a0 = OPTEE_SMC_CALL_WITH_ARG;
@@ -165,13 +166,14 @@ u32 optee_do_call_with_arg(struct tee_device *teedev, phys_addr_t parg)
 			param.a1 = res.a1;
 			param.a2 = res.a2;
 			param.a3 = res.a3;
-			optee_handle_rpc(teedev, &param);
+			optee_handle_rpc(teedev, &param, &call_ctx);
 		} else {
 			ret = res.a0;
 			break;
 		}
 	}
 
+	optee_rpc_finalize_call(&call_ctx);
 	/*
 	 * We're done with our thread in secure world, if there's any
 	 * thread waiters wake up one.
@@ -453,110 +455,85 @@ void optee_disable_shm_cache(struct optee *optee)
 }
 
 /**
- * optee_round_up_params_count() - round up number of parameters to fit
- * service entries (OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENTx)
- *
- * @num_params - number of actual parameters
- * @pg_offset - offset of parameters array within a page
- *
- * return:
- *   how many parameters to allocate
- */
-size_t optee_round_up_params_count(size_t num_params, size_t pg_offset)
-{
-	/* If parameters won't fit in on page we need to allocate more
-	 * parameters to fit additinal page addresses.
-	 */
-	size_t whole_size = OPTEE_MSG_GET_ARG_SIZE(num_params) + pg_offset;
-
-	return num_params + (whole_size - 1) / PAGE_SIZE;
-}
-
-/**
- * optee_fill_mem_ref_param() - fill msg_param structure(s) for given shared
+ * optee_fill_pages_list() - write list of user pages to given shared
  * buffer.
  *
- * @msg_params - pointer to array of out parameters
- * @attr - attribute for parameter
- * @addr - physical address of shared buffer
- * @pages - array of pages of the shared buffer
- * @num_pages - numbe of entries in @pages
- * @shm - shm object that represents shared buffer
+ * @dst - page-aligned buffer where list of pages will be stored
+ * @pages - array of pages that represents shared buffer
+ * @num_pages - number of entries in @pages
  *
- * This function will use OPTEE_MSG_ATTR_FRAGMENT if buffer spans across page
- * boundary. Caller should ensure that provided array of msg_param have
- * sufficient size to hold all entries.
- * This function fills only attributes and addresses. Size and shm ref should
- * be filled by caller.
- *
- * return:
- *   True - on success
- *   False - on error
+ * @dst should be big enough to hold list of user page addresses and
+ *	links to the next pages of buffer
  */
-bool optee_fill_mem_ref_param(struct optee_msg_param *msg_params, uint32_t attr,
-			      struct page **pages, size_t num_pages,
-			      struct tee_shm *shm)
+void optee_fill_pages_list(u64 *dst, struct page **pages, size_t num_pages)
 {
 	size_t i;
-	phys_addr_t pa;
-	struct optee_msg_param *mp = msg_params;
 
-	if (num_pages == 0)
-		return true;
-
-	mp->u.tmem.buf_ptr = page_to_phys(pages[0]);
-	mp->attr = attr | OPTEE_MSG_ATTR_CACHE_PREDEFINED <<
-		OPTEE_MSG_ATTR_CACHE_SHIFT;
-	for (i = 1; i < num_pages; i++) {
-		mp->attr |= OPTEE_MSG_ATTR_FRAGMENT;
-		mp++;
-		/* Check if we filled whole page with addresses */
-		if (((uintptr_t)mp & PAGE_MASK) !=
-		    ((uintptr_t)(mp + 1) & PAGE_MASK)) {
-			mp->attr = OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENT;
-			if (tee_shm_va2pa(shm, mp + 1, &pa))
-				return false;
-
-			mp->u.tmem.buf_ptr = pa;
-			mp++;
+	for (i = 0; i < num_pages; i++, dst++) {
+		/* Check if we are going to roll over the page boundary */
+		if (IS_ALIGNED((uintptr_t)(dst + 1), PAGE_SIZE)) {
+			*dst = virt_to_phys(dst + 1);
+			dst++;
 		}
-		mp->attr = attr;
-		mp->u.tmem.buf_ptr = page_to_phys(pages[i]);
+		*dst = page_to_phys(pages[i]);
 	}
-	return true;
 }
+
+/* Number of user pages + number of pages to hold list of user pages  */
+#define GET_ARRAY_SIZE(num_entries) \
+	sizeof(u64) * (num_entries + (sizeof(u64) * num_entries) / PAGE_SIZE)
+
+void *optee_allocate_pages_array(size_t num_entries)
+{
+	return alloc_pages_exact(GET_ARRAY_SIZE(num_entries), GFP_KERNEL);
+}
+
+void optee_free_pages_array(void *array, size_t num_entries)
+{
+	free_pages_exact(array, GET_ARRAY_SIZE(num_entries));
+}
+
+#undef GET_ARRAY_SIZE
 
 int optee_shm_register(struct tee_device *teedev, struct tee_shm *shm,
 		struct page **pages, size_t num_pages)
 {
-	struct tee_shm *shm_arg;
+	struct tee_shm *shm_arg = NULL;
 	struct optee_msg_arg *msg_arg;
+	u64 *pages_array;
 	phys_addr_t msg_parg;
 	int rc = 0;
 
 	if (!num_pages)
 		return -EINVAL;
 
-	shm_arg = get_msg_arg(teedev, optee_round_up_params_count(num_pages, 0),
-			      &msg_arg, &msg_parg);
-	if (IS_ERR(shm_arg))
-		return PTR_ERR(shm_arg);
+	pages_array = optee_allocate_pages_array(num_pages);
+	if (!pages_array)
+		return -ENOMEM;
+
+	shm_arg = get_msg_arg(teedev, 1, &msg_arg, &msg_parg);
+	if (IS_ERR(shm_arg)) {
+		rc = PTR_ERR(shm_arg);
+		goto out;
+	}
+
+	optee_fill_pages_list(pages_array, pages, num_pages);
 
 	msg_arg->cmd = OPTEE_MSG_CMD_REGISTER_SHM;
-
-	optee_fill_mem_ref_param(msg_arg->params,
-				 OPTEE_MSG_ATTR_TYPE_TMEM_INPUT,
-				 pages, num_pages, shm_arg);
-
-	msg_arg->params[0].u.tmem.shm_ref = (unsigned long)shm;
-	msg_arg->params[0].u.tmem.size = tee_shm_get_size(shm);
-	msg_arg->params[0].u.tmem.buf_ptr += tee_shm_get_page_offset(shm);
+	msg_arg->params->attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT |
+		OPTEE_MSG_ATTR_NONCONTIG;
+	msg_arg->params->u.tmem.shm_ref = (unsigned long)shm;
+	msg_arg->params->u.tmem.size = tee_shm_get_size(shm);
+	msg_arg->params->u.tmem.buf_ptr = virt_to_phys(pages_array) |
+		tee_shm_get_page_offset(shm);
 
 	if (optee_do_call_with_arg(teedev, msg_parg) ||
 	    msg_arg->ret != TEEC_SUCCESS)
 		rc = -EINVAL;
 
 	tee_shm_free(shm_arg);
+out:
+	optee_free_pages_array(pages_array, num_pages);
 	return rc;
 }
 

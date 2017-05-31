@@ -121,7 +121,16 @@ struct optee_rpc_param {
 	u32	a7;
 };
 
-void optee_handle_rpc(struct tee_device *teedev, struct optee_rpc_param *param);
+/* Holds context that is preserved during one STD call */
+struct optee_call_ctx {
+	/* information about page array used in last allocation */
+	void *pages_array;
+	size_t num_entries;
+};
+
+void optee_handle_rpc(struct tee_device *teedev, struct optee_rpc_param *param,
+		      struct optee_call_ctx *call_ctx);
+void optee_rpc_finalize_call(struct optee_call_ctx *call_ctx);
 
 void optee_wait_queue_init(struct optee_wait_queue *wq);
 void optee_wait_queue_exit(struct optee_wait_queue *wq);
@@ -165,21 +174,9 @@ int optee_from_msg_param(struct tee_param *params, size_t num_params,
 int optee_to_msg_param(struct optee_msg_param *msg_params, size_t num_params,
 		       const struct tee_param *params);
 
-bool optee_fill_mem_ref_param(struct optee_msg_param *msg_params, uint32_t attr,
-			      struct page **pages, size_t num_pages,
-			      struct tee_shm *shm);
-
-/**
- * optee_round_up_params_count() - round up number of parameters to fit
- * service entries (OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENTx)
- *
- * @num_params - number of actual parameters
- * @pg_offset - offset of parameters array within a page
- *
- * return:
- *   how many parameters to allocate
- */
-size_t optee_round_up_params_count(size_t num_params, size_t pg_offset);
+void *optee_allocate_pages_array(size_t num_entries);
+void optee_free_pages_array(void *array, size_t num_entries);
+void optee_fill_pages_list(u64 *dst, struct page **pages, size_t num_pages);
 
 /*
  * Small helpers

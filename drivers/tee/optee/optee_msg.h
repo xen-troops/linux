@@ -55,14 +55,6 @@
 #define OPTEE_MSG_ATTR_TYPE_TMEM_INPUT		0x9
 #define OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT		0xa
 #define OPTEE_MSG_ATTR_TYPE_TMEM_INOUT		0xb
-/*
- * Special parameter type denoting that command buffer continues on
- * specified page
- */
-#define OPTEE_MSG_ATTR_TYPE_NEXT_FRAGMENT	0xc
-
-/* Special parameter type that points to real command buffer */
-#define OPTEE_MSG_ATTR_TYPE_NESTED		0xd
 
 #define OPTEE_MSG_ATTR_TYPE_MASK		GENMASK(7, 0)
 
@@ -75,17 +67,15 @@
 #define OPTEE_MSG_ATTR_META			BIT(8)
 
 /*
- * The temporary shared memory object is not physically contigous and this
- * temp memref is followed by another fragment until the last temp memref
- * that doesn't have this bit set.
+ * Pointer to a list of pages used to registed user-defined SHM buffer.
+ * Used with OPTEE_MSG_ATTR_TYPE_TMEM_*.
+ * buf_ptr should point to the beginning of the buffer. Buffer will contain
+ * list of page addresses. OP-TEE core can reconstruct contigous buffer from
+ * that page adresses list. Page addresses are stored as 64 bit values.
+ * Last entry on a page should point to the next page of buffer.
+ * 12 least significant of buf_ptr should hold page offset of user buffer.
  */
-#define OPTEE_MSG_ATTR_FRAGMENT			BIT(9)
-
-/*
- * The shared memory object holds array of struct optee_param with actual
- * parameters.
- */
-#define OPTEE_MSG_ATTR_NESTED			BIT(10)
+#define OPTEE_MSG_ATTR_NONCONTIG		BIT(9)
 
 /*
  * Memory attributes for caching passed with temp memrefs. The actual value
@@ -151,18 +141,6 @@ struct optee_msg_param_value {
 };
 
 /**
- * struct optee_msg_param_nested - nested params
- * @buf_ptr: Address of the buffer with nested params
- * @params_num: Number of nested params
- * @shm_ref: Shared memory reference, pointer to a struct tee_shm
- */
-struct optee_msg_param_nested {
-	uint64_t buf_ptr;
-	uint64_t params_num;
-	uint64_t shm_ref;
-};
-
-/**
  * struct optee_msg_param - parameter used together with struct optee_msg_arg
  * @attr:	attributes
  * @tmem:	parameter by temporary memory reference
@@ -182,7 +160,6 @@ struct optee_msg_param {
 		struct optee_msg_param_tmem tmem;
 		struct optee_msg_param_rmem rmem;
 		struct optee_msg_param_value value;
-		struct optee_msg_param_nested nested;
 	} u;
 };
 

@@ -204,12 +204,15 @@ static struct tee_shm *cmd_alloc_suppl(struct optee *optee, size_t sz)
 }
 
 static void handle_rpc_func_cmd_shm_alloc(struct tee_device *teedev,
-					  struct optee_msg_arg *arg)
+					  struct optee_msg_arg *arg,
+					  struct optee_call_ctx *call_ctx)
 {
 	phys_addr_t pa;
 	struct tee_shm *shm;
 	size_t sz;
 	size_t n;
+
+	BUG_ON(!call_ctx || call_ctx->pages_array || call_ctx->num_entries);
 
 	arg->ret_origin = TEEC_ORIGIN_COMMS;
 
@@ -253,34 +256,33 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_device *teedev,
 
 	if (tee_shm_is_registered(shm)) {
 		struct page **pages;
+		u64 *pages_array;
 		size_t page_num;
-		struct optee_msg_param *nested_params;
 
 		pages = tee_shm_get_pages(shm, &page_num);
-		nested_params = tee_shm_vmap(shm);
-		if (!pages || !page_num || IS_ERR_OR_NULL(nested_params)) {
+		if (!pages || !page_num) {
 			arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
 			goto bad;
 		}
 
-		arg->params[0].attr = OPTEE_MSG_ATTR_TYPE_NESTED;
-		arg->params[0].u.nested.buf_ptr = page_to_phys(pages[0])
+		pages_array = optee_allocate_pages_array(page_num);
+		if (!pages_array) {
+			arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
+			goto bad;
+		}
+
+		call_ctx->pages_array = pages_array;
+		call_ctx->num_entries = page_num;
+
+		arg->params[0].attr =  OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT |
+			OPTEE_MSG_ATTR_NONCONTIG;
+		arg->params[0].u.tmem.buf_ptr = virt_to_phys(pages_array)
 			+ tee_shm_get_page_offset(shm);
-		arg->params[0].u.nested.params_num =
-			optee_round_up_params_count(page_num,
-				    (uintptr_t)nested_params & ~PAGE_MASK);
-		arg->params[0].u.nested.shm_ref = (unsigned long)shm;
-		if (!optee_fill_mem_ref_param(nested_params,
-					      OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT,
-					      pages, page_num, shm)) {
-			arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
-			tee_shm_vunmap(shm);
-			goto bad;
-		}
-		nested_params[0].u.tmem.size = sz;
-		nested_params[0].u.tmem.shm_ref = (unsigned long)shm;
 
-		tee_shm_vunmap(shm);
+		arg->params[0].u.tmem.size = tee_shm_get_size(shm);
+		arg->params[0].u.tmem.shm_ref = (unsigned long)shm;
+
+		optee_fill_pages_list(pages_array, pages, page_num);
 	} else {
 		arg->params[0].attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
 		arg->params[0].u.tmem.buf_ptr = pa;
@@ -390,8 +392,23 @@ bad:
 	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 }
 
-static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
-				struct tee_shm *shm)
+static void free_page_array(struct optee_call_ctx *call_ctx)
+{
+	if (call_ctx->pages_array) {
+		optee_free_pages_array(call_ctx->pages_array,
+				       call_ctx->num_entries);
+		call_ctx->pages_array = NULL;
+		call_ctx->num_entries = 0;
+	}
+}
+
+void optee_rpc_finalize_call(struct optee_call_ctx *call_ctx)
+{
+	free_page_array(call_ctx);
+}
+
+static void handle_rpc_func_cmd(struct tee_device* teedev, struct optee *optee,
+				struct tee_shm *shm, struct optee_call_ctx *call_ctx)
 {
 	struct optee_msg_arg *arg;
 
@@ -403,6 +420,7 @@ static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
 
 	switch (arg->cmd) {
 	case OPTEE_MSG_RPC_CMD_GET_TIME:
+		free_page_array(call_ctx);
 		handle_rpc_func_cmd_get_time(arg);
 		break;
 	case OPTEE_MSG_RPC_CMD_WAIT_QUEUE:
@@ -412,15 +430,18 @@ static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
 		handle_rpc_func_cmd_wait(arg);
 		break;
 	case OPTEE_MSG_RPC_CMD_SHM_ALLOC:
-		handle_rpc_func_cmd_shm_alloc(teedev, arg);
+		free_page_array(call_ctx);
+		handle_rpc_func_cmd_shm_alloc(teedev, arg, call_ctx);
 		break;
 	case OPTEE_MSG_RPC_CMD_SHM_FREE:
+		free_page_array(call_ctx);
 		handle_rpc_func_cmd_shm_free(teedev, arg);
 		break;
 	case OPTEE_MSG_RPC_CMD_BENCH_REG:
 		handle_rpc_func_cmd_bm_reg(arg);
 		break;
 	default:
+		free_page_array(call_ctx);
 		handle_rpc_supp_cmd(optee, arg);
 	}
 }
@@ -432,7 +453,8 @@ static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
  *
  * Result of RPC is written back into @param.
  */
-void optee_handle_rpc(struct tee_device *teedev, struct optee_rpc_param *param)
+void optee_handle_rpc(struct tee_device *teedev, struct optee_rpc_param *param,
+		      struct optee_call_ctx *call_ctx)
 {
 	struct optee *optee = tee_get_drvdata(teedev);
 	struct tee_shm *shm;
@@ -466,7 +488,7 @@ void optee_handle_rpc(struct tee_device *teedev, struct optee_rpc_param *param)
 		break;
 	case OPTEE_SMC_RPC_FUNC_CMD:
 		shm = reg_pair_to_ptr(param->a1, param->a2);
-		handle_rpc_func_cmd(teedev, optee, shm);
+		handle_rpc_func_cmd(teedev, optee, shm, call_ctx);
 		break;
 	default:
 		pr_warn("Unknown RPC func 0x%x\n",
