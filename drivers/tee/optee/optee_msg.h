@@ -71,7 +71,7 @@
  * Used with OPTEE_MSG_ATTR_TYPE_TMEM_*.
  * buf_ptr should point to the beginning of the buffer. Buffer will contain
  * list of page addresses. OP-TEE core can reconstruct contigous buffer from
- * that page adresses list. Page addresses are stored as 64 bit values.
+ * that page addresses list. Page addresses are stored as 64 bit values.
  * Last entry on a page should point to the next page of buffer.
  * 12 least significant of buf_ptr should hold page offset of user buffer.
  */
@@ -151,7 +151,6 @@ struct optee_msg_param_value {
  * the union. OPTEE_MSG_ATTR_TYPE_VALUE_* indicates value,
  * OPTEE_MSG_ATTR_TYPE_TMEM_* indicates @tmem and
  * OPTEE_MSG_ATTR_TYPE_RMEM_* indicates @rmem,
- * OPTEE_MSG_ATTR_TYPE_NESTED indicates @nested parameters.
  * OPTEE_MSG_ATTR_TYPE_NONE indicates that none of the members are used.
  */
 struct optee_msg_param {

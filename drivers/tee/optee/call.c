@@ -480,20 +480,21 @@ void optee_fill_pages_list(u64 *dst, struct page **pages, size_t num_pages)
 }
 
 /* Number of user pages + number of pages to hold list of user pages  */
-#define GET_ARRAY_SIZE(num_entries) \
-	sizeof(u64) * (num_entries + (sizeof(u64) * num_entries) / PAGE_SIZE)
+size_t get_pages_array_size(size_t num_entries)
+{
+	return sizeof(u64) *
+		(num_entries + (sizeof(u64) * num_entries) / PAGE_SIZE);
+}
 
 void *optee_allocate_pages_array(size_t num_entries)
 {
-	return alloc_pages_exact(GET_ARRAY_SIZE(num_entries), GFP_KERNEL);
+	return alloc_pages_exact(get_pages_array_size(num_entries), GFP_KERNEL);
 }
 
 void optee_free_pages_array(void *array, size_t num_entries)
 {
-	free_pages_exact(array, GET_ARRAY_SIZE(num_entries));
+	free_pages_exact(array, get_pages_array_size(num_entries));
 }
-
-#undef GET_ARRAY_SIZE
 
 int optee_shm_register(struct tee_device *teedev, struct tee_shm *shm,
 		struct page **pages, size_t num_pages)
@@ -521,11 +522,11 @@ int optee_shm_register(struct tee_device *teedev, struct tee_shm *shm,
 
 	msg_arg->cmd = OPTEE_MSG_CMD_REGISTER_SHM;
 	msg_arg->params->attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT |
-		OPTEE_MSG_ATTR_NONCONTIG;
+				OPTEE_MSG_ATTR_NONCONTIG;
 	msg_arg->params->u.tmem.shm_ref = (unsigned long)shm;
 	msg_arg->params->u.tmem.size = tee_shm_get_size(shm);
 	msg_arg->params->u.tmem.buf_ptr = virt_to_phys(pages_array) |
-		tee_shm_get_page_offset(shm);
+					  tee_shm_get_page_offset(shm);
 
 	if (optee_do_call_with_arg(teedev, msg_parg) ||
 	    msg_arg->ret != TEEC_SUCCESS)

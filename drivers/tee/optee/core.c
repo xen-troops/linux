@@ -104,7 +104,7 @@ int optee_from_msg_param(struct tee_param *params, size_t num_params,
 		case OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT:
 		case OPTEE_MSG_ATTR_TYPE_RMEM_INOUT:
 			p->attr = TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT +
-				attr - OPTEE_MSG_ATTR_TYPE_RMEM_INPUT;
+				  attr - OPTEE_MSG_ATTR_TYPE_RMEM_INPUT;
 			p->u.memref.size = mp->u.rmem.size;
 			shm = (struct tee_shm *)(unsigned long)
 				mp->u.rmem.shm_ref;
@@ -120,7 +120,7 @@ int optee_from_msg_param(struct tee_param *params, size_t num_params,
 			/* Check that the memref is covered by the shm object */
 			if (p->u.memref.size) {
 				size_t o = p->u.memref.shm_offs +
-					p->u.memref.size;
+					   p->u.memref.size;
 				if (o > tee_shm_get_size(shm))
 					return -EINVAL;
 			}
