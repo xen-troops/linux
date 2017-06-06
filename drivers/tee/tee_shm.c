@@ -61,8 +61,6 @@ static void tee_shm_release(struct tee_shm *shm)
 		if (rc)
 			dev_err(teedev->dev.parent,
 				"unregister shm %p failed: %d", shm, rc);
-		if (shm->vmapped)
-			tee_shm_vunmap(shm);
 	}
 
 	kfree(shm);
@@ -163,8 +161,6 @@ struct tee_shm *__tee_shm_alloc(struct tee_context *ctx,
 	shm->flags = flags | TEE_SHM_POOL;
 	shm->teedev = teedev;
 	shm->ctx = ctx;
-	shm->vmapped = false;
-
 	if (flags & TEE_SHM_DMA_BUF)
 		poolm = &teedev->pool->dma_buf_mgr;
 	else
@@ -541,62 +537,13 @@ EXPORT_SYMBOL_GPL(tee_shm_pa2va);
  */
 void *tee_shm_get_va(struct tee_shm *shm, size_t offs)
 {
-	if (!(shm->flags & TEE_SHM_MAPPED) && !shm->vmapped)
+	if (!(shm->flags & TEE_SHM_MAPPED))
 		return ERR_PTR(-EINVAL);
 	if (offs >= shm->size)
 		return ERR_PTR(-EINVAL);
 	return (char *)shm->kaddr + offs;
 }
 EXPORT_SYMBOL_GPL(tee_shm_get_va);
-
-/**
- * tee_shm_vmap() - Map registered pages to kernel space
- * @shm:	Shared memory handle
- * @returns pointer to registered shared buffer in kernel address space
- *	or ERR_PTR()
- *
- * This function is not thread safe and have no reference counter
- */
-void *tee_shm_vmap(struct tee_shm *shm)
-{
-	void *va;
-
-	if (!(shm->flags & TEE_SHM_REGISTER))
-		return ERR_PTR(-EINVAL);
-
-	if (shm->vmapped)
-		return ERR_PTR(-EINVAL);
-
-	va = vmap(shm->pages, shm->num_pages, VM_MAP, PAGE_KERNEL);
-	if (!va)
-		return ERR_PTR(-ENOMEM);
-
-	shm->vmapped = true;
-	shm->kaddr = (char *)va + tee_shm_get_page_offset(shm);
-
-	return shm->kaddr;
-}
-EXPORT_SYMBOL_GPL(tee_shm_vmap);
-
-/**
- * tee_shm_vunmap() - Unmap registered pages from kernel space
- * @shm:	Shared memory handle
- *
- * This function unmaps pages previously mapped by tee_shm_vmap().
- */
-void tee_shm_vunmap(struct tee_shm *shm)
-{
-	void *va;
-
-	if (!shm->vmapped)
-		return;
-
-	va = (char *)shm->kaddr - tee_shm_get_page_offset(shm);
-	vunmap(va);
-
-	shm->vmapped = false;
-}
-EXPORT_SYMBOL_GPL(tee_shm_vunmap);
 
 /**
  * tee_shm_get_pa() - Get physical address of a shared memory plus an offset
