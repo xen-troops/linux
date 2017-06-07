@@ -479,9 +479,9 @@ void optee_fill_pages_list(u64 *dst, struct page **pages, size_t num_pages)
 	}
 }
 
-/* Number of user pages + number of pages to hold list of user pages  */
-size_t get_pages_array_size(size_t num_entries)
+static size_t get_pages_array_size(size_t num_entries)
 {
+	/* Number of user pages + number of pages to hold list of user pages  */
 	return sizeof(u64) *
 		(num_entries + (sizeof(u64) * num_entries) / PAGE_SIZE);
 }
