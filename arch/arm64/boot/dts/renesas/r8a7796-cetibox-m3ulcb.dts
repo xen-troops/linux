@@ -573,7 +573,7 @@
 &can0 {
 	pinctrl-0 = <&can0_pins>;
 	pinctrl-names = "default";
-	status = "disabled";
+	status = "okay";
 
 	renesas,can-clock-select = <0x0>;
 };
@@ -581,7 +581,7 @@
 &can1 {
 	pinctrl-0 = <&can1_pins>;
 	pinctrl-names = "default";
-	status = "disabled";
+	status = "okay";
 
 	renesas,can-clock-select = <0x0>;
 };
@@ -589,7 +589,7 @@
 &canfd {
 	pinctrl-0 = <&canfd0_pins &canfd1_pins>;
 	pinctrl-names = "default";
-	status = "okay";
+	status = "disabled";
 
 	channel0 {
 		status = "okay";
