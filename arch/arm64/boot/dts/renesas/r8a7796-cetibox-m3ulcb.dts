@@ -576,8 +576,8 @@
 	status = "okay";
 
 	renesas,can-clock-select = <0x0>;
-	gpios = <&gpio2 6 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
-		 &gpio2 7 GPIO_ACTIVE_LOW /* standby */
+	gpios = <&gpio5 3 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
+		 &gpio5 25 GPIO_ACTIVE_LOW /* standby */
 		>;
 };
 
@@ -587,8 +587,8 @@
 	status = "okay";
 
 	renesas,can-clock-select = <0x0>;
-	gpios = <&gpio2 6 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
-		 &gpio2 7 GPIO_ACTIVE_LOW /* standby */
+	gpios = <&gpio6 16 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
+		 &gpio1 8 GPIO_ACTIVE_LOW /* standby */
 		>;
 };
 
@@ -598,9 +598,6 @@
 	status = "disabled";
 
 	renesas,can-clock-select = <0x0>;
-	gpios = <&gpio2 6 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
-		 &gpio2 7 GPIO_ACTIVE_LOW /* standby */
-		>;
 	channel0 {
 		status = "okay";
 	};
