@@ -231,7 +231,7 @@ static void optee_get_version(struct tee_device *teedev,
 	};
 	struct optee *optee = tee_get_drvdata(teedev);
 
-	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_REGISTER_SHM)
+	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_DYNAMIC_SHM)
 		v.gen_caps |= TEE_GEN_CAP_REG_MEM;
 	*vers = v;
 }
@@ -460,7 +460,7 @@ optee_config_shm_memremap(optee_invoke_fn *invoke_fn, void **memremaped_shm,
 	dmabuf_info.size = size - OPTEE_SHM_NUM_PRIV_PAGES * PAGE_SIZE;
 
 	/* If OP-TEE can work with unregistered SHM, we will use own pool */
-	if (sec_caps & OPTEE_SMC_SEC_CAP_UNREGISTERED_SHM)
+	if (sec_caps & OPTEE_SMC_SEC_CAP_DYNAMIC_SHM)
 		pool = optee_shm_get_pool(&dmabuf_info);
 	else
 		pool = tee_shm_pool_alloc_res_mem(&priv_info, &dmabuf_info);
