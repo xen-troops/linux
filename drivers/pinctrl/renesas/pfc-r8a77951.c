@@ -4147,7 +4147,7 @@ static const unsigned int vin5_clk_mux[] = {
 };
 
 static const struct {
-	struct sh_pfc_pin_group common[328];
+	struct sh_pfc_pin_group common[329];
 #ifdef CONFIG_PINCTRL_PFC_R8A77951
 	struct sh_pfc_pin_group automotive[31];
 #endif
@@ -4240,6 +4240,7 @@ static const struct {
 		SH_PFC_PIN_GROUP(intc_ex_irq3),
 		SH_PFC_PIN_GROUP(intc_ex_irq4),
 		SH_PFC_PIN_GROUP(intc_ex_irq5),
+		SH_PFC_PIN_GROUP(mlb_3pin),
 		SH_PFC_PIN_GROUP(msiof0_clk),
 		SH_PFC_PIN_GROUP(msiof0_sync),
 		SH_PFC_PIN_GROUP(msiof0_ss1),
@@ -5063,7 +5064,7 @@ static const char * const vin5_groups[] = {
 };
 
 static const struct {
-	struct sh_pfc_function common[55];
+	struct sh_pfc_function common[56];
 #ifdef CONFIG_PINCTRL_PFC_R8A77951
 	struct sh_pfc_function automotive[5];
 #endif
@@ -5089,6 +5090,7 @@ static const struct {
 		SH_PFC_FUNCTION(i2c5),
 		SH_PFC_FUNCTION(i2c6),
 		SH_PFC_FUNCTION(intc_ex),
+		SH_PFC_FUNCTION(mlb_3pin),
 		SH_PFC_FUNCTION(msiof0),
 		SH_PFC_FUNCTION(msiof1),
 		SH_PFC_FUNCTION(msiof2),
