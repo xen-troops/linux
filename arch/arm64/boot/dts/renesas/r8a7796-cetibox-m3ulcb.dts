@@ -567,9 +567,6 @@
 	status = "okay";
 };
 
-/*
- * Classic CAN controller currently disabled in favor of CAN-FD
- */
 &can0 {
 	pinctrl-0 = <&can0_pins>;
 	pinctrl-names = "default";
@@ -592,6 +589,9 @@
 		>;
 };
 
+/*
+ * CAN-FD controller currently disabled in favor of classic CAN
+ */
 &canfd {
 	pinctrl-0 = <&canfd0_pins &canfd1_pins>;
 	pinctrl-names = "default";
