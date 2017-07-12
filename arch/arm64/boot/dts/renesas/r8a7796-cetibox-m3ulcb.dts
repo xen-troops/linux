@@ -562,6 +562,7 @@
 	num-cs = <2>;
 	cs-gpios = <&gpio6 5 GPIO_ACTIVE_LOW>, <&gpio6 6 GPIO_ACTIVE_LOW>;
 
+	/* Ethernet switch, configured by userspace */
 	spidev@0 {
 		compatible = "renesas,sh-msiof";
 		reg = <0>;
