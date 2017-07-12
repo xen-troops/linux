@@ -545,6 +545,15 @@
 	clock-frequency = <66666666>;
 };
 
+/* The clock on PiCAN board */
+/ {
+	can2_osc: can2_osc {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency  = <16000000>;
+	};
+};
+
 &msiof1 {
 	pinctrl-0 = <&msiof1_pins>;
 	pinctrl-names = "default";
@@ -565,6 +574,7 @@
 		compatible = "microchip,mcp2515";
 		reg = <1>;
 		spi-max-frequency = <10000000>;
+		clocks = <&can2_osc>;
 	};
 };
 
