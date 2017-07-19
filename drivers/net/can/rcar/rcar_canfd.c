@@ -506,6 +506,8 @@ struct rcar_canfd_channel {
 	u32 tx_tail;				/* Incremented on xmit done */
 	u32 channel;				/* Channel number */
 	spinlock_t tx_lock;			/* To protect tx path */
+	unsigned int enable_pin;		/* transceiver enable */
+	unsigned int standby_pin;		/* transceiver standby */
 };
 
 /* Global priv data */
@@ -518,8 +520,6 @@ struct rcar_canfd_global {
 	enum rcar_canfd_fcanclk fcan;	/* CANFD or Ext clock */
 	unsigned long channels_mask;	/* Enabled channels mask */
 	bool fdmode;			/* CAN FD or Classical CAN only mode */
-	unsigned int enable_pin;	/* transceiver enable */
-	unsigned int standby_pin;	/* transceiver standby */
 };
 
 /* CAN FD mode nominal rate constants */
@@ -1272,8 +1272,8 @@ static int rcar_canfd_open(struct net_device *ndev)
 	int err;
 
 	/* transceiver normal mode */
-	if (gpio_is_valid(gpriv->standby_pin))
-		gpio_set_value(gpriv->standby_pin, 1);
+	if (gpio_is_valid(priv->standby_pin))
+		gpio_set_value(priv->standby_pin, 1);
 
 	/* Peripheral clock is already enabled in probe */
 	err = clk_prepare_enable(gpriv->can_clk);
@@ -1343,9 +1343,9 @@ static int rcar_canfd_close(struct net_device *ndev)
 	clk_disable_unprepare(gpriv->can_clk);
 	close_candev(ndev);
 	can_led_event(ndev, CAN_LED_EVENT_STOP);
-	/* transceiver stanby mode */
-	if (gpio_is_valid(gpriv->standby_pin))
-		gpio_set_value(gpriv->standby_pin, 0);
+	/* transceiver standby mode */
+	if (gpio_is_valid(priv->standby_pin))
+		gpio_set_value(priv->standby_pin, 0);
 	return 0;
 }
 
@@ -1647,21 +1647,20 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	void __iomem *addr;
 	u32 sts, ch, fcan_freq;
 	struct rcar_canfd_global *gpriv;
-	struct device_node *of_child;
+	struct device_node *of_child0, *of_child1;
 	unsigned long channels_mask = 0;
 	int err, ret, ch_irq, g_irq;
 	bool fdmode = true;			/* CAN FD only mode - default */
-	enum of_gpio_flags enable_flags, standby_flags;
 
 	if (of_property_read_bool(pdev->dev.of_node, "renesas,no-can-fd"))
 		fdmode = false;			/* Classical CAN only mode */
 
-	of_child = of_get_child_by_name(pdev->dev.of_node, "channel0");
-	if (of_child && of_device_is_available(of_child))
+	of_child0 = of_get_child_by_name(pdev->dev.of_node, "channel0");
+	if (of_child0 && of_device_is_available(of_child0))
 		channels_mask |= BIT(0);	/* Channel 0 */
 
-	of_child = of_get_child_by_name(pdev->dev.of_node, "channel1");
-	if (of_child && of_device_is_available(of_child))
+	of_child1 = of_get_child_by_name(pdev->dev.of_node, "channel1");
+	if (of_child1 && of_device_is_available(of_child1))
 		channels_mask |= BIT(1);	/* Channel 1 */
 
 	ch_irq = platform_get_irq(pdev, 0);
@@ -1791,29 +1790,37 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	}
 
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
+		enum of_gpio_flags enable_flags, standby_flags;
+		struct device_node *of_node = ch == 0 ? of_child0 : of_child1;
+
 		err = rcar_canfd_channel_probe(gpriv, ch, fcan_freq);
 		if (err)
 			goto fail_channel;
-	}
 
-	gpriv->enable_pin = of_get_gpio_flags(pdev->dev.of_node, 0, &enable_flags);
-	gpriv->standby_pin = of_get_gpio_flags(pdev->dev.of_node, 1, &standby_flags);
+		gpriv->ch[ch]->enable_pin = of_get_gpio_flags(of_node, 0,
+							      &enable_flags);
+		if (gpio_is_valid(gpriv->ch[ch]->enable_pin)) {
+			int val = enable_flags & OF_GPIO_ACTIVE_LOW ?
+				GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+			ret = devm_gpio_request_one(&pdev->dev,
+						    gpriv->ch[ch]->enable_pin,
+						    val, "enable");
+			if (ret)
+				dev_info(&pdev->dev, "Failed to request enable pin of can%u\n", ch);
+		}
 
-	if (gpio_is_valid(gpriv->enable_pin)) {
-		int val = enable_flags & OF_GPIO_ACTIVE_LOW ?
-			  GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
-		ret = devm_gpio_request_one(&pdev->dev, gpriv->enable_pin, val, "enable");
-		if (ret)
-			dev_info(&pdev->dev, "Failed to request enable pin\n");
-	}
-
-	if (gpio_is_valid(gpriv->standby_pin)) {
-		int val = standby_flags & OF_GPIO_ACTIVE_LOW ?
-			  GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
-		/* transceiver standby mode */
-		ret = devm_gpio_request_one(&pdev->dev, gpriv->standby_pin, val, "standby");
-		if (ret)
-			dev_info(&pdev->dev, "Failed to request standby pin\n");
+		gpriv->ch[ch]->standby_pin = of_get_gpio_flags(of_node, 1,
+							       &standby_flags);
+		if (gpio_is_valid(gpriv->ch[ch]->standby_pin)) {
+			int val = standby_flags & OF_GPIO_ACTIVE_LOW ?
+				GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+			/* transceiver standby mode */
+			ret = devm_gpio_request_one(&pdev->dev,
+						    gpriv->ch[ch]->standby_pin, val,
+						    "standby");
+			if (ret)
+				dev_info(&pdev->dev, "Failed to request standby pin of can%u\n", ch);
+		}
 	}
 
 	platform_set_drvdata(pdev, gpriv);

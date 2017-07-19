@@ -589,10 +589,15 @@
 	status = "okay";
 };
 
+/*
+ * CAN (classic) controller currently disabled in favor of CAN-FD controller
+ * which is able to receive both base and extended CAN frame format, while
+ * this controller can do only one format at a time.
+ */
 &can0 {
 	pinctrl-0 = <&can0_pins>;
 	pinctrl-names = "default";
-	status = "okay";
+	status = "disabled";
 
 	renesas,can-clock-select = <0x0>;
 	gpios = <&gpio5 3 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
@@ -603,7 +608,7 @@
 &can1 {
 	pinctrl-0 = <&can1_pins>;
 	pinctrl-names = "default";
-	status = "okay";
+	status = "disabled";
 
 	renesas,can-clock-select = <0x0>;
 	gpios = <&gpio6 16 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
@@ -611,20 +616,25 @@
 		>;
 };
 
-/*
- * CAN-FD controller currently disabled in favor of classic CAN
- */
 &canfd {
 	pinctrl-0 = <&canfd0_pins &canfd1_pins>;
 	pinctrl-names = "default";
-	status = "disabled";
+	status = "okay";
 
 	renesas,can-clock-select = <0x0>;
+	renesas,no-can-fd; /* makes the driver to put controller into classic CAN mode */
+
 	channel0 {
 		status = "okay";
+		gpios = <&gpio5 3 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
+		    &gpio5 25 GPIO_ACTIVE_LOW /* standby */
+		    >;
 	};
 
 	channel1 {
 		status = "okay";
+		gpios = <&gpio6 16 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
+		    &gpio1 8 GPIO_ACTIVE_LOW /* standby */
+		    >;
 	};
 };
