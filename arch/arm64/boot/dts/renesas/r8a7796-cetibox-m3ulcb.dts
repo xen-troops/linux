@@ -297,31 +297,75 @@
 	};
 };
 
-&avb {
-	pinctrl-0 = <&avb_pins>;
-	pinctrl-names = "default";
-	renesas,no-ether-link;
-	phy-handle = <&phy0>;
-	status = "okay";
-	phy-gpios = <&gpio2 11 GPIO_ACTIVE_LOW>;
+//&avb {
+//	pinctrl-0 = <&avb_pins>;
+//	pinctrl-names = "default";
+//	renesas,no-ether-link;
+//	phy-handle = <&phy0>;
+//	status = "okay";
+//	phy-gpios = <&gpio2 11 GPIO_ACTIVE_LOW>;
+//
+//	phy0: ethernet-phy@0 {
+//		rxc-skew-ps = <1500>;
+//		rxdv-skew-ps = <420>; /* default */
+//		rxd0-skew-ps = <420>; /* default */
+//		rxd1-skew-ps = <420>; /* default */
+//		rxd2-skew-ps = <420>; /* default */
+//		rxd3-skew-ps = <420>; /* default */
+//		txc-skew-ps = <900>; /* default */
+//		txen-skew-ps = <420>; /* default */
+//		txd0-skew-ps = <420>; /* default */
+//		txd1-skew-ps = <420>; /* default */
+//		txd2-skew-ps = <420>; /* default */
+//		txd3-skew-ps = <420>; /* default */
+//		reg = <0>;
+//		interrupt-parent = <&gpio2>;
+//		interrupts = <11 IRQ_TYPE_LEVEL_LOW>;
+//	};
+//};
 
-	phy0: ethernet-phy@0 {
-		rxc-skew-ps = <1500>;
-		rxdv-skew-ps = <420>; /* default */
-		rxd0-skew-ps = <420>; /* default */
-		rxd1-skew-ps = <420>; /* default */
-		rxd2-skew-ps = <420>; /* default */
-		rxd3-skew-ps = <420>; /* default */
-		txc-skew-ps = <900>; /* default */
-		txen-skew-ps = <420>; /* default */
-		txd0-skew-ps = <420>; /* default */
-		txd1-skew-ps = <420>; /* default */
-		txd2-skew-ps = <420>; /* default */
-		txd3-skew-ps = <420>; /* default */
-		reg = <0>;
-		interrupt-parent = <&gpio2>;
-		interrupts = <11 IRQ_TYPE_LEVEL_LOW>;
-	};
+//&avb {
+//	pinctrl-0 = <&avb_pins>;
+//	pinctrl-names = "default";
+//	renesas,no-ether-link;
+//	phy-handle = <&phy0>;
+////	phy-mode = "rgmii-id";
+//	status = "okay";
+//	phy-gpios = <&gpio2 11 GPIO_ACTIVE_LOW>;
+//
+////	phy0: ethernet-phy@3 {
+////		reg = <0>;
+////		interrupt-parent = <&gpio2>;
+////		interrupts = <11 IRQ_TYPE_LEVEL_LOW>;
+////	};
+//
+////	phy0: fixed-link@0 {
+////		speed = <1000>;
+////		full-duplex;
+//	phy0: ethernet-phy@0 {
+//		reg = <0>;
+//		interrupt-parent = <&gpio2>;
+//		interrupts = <11 IRQ_TYPE_LEVEL_LOW>;
+//
+//	};
+//};
+
+&avb {
+    pinctrl-0 = <&avb_pins>;
+    pinctrl-names = "default";
+    renesas,no-ether-link;
+    phy-handle = <&phy0>;
+    status = "okay";
+
+//    phy-mode = "rgmii";		// tx ok, rx kapott
+//    phy-mode = "rgmiii-id"; 	// tx ok, rx kapott (100% CRC errors), switch ok
+    phy-mode = "rgmii-rxid";  // tx ok, rx kapott (we have a delay line at SJA1105 rx clock -> we must not add tx delay!)
+//    phy-mode = "rgmii-txid"; 	// tx kapott, rx ?
+
+    phy0: dummy_phy {
+        compatible = "ethernet-phy-idFFFF.FFFE";
+        reg = <0>;
+    };
 };
 
 &du {

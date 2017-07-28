@@ -27,7 +27,7 @@ MODULE_LICENSE("GPL");
 
 static int sja1105_config_aneg(struct phy_device *phydev)
 {
-	phydev->supported = (PHY_DEFAULT_FEATURES | PHY_1000BT_FEATURES);
+	phydev->supported = (PHY_DEFAULT_FEATURES | PHY_100BT_FEATURES);
 	phydev->advertising = phydev->supported;
 
 	return 0;
@@ -36,7 +36,7 @@ static int sja1105_config_aneg(struct phy_device *phydev)
 static int sja1105_read_status(struct phy_device *phydev)
 {
 	phydev->duplex = DUPLEX_FULL;
-	phydev->speed = SPEED_1000;
+	phydev->speed = SPEED_100;
 	phydev->pause = 0;
 	phydev->asym_pause = 0;
 
@@ -47,7 +47,7 @@ static struct phy_driver sja1105_driver[] = { {
 	.phy_id		= 0xfffffffe,
 	.name		= "SJA1105 Dummy PHY driver",
 	.phy_id_mask	= 0x0ffffff0,
-	.features	= (PHY_DEFAULT_FEATURES | PHY_1000BT_FEATURES),
+	.features	= (PHY_DEFAULT_FEATURES | PHY_100BT_FEATURES),
 	.flags		= PHY_POLL,
 	.config_aneg	= sja1105_config_aneg,
 	.read_status	= sja1105_read_status,
