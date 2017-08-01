@@ -134,6 +134,117 @@ struct xdrv_info {
 	struct sdev_card_plat_data cfg_plat_data;
 };
 
+static struct sdev_pcm_stream_info *sdrv_stream_get(
+	struct snd_pcm_substream *substream)
+{
+	struct sdev_pcm_instance_info *pcm_instance =
+		snd_pcm_substream_chip(substream);
+	struct sdev_pcm_stream_info *stream;
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		stream = &pcm_instance->streams_pb[substream->number];
+	else
+		stream = &pcm_instance->streams_cap[substream->number];
+	return stream;
+}
+
+static void sdrv_copy_pcm_hw(struct snd_pcm_hardware *dst,
+	struct snd_pcm_hardware *src,
+	struct snd_pcm_hardware *ref_pcm_hw)
+{
+	*dst = *ref_pcm_hw;
+
+	if (src->formats)
+		dst->formats = src->formats;
+	if (src->buffer_bytes_max)
+		dst->buffer_bytes_max =
+			src->buffer_bytes_max;
+	if (src->period_bytes_min)
+		dst->period_bytes_min =
+			src->period_bytes_min;
+	if (src->period_bytes_max)
+		dst->period_bytes_max =
+			src->period_bytes_max;
+	if (src->periods_min)
+		dst->periods_min = src->periods_min;
+	if (src->periods_max)
+		dst->periods_max = src->periods_max;
+	if (src->rates)
+		dst->rates = src->rates;
+	if (src->rate_min)
+		dst->rate_min = src->rate_min;
+	if (src->rate_max)
+		dst->rate_max = src->rate_max;
+	if (src->channels_min)
+		dst->channels_min = src->channels_min;
+	if (src->channels_max)
+		dst->channels_max = src->channels_max;
+	if (src->buffer_bytes_max) {
+		dst->buffer_bytes_max = src->buffer_bytes_max;
+		dst->period_bytes_max = src->buffer_bytes_max /
+			src->periods_max;
+		dst->periods_max = dst->buffer_bytes_max /
+			dst->period_bytes_max;
+	}
+}
+
+static int sdrv_alsa_open(struct snd_pcm_substream *substream)
+{
+	return 0;
+}
+
+static int sdrv_alsa_close(struct snd_pcm_substream *substream)
+{
+	return 0;
+}
+
+static int sdrv_alsa_hw_params(struct snd_pcm_substream *substream,
+	struct snd_pcm_hw_params *params)
+{
+	return 0;
+}
+
+static int sdrv_alsa_hw_free(struct snd_pcm_substream *substream)
+{
+	return 0;
+}
+
+static int sdrv_alsa_prepare(struct snd_pcm_substream *substream)
+{
+	return 0;
+}
+
+static int sdrv_alsa_trigger(struct snd_pcm_substream *substream, int cmd)
+{
+	return 0;
+}
+
+static inline snd_pcm_uframes_t sdrv_alsa_pointer(
+	struct snd_pcm_substream *substream)
+{
+	return 0;
+}
+
+static int sdrv_alsa_playback_copy(struct snd_pcm_substream *substream,
+	int channel, snd_pcm_uframes_t pos, void __user *buf,
+	snd_pcm_uframes_t count)
+{
+	return 0;
+}
+
+static int sdrv_alsa_capture_copy(struct snd_pcm_substream *substream,
+	int channel, snd_pcm_uframes_t pos, void __user *buf,
+	snd_pcm_uframes_t count)
+{
+	return 0;
+}
+
+static int sdrv_alsa_playback_silence(struct snd_pcm_substream *substream,
+	int channel, snd_pcm_uframes_t pos, snd_pcm_uframes_t count)
+{
+	return 0;
+}
+
 #define MAX_XEN_BUFFER_SIZE	(64 * 1024)
 #define MAX_BUFFER_SIZE		MAX_XEN_BUFFER_SIZE
 #define MIN_PERIOD_SIZE		64
@@ -168,10 +279,117 @@ static struct snd_pcm_hardware sdrv_pcm_hw_default = {
 	.fifo_size = 0,
 };
 
+/*
+ * FIXME: The mmaped data transfer is asynchronous and there is no
+ * ack signal from user-space when it is done. This is the
+ * reason it is not implemented in the PV driver as we do need
+ * to know when the buffer can be transferred to the backend.
+ */
+
+static struct snd_pcm_ops sdrv_alsa_playback_ops = {
+	.open = sdrv_alsa_open,
+	.close = sdrv_alsa_close,
+	.ioctl = snd_pcm_lib_ioctl,
+	.hw_params = sdrv_alsa_hw_params,
+	.hw_free = sdrv_alsa_hw_free,
+	.prepare = sdrv_alsa_prepare,
+	.trigger = sdrv_alsa_trigger,
+	.pointer = sdrv_alsa_pointer,
+	.copy = sdrv_alsa_playback_copy,
+	.silence = sdrv_alsa_playback_silence,
+};
+
+static struct snd_pcm_ops sdrv_alsa_capture_ops = {
+	.open = sdrv_alsa_open,
+	.close = sdrv_alsa_close,
+	.ioctl = snd_pcm_lib_ioctl,
+	.hw_params = sdrv_alsa_hw_params,
+	.hw_free = sdrv_alsa_hw_free,
+	.prepare = sdrv_alsa_prepare,
+	.trigger = sdrv_alsa_trigger,
+	.pointer = sdrv_alsa_pointer,
+	.copy = sdrv_alsa_capture_copy,
+};
+
 static int sdrv_new_pcm(struct sdev_card_info *card_info,
 	struct cfg_pcm_instance *instance_config,
 	struct sdev_pcm_instance_info *pcm_instance_info)
 {
+	struct snd_pcm *pcm;
+	int ret, i;
+
+	dev_dbg(&card_info->xdrv_info->xb_dev->dev,
+		"New PCM device \"%s\" with id %d playback %d capture %d",
+		instance_config->name,
+		instance_config->device_id,
+		instance_config->num_streams_pb,
+		instance_config->num_streams_cap);
+
+	pcm_instance_info->card_info = card_info;
+
+	sdrv_copy_pcm_hw(&pcm_instance_info->pcm_hw,
+		&instance_config->pcm_hw, &card_info->pcm_hw);
+
+	if (instance_config->num_streams_pb) {
+		pcm_instance_info->streams_pb = devm_kcalloc(
+			&card_info->card->card_dev,
+			instance_config->num_streams_pb,
+			sizeof(struct sdev_pcm_stream_info),
+			GFP_KERNEL);
+		if (!pcm_instance_info->streams_pb)
+			return -ENOMEM;
+	}
+
+	if (instance_config->num_streams_cap) {
+		pcm_instance_info->streams_cap = devm_kcalloc(
+			&card_info->card->card_dev,
+			instance_config->num_streams_cap,
+			sizeof(struct sdev_pcm_stream_info),
+			GFP_KERNEL);
+		if (!pcm_instance_info->streams_cap)
+			return -ENOMEM;
+	}
+
+	pcm_instance_info->num_pcm_streams_pb =
+			instance_config->num_streams_pb;
+	pcm_instance_info->num_pcm_streams_cap =
+			instance_config->num_streams_cap;
+
+	for (i = 0; i < pcm_instance_info->num_pcm_streams_pb; i++) {
+		pcm_instance_info->streams_pb[i].pcm_hw =
+			instance_config->streams_pb[i].pcm_hw;
+		pcm_instance_info->streams_pb[i].unique_id =
+			instance_config->streams_pb[i].unique_id;
+	}
+
+	for (i = 0; i < pcm_instance_info->num_pcm_streams_cap; i++) {
+		pcm_instance_info->streams_cap[i].pcm_hw =
+			instance_config->streams_cap[i].pcm_hw;
+		pcm_instance_info->streams_cap[i].unique_id =
+			instance_config->streams_cap[i].unique_id;
+	}
+
+	ret = snd_pcm_new(card_info->card, instance_config->name,
+			instance_config->device_id,
+			instance_config->num_streams_pb,
+			instance_config->num_streams_cap,
+			&pcm);
+	if (ret < 0)
+		return ret;
+
+	pcm->private_data = pcm_instance_info;
+	pcm->info_flags = 0;
+	strncpy(pcm->name, "Virtual card PCM", sizeof(pcm->name));
+
+	if (instance_config->num_streams_pb)
+		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK,
+				&sdrv_alsa_playback_ops);
+
+	if (instance_config->num_streams_cap)
+		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE,
+				&sdrv_alsa_capture_ops);
+
+	pcm_instance_info->pcm = pcm;
 	return 0;
 }
 
