@@ -67,12 +67,29 @@ struct sh_buf_info {
 	size_t vbuffer_sz;
 };
 
+struct sdev_alsa_timer_info {
+	spinlock_t lock;
+	struct timer_list timer;
+	unsigned long base_time;
+	/* fractional sample position (based HZ) */
+	unsigned int frac_pos;
+	unsigned int frac_period_rest;
+	/* buffer_size * HZ */
+	unsigned int frac_buffer_size;
+	/* period_size * HZ */
+	unsigned int frac_period_size;
+	unsigned int rate;
+	int elapsed;
+	struct snd_pcm_substream *substream;
+};
+
 struct sdev_pcm_stream_info {
 	int unique_id;
 	struct snd_pcm_hardware pcm_hw;
 	struct xdrv_evtchnl_info *evt_chnl;
 	bool is_open;
 	uint8_t req_next_id;
+	struct sdev_alsa_timer_info timer;
 	struct sh_buf_info sh_buf;
 };
 
@@ -146,6 +163,114 @@ static struct sdev_pcm_stream_info *sdrv_stream_get(
 	else
 		stream = &pcm_instance->streams_cap[substream->number];
 	return stream;
+}
+
+static inline void sdrv_alsa_timer_rearm(struct sdev_alsa_timer_info *dpcm)
+{
+	mod_timer(&dpcm->timer, jiffies +
+		(dpcm->frac_period_rest + dpcm->rate - 1) / dpcm->rate);
+}
+
+static void sdrv_alsa_timer_update(struct sdev_alsa_timer_info *dpcm)
+{
+	unsigned long delta;
+
+	delta = jiffies - dpcm->base_time;
+	if (!delta)
+		return;
+	dpcm->base_time += delta;
+	delta *= dpcm->rate;
+	dpcm->frac_pos += delta;
+	while (dpcm->frac_pos >= dpcm->frac_buffer_size)
+		dpcm->frac_pos -= dpcm->frac_buffer_size;
+	while (dpcm->frac_period_rest <= delta) {
+		dpcm->elapsed++;
+		dpcm->frac_period_rest += dpcm->frac_period_size;
+	}
+	dpcm->frac_period_rest -= delta;
+}
+
+static int sdrv_alsa_timer_start(struct snd_pcm_substream *substream)
+{
+	struct sdev_pcm_stream_info *stream = sdrv_stream_get(substream);
+	struct sdev_alsa_timer_info *dpcm = &stream->timer;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dpcm->lock, flags);
+	dpcm->base_time = jiffies;
+	sdrv_alsa_timer_rearm(dpcm);
+	spin_unlock_irqrestore(&dpcm->lock, flags);
+	return 0;
+}
+
+static int sdrv_alsa_timer_stop(struct snd_pcm_substream *substream)
+{
+	struct sdev_pcm_stream_info *stream = sdrv_stream_get(substream);
+	struct sdev_alsa_timer_info *dpcm = &stream->timer;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dpcm->lock, flags);
+	del_timer_sync(&dpcm->timer);
+	spin_unlock_irqrestore(&dpcm->lock, flags);
+	return 0;
+}
+
+static int sdrv_alsa_timer_prepare(struct snd_pcm_substream *substream)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct sdev_pcm_stream_info *stream = sdrv_stream_get(substream);
+	struct sdev_alsa_timer_info *dpcm = &stream->timer;
+
+	dpcm->frac_pos = 0;
+	dpcm->rate = runtime->rate;
+	dpcm->frac_buffer_size = runtime->buffer_size * HZ;
+	dpcm->frac_period_size = runtime->period_size * HZ;
+	dpcm->frac_period_rest = dpcm->frac_period_size;
+	dpcm->elapsed = 0;
+	return 0;
+}
+
+static void sdrv_alsa_timer_callback(unsigned long data)
+{
+	struct sdev_alsa_timer_info *dpcm = (struct sdev_alsa_timer_info *)data;
+	unsigned long flags;
+	int elapsed;
+
+	spin_lock_irqsave(&dpcm->lock, flags);
+	sdrv_alsa_timer_update(dpcm);
+	sdrv_alsa_timer_rearm(dpcm);
+	elapsed = dpcm->elapsed;
+	dpcm->elapsed = 0;
+	spin_unlock_irqrestore(&dpcm->lock, flags);
+	if (elapsed)
+		snd_pcm_period_elapsed(dpcm->substream);
+}
+
+static snd_pcm_uframes_t sdrv_alsa_timer_pointer(
+	struct snd_pcm_substream *substream)
+{
+	struct sdev_pcm_stream_info *stream = sdrv_stream_get(substream);
+	struct sdev_alsa_timer_info *dpcm = &stream->timer;
+	snd_pcm_uframes_t pos;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dpcm->lock, flags);
+	sdrv_alsa_timer_update(dpcm);
+	pos = dpcm->frac_pos / HZ;
+	spin_unlock_irqrestore(&dpcm->lock, flags);
+	return pos;
+}
+
+static int sdrv_alsa_timer_create(struct snd_pcm_substream *substream)
+{
+	struct sdev_pcm_stream_info *stream = sdrv_stream_get(substream);
+	struct sdev_alsa_timer_info *dpcm = &stream->timer;
+
+	spin_lock_init(&dpcm->lock);
+	dpcm->substream = substream;
+	setup_timer(&dpcm->timer, sdrv_alsa_timer_callback,
+		(unsigned long) dpcm);
+	return 0;
 }
 
 static void sdrv_copy_pcm_hw(struct snd_pcm_hardware *dst,
