@@ -42,8 +42,17 @@
 #include <linux/bitmap.h>
 #include <linux/bitops.h>
 #include <linux/iopoll.h>
+#include <linux/net_tstamp.h>
+#include <linux/devcts.h>
 
 #define RCANFD_DRV_NAME			"rcar_canfd"
+
+#define RCANFD_MAX_PENDING_TXTS 16
+#define RCANFD_MAX_CTS_TRIES 128
+#define RCANFD_MAX_CTS_DELAY 1000
+
+// pclk is 133 MHz / 2
+#define RCANFD_TS_CLOCK_NS 15ul
 
 /* Global register bits */
 
@@ -51,6 +60,8 @@
 #define RCANFD_GRMCFG_RCMC		BIT(0)
 
 /* RSCFDnCFDGCFG / RSCFDnGCFG */
+#define RCANFD_GCFG_TSP(x)      (((x) & 0xf) << 8)
+#define RCANFD_GCFG_TMTSCE      BIT(7)
 #define RCANFD_GCFG_EEFE		BIT(6)
 #define RCANFD_GCFG_CMPOC		BIT(5)	/* CAN FD only */
 #define RCANFD_GCFG_DCS			BIT(4)
@@ -236,6 +247,7 @@
 /* RSCFDnCFDCFIDk */
 #define RCANFD_CFID_CFIDE		BIT(31)
 #define RCANFD_CFID_CFRTR		BIT(30)
+#define RCANFD_CFID_THLEN       BIT(29)
 #define RCANFD_CFID_CFID_MASK(x)	((x) & 0x1fffffff)
 
 /* RSCFDnCFDCFPTRk */
@@ -248,6 +260,19 @@
 #define RCANFD_CFFDCSTS_CFBRS		BIT(1)
 #define RCANFD_CFFDCSTS_CFESI		BIT(0)
 
+/* RSCFDnTHLCCm */
+#define RCANFD_THLCC_THLDTE BIT(10)
+#define RCANFD_THLCC_THLIM  BIT(9)
+#define RCANFD_THLCC_THLIE  BIT(8)	
+#define RCANFD_THLCC_THLE   BIT(0)
+
+/* RSCFDnTHLSTSm */
+#define RCANFD_THLSTS_THLIF  BIT(3)
+#define RCANFD_THLSTS_THLELT BIT(2)
+#define RCANFD_THLSTS_THLFLL BIT(1)
+#define RCANFD_THLSTS_THLEMP BIT(0)
+	
+	
 /* This controller supports either Classical CAN only mode or CAN FD only mode.
  * These modes are supported in two separate set of register maps & names.
  * However, some of the register offsets are common for both modes. Those
@@ -508,6 +533,7 @@ struct rcar_canfd_channel {
 	spinlock_t tx_lock;			/* To protect tx path */
 	unsigned int enable_pin;		/* transceiver enable */
 	unsigned int standby_pin;		/* transceiver standby */
+	struct sk_buff *txts_skb[RCANFD_MAX_PENDING_TXTS];
 };
 
 /* Global priv data */
@@ -520,6 +546,12 @@ struct rcar_canfd_global {
 	enum rcar_canfd_fcanclk fcan;	/* CANFD or Ext clock */
 	unsigned long channels_mask;	/* Enabled channels mask */
 	bool fdmode;			/* CAN FD or Classical CAN only mode */
+	unsigned tss_tsp;        /* Timestamp counter divider */
+	unsigned long ts_epoch;    /* Timestamp counter epoch */
+	u16 ts_last; /* Timestamp counter on last epoch update */
+	spinlock_t ts_lock; /* To protect timestamp counter epoch tracking */
+	struct hrtimer ts_hrtimer; /* HRTIMER to update the timestamp epoch */
+	ktime_t ts_hrtimer_interval;
 };
 
 /* CAN FD mode nominal rate constants */
@@ -627,6 +659,51 @@ static void rcar_canfd_tx_failure_cleanup(struct net_device *ndev)
 		can_free_echo_skb(ndev, i);
 }
 
+static enum hrtimer_restart rcar_canfd_ts_epoch_hrtimer(struct hrtimer *timer)
+{
+	struct rcar_canfd_global *gpriv =
+		container_of(timer, struct rcar_canfd_global, ts_hrtimer);
+
+	u16 ts = rcar_canfd_read(gpriv->base, RCANFD_GTSC);
+	
+	spin_lock(&gpriv->ts_lock);
+	if (ts < gpriv->ts_last) {
+		++gpriv->ts_epoch;
+	}
+	gpriv->ts_last = ts;
+	spin_unlock(&gpriv->ts_lock);
+
+	hrtimer_forward_now(timer, gpriv->ts_hrtimer_interval);
+	return HRTIMER_RESTART;
+}
+
+static ktime_t rcar_canfd_ts_to_ktime(struct rcar_canfd_global *gpriv, u16 ts)
+{
+	unsigned long flags;
+	u64 epoch;
+	
+	spin_lock_irqsave(&gpriv->ts_lock, flags);
+    epoch = gpriv->ts_epoch;
+	if (ts < gpriv->ts_last) {
+		++epoch;
+	}
+	spin_unlock_irqrestore(&gpriv->ts_lock, flags);
+	
+	/* Timestamp counter period is RCANFD_TS_CLOCK_NS ns * tss_tsp */
+	return ns_to_ktime(((epoch << 16) + (u64)ts) *
+					   RCANFD_TS_CLOCK_NS * ((u64)gpriv->tss_tsp));
+}
+
+static int rcar_canfd_tsp_to_cfg(u8 tsp, u8 *cfg)
+{
+	if (tsp == 0 || !is_power_of_2(tsp) || tsp > 32768) {
+		return -EINVAL;
+	}
+
+	*cfg = ilog2(tsp);
+	return 0;
+}
+
 static int rcar_canfd_reset_controller(struct rcar_canfd_global *gpriv)
 {
 	u32 sts, ch;
@@ -691,6 +768,7 @@ static int rcar_canfd_reset_controller(struct rcar_canfd_global *gpriv)
 static void rcar_canfd_configure_controller(struct rcar_canfd_global *gpriv)
 {
 	u32 cfg, ch;
+	u8 tsp_cfg = 0;
 
 	/* Global configuration settings */
 
@@ -705,6 +783,14 @@ static void rcar_canfd_configure_controller(struct rcar_canfd_global *gpriv)
 	if (gpriv->fcan != RCANFD_CANFDCLK)
 		cfg |= RCANFD_GCFG_DCS;
 
+	/* Setup timestamp counter */
+	if (rcar_canfd_tsp_to_cfg(gpriv->tss_tsp, &tsp_cfg) != 0)
+		dev_warn(&gpriv->pdev->dev, "Invalid timestamp counter prescaler configuration");
+	cfg |= RCANFD_GCFG_TSP(tsp_cfg);
+	
+	/* Enable transmit timestamps */
+	cfg |= RCANFD_GCFG_TMTSCE;
+	
 	rcar_canfd_set_bit(gpriv->base, RCANFD_GCFG, cfg);
 
 	/* Channel configuration settings */
@@ -809,6 +895,10 @@ static void rcar_canfd_configure_tx(struct rcar_canfd_global *gpriv, u32 ch)
 		/* Clear FD mode specific control/status register */
 		rcar_canfd_write(gpriv->base,
 				 RCANFD_F_CFFDCSTS(ch, RCANFD_CFFIFO_IDX), 0);
+
+	/* Configure Tx history buffer */
+	cfg = RCANFD_THLCC_THLDTE | RCANFD_THLCC_THLIE | RCANFD_THLCC_THLIM;
+	rcar_canfd_write(gpriv->base, RCANFD_THLCC(ch), cfg);
 }
 
 static void rcar_canfd_enable_global_interrupts(struct rcar_canfd_global *gpriv)
@@ -1077,6 +1167,60 @@ static void rcar_canfd_tx_done(struct net_device *ndev)
 	can_led_event(ndev, CAN_LED_EVENT_TX);
 }
 
+static unsigned rcar_canfd_calc_frame_time(const struct can_frame *cf,
+										  struct rcar_canfd_channel *priv)
+{
+	u32 bitrate = priv->can.bittiming.bitrate;
+	u32 bittime = 1000000000u/bitrate;
+
+	// TODO: This ignores bitstuffing...
+	unsigned bits = cf->can_dlc*8;
+	if (cf->can_id & CAN_EFF_FLAG) {
+		bits += CAN_EFF_ID_BITS + 1+1+1+1+2+4+15+1+1+1+7;
+	} else {
+		bits += CAN_SFF_ID_BITS + 1+1+1+1+4+15+1+1+1+7;
+	}
+
+	return bittime*bits;
+}
+
+static void rcar_canfd_read_thb(struct net_device *ndev)
+{
+	struct rcar_canfd_channel *priv = netdev_priv(ndev);
+	u32 ch = priv->channel;
+	u32 sts;
+
+	while (!((sts = rcar_canfd_read(priv->base, RCANFD_THLSTS(ch))) & RCANFD_THLSTS_THLEMP)) {
+		uint32_t txhist = rcar_canfd_read(priv->base, RCANFD_C_THLACC(ch));
+
+		unsigned label = (txhist & 0xff00) >> 8;
+		unsigned ts = (txhist & 0xffff0000) >> 16;
+		if (label >= RCANFD_MAX_PENDING_TXTS ||
+			NULL == priv->txts_skb[label]) {
+			dev_warn_ratelimited(&priv->gpriv->pdev->dev, "Spurious THB: %.8x\n",
+								 txhist);
+		} else {
+			struct skb_shared_hwtstamps shhwtstamps;
+			shhwtstamps.hwtstamp = rcar_canfd_ts_to_ktime(priv->gpriv, ts);
+			if (ktime_to_ns(shhwtstamps.hwtstamp) == 0) {
+				dev_warn(&priv->gpriv->pdev->dev, "Timestamp is 0! TS: %u\n", ts);
+			}
+			shhwtstamps.hwtstamp = ktime_add_ns(
+				shhwtstamps.hwtstamp,
+				rcar_canfd_calc_frame_time((struct can_frame *)priv->txts_skb[label]->data,
+										   priv));
+			
+			skb_tstamp_tx(priv->txts_skb[label], &shhwtstamps);
+			dev_kfree_skb_irq(priv->txts_skb[label]);
+			priv->txts_skb[label] = NULL;
+		}
+		
+		rcar_canfd_write(priv->base, RCANFD_THLPCTR(ch), 0xff);
+	}
+
+	rcar_canfd_write(priv->base, RCANFD_THLSTS(ch), sts & ~RCANFD_THLSTS_THLIF);
+}
+
 static irqreturn_t rcar_canfd_global_interrupt(int irq, void *dev_id)
 {
 	struct rcar_canfd_global *gpriv = dev_id;
@@ -1177,6 +1321,12 @@ static irqreturn_t rcar_canfd_channel_interrupt(int irq, void *dev_id)
 				      RCANFD_CFSTS(ch, RCANFD_CFFIFO_IDX));
 		if (likely(sts & RCANFD_CFSTS_CFTXIF))
 			rcar_canfd_tx_done(ndev);
+
+		/* Handle transmit history interrupts */
+		sts = rcar_canfd_read(priv->base,
+							  RCANFD_THLSTS(ch));
+		if (unlikely(sts & RCANFD_THLSTS_THLIF))
+			rcar_canfd_read_thb(ndev);
 	}
 	return IRQ_HANDLED;
 }
@@ -1257,6 +1407,9 @@ static int rcar_canfd_start(struct net_device *ndev)
 			   RCANFD_CFCC_CFE);
 	rcar_canfd_set_bit(priv->base, RCANFD_RFCC(ridx), RCANFD_RFCC_RFE);
 
+	/* Enable transmit history */
+	rcar_canfd_set_bit(priv->base, RCANFD_THLCC(ch), RCANFD_THLCC_THLE);
+	
 	priv->can.state = CAN_STATE_ERROR_ACTIVE;
 	return 0;
 
@@ -1349,12 +1502,24 @@ static int rcar_canfd_close(struct net_device *ndev)
 	return 0;
 }
 
+static int rcar_canfd_txts_getslot(const struct rcar_canfd_channel *priv)
+{
+	int i;
+	
+	for (i = 0;i < RCANFD_MAX_PENDING_TXTS;++i) {
+		if (NULL == priv->txts_skb[i])
+			return i;
+	}
+
+	return -1;
+}
+
 static netdev_tx_t rcar_canfd_start_xmit(struct sk_buff *skb,
 					 struct net_device *ndev)
 {
 	struct rcar_canfd_channel *priv = netdev_priv(ndev);
 	struct canfd_frame *cf = (struct canfd_frame *)skb->data;
-	u32 sts = 0, id, dlc;
+	u32 sts = 0, id, dlc = 0;
 	unsigned long flags;
 	u32 ch = priv->channel;
 
@@ -1370,8 +1535,18 @@ static netdev_tx_t rcar_canfd_start_xmit(struct sk_buff *skb,
 
 	if (cf->can_id & CAN_RTR_FLAG)
 		id |= RCANFD_CFID_CFRTR;
-
-	dlc = RCANFD_CFPTR_CFDLC(can_len2dlc(cf->len));
+	
+	if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
+		int slot = rcar_canfd_txts_getslot(priv);
+		if (slot >= 0) {
+			skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
+			priv->txts_skb[slot] = skb_get(skb);
+			id |= RCANFD_CFID_THLEN;
+			dlc |= RCANFD_CFPTR_CFPTR(slot);
+		}
+	}
+	
+	dlc |= RCANFD_CFPTR_CFDLC(can_len2dlc(cf->len));
 
 	if (priv->can.ctrlmode & CAN_CTRLMODE_FD) {
 		rcar_canfd_write(priv->base,
@@ -1412,6 +1587,8 @@ static netdev_tx_t rcar_canfd_start_xmit(struct sk_buff *skb,
 	/* Stop the queue if we've filled all FIFO entries */
 	if (priv->tx_head - priv->tx_tail >= RCANFD_FIFO_DEPTH)
 		netif_stop_queue(ndev);
+
+	skb_tx_timestamp(skb);
 
 	/* Start Tx: Write 0xff to CFPC to increment the CPU-side
 	 * pointer for the Common FIFO
@@ -1566,6 +1743,32 @@ static const struct net_device_ops rcar_canfd_netdev_ops = {
 	.ndo_change_mtu = can_change_mtu,
 };
 
+static int rcar_canfd_get_ts_info(struct net_device *dev,
+								  struct ethtool_ts_info *info)
+{
+	info->phc_index = -1;
+	info->so_timestamping =
+		SOF_TIMESTAMPING_TX_SOFTWARE |
+		SOF_TIMESTAMPING_TX_HARDWARE |
+		SOF_TIMESTAMPING_SOFTWARE |
+		SOF_TIMESTAMPING_RX_SOFTWARE |
+		SOF_TIMESTAMPING_RAW_HARDWARE;
+
+	info->tx_types =
+			BIT(HWTSTAMP_TX_OFF) |
+			BIT(HWTSTAMP_TX_ON);
+
+	info->rx_filters =
+		BIT(HWTSTAMP_FILTER_NONE) |
+		BIT(HWTSTAMP_FILTER_ALL);
+
+	return 0;
+}
+
+static const struct ethtool_ops rcar_canfd_ethtool_ops = {
+	.get_ts_info = rcar_canfd_get_ts_info,
+};
+
 static int rcar_canfd_channel_probe(struct rcar_canfd_global *gpriv, u32 ch,
 				    u32 fcan_freq)
 {
@@ -1583,6 +1786,7 @@ static int rcar_canfd_channel_probe(struct rcar_canfd_global *gpriv, u32 ch,
 	priv = netdev_priv(ndev);
 
 	ndev->netdev_ops = &rcar_canfd_netdev_ops;
+	ndev->ethtool_ops = &rcar_canfd_ethtool_ops;
 	ndev->flags |= IFF_ECHO;
 	priv->ndev = ndev;
 	priv->base = gpriv->base;
@@ -1642,6 +1846,32 @@ static void rcar_canfd_channel_remove(struct rcar_canfd_global *gpriv, u32 ch)
 	}
 }
 
+#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
+static int rcar_canfd_get_time_fn(ktime_t *device_time,
+						   ktime_t *sys_time,
+						   void *ctx)
+{
+	struct rcar_canfd_global *gpriv = (struct rcar_canfd_global *)ctx;
+	int it = 0;
+	
+	while (it < RCANFD_MAX_CTS_TRIES) {
+		ktime_t pre = ktime_get(), post;
+		u16 ts = rcar_canfd_read(gpriv->base, RCANFD_GTSC);
+		post = ktime_get();
+
+		if (ktime_to_ns(ktime_sub(post, pre)) < RCANFD_MAX_CTS_DELAY) {
+			*device_time = rcar_canfd_ts_to_ktime(gpriv, ts);
+			*sys_time = ktime_add_ns(pre, ktime_divns(ktime_sub(post, pre), 2));
+			
+			return 0;
+		}
+		++it;
+	}
+
+	return -ETIMEDOUT;
+}
+#endif
+
 static int rcar_canfd_probe(struct platform_device *pdev)
 {
 	struct resource *mem;
@@ -1652,10 +1882,17 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	unsigned long channels_mask = 0;
 	int err, ret, ch_irq, g_irq;
 	bool fdmode = true;			/* CAN FD only mode - default */
+	unsigned tss_tsp = 1;
 
 	if (of_property_read_bool(pdev->dev.of_node, "renesas,no-can-fd"))
 		fdmode = false;			/* Classical CAN only mode */
 
+	if (of_property_read_u32_index(pdev->dev.of_node, "renesas,tss-tsp", 0, &tss_tsp) != 0 ||
+		tss_tsp == 0 || tss_tsp > 32768) {
+		tss_tsp = 1;
+		dev_warn(&pdev->dev, "invalid timestamp divider");
+	}
+	
 	of_child0 = of_get_child_by_name(pdev->dev.of_node, "channel0");
 	if (of_child0 && of_device_is_available(of_child0))
 		channels_mask |= BIT(0);	/* Channel 0 */
@@ -1687,7 +1924,14 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	gpriv->pdev = pdev;
 	gpriv->channels_mask = channels_mask;
 	gpriv->fdmode = fdmode;
+	gpriv->tss_tsp = tss_tsp;
+	gpriv->ts_epoch = 0;
+	gpriv->ts_last = 0;
 
+	spin_lock_init(&gpriv->ts_lock);
+	hrtimer_init(&gpriv->ts_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	gpriv->ts_hrtimer.function = &rcar_canfd_ts_epoch_hrtimer;
+		
 	/* Peripheral clock */
 	gpriv->clkp = devm_clk_get(&pdev->dev, "fck");
 	if (IS_ERR(gpriv->clkp)) {
@@ -1790,6 +2034,19 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 		goto fail_mode;
 	}
 
+	/* Schedule timestamp epoch hrtimer 4 times per counter overflow period */
+	gpriv->ts_hrtimer_interval = ns_to_ktime(RCANFD_TS_CLOCK_NS * 16384ul * gpriv->tss_tsp);
+	dev_info(&pdev->dev, "hrtimer interval is %lld ns", ktime_to_ns(gpriv->ts_hrtimer_interval));
+	hrtimer_start(&gpriv->ts_hrtimer, gpriv->ts_hrtimer_interval, HRTIMER_MODE_REL);
+
+#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
+	err = devcts_register_device(pdev->name, &rcar_canfd_get_time_fn,
+									 (void*)gpriv);
+	if (err != 0) {
+		dev_warn(&pdev->dev, "Failed to register with devcts: %d\n", err);
+	}
+#endif
+		
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
 		enum of_gpio_flags enable_flags, standby_flags;
 		struct device_node *of_node = ch == 0 ? of_child0 : of_child1;
@@ -1832,6 +2089,7 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 fail_channel:
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS)
 		rcar_canfd_channel_remove(gpriv, ch);
+	hrtimer_cancel(&gpriv->ts_hrtimer);
 fail_mode:
 	rcar_canfd_disable_global_interrupts(gpriv);
 fail_clk:
@@ -1845,6 +2103,12 @@ static int rcar_canfd_remove(struct platform_device *pdev)
 	struct rcar_canfd_global *gpriv = platform_get_drvdata(pdev);
 	u32 ch;
 
+#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
+	devcts_unregister_device(pdev->name);
+#endif
+	
+	hrtimer_cancel(&gpriv->ts_hrtimer);
+	
 	rcar_canfd_reset_controller(gpriv);
 	rcar_canfd_disable_global_interrupts(gpriv);
 

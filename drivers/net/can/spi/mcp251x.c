@@ -76,6 +76,7 @@
 #include <linux/spi/spi.h>
 #include <linux/uaccess.h>
 #include <linux/regulator/consumer.h>
+#include <linux/net_tstamp.h>
 
 /* SPI interface instruction set */
 #define INSTRUCTION_WRITE	0x02
@@ -270,6 +271,10 @@ struct mcp251x_priv {
 	struct regulator *power;
 	struct regulator *transceiver;
 	struct clk *clk;
+
+	struct sk_buff *txts_skb[3];
+	u8 pending_tx_ts;
+	ktime_t last_irq;
 };
 
 #define MCP251X_IS(_model) \
@@ -526,6 +531,10 @@ static netdev_tx_t mcp251x_hard_start_xmit(struct sk_buff *skb,
 	if (can_dropped_invalid_skb(net, skb))
 		return NETDEV_TX_OK;
 
+	if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
+		skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
+	}
+	
 	netif_stop_queue(net);
 	priv->tx_skb = skb;
 	queue_work(priv->wq, &priv->tx_work);
@@ -756,6 +765,12 @@ static void mcp251x_tx_work_handler(struct work_struct *ws)
 
 			if (frame->can_dlc > CAN_FRAME_MAX_DATA_LEN)
 				frame->can_dlc = CAN_FRAME_MAX_DATA_LEN;
+			
+			skb_tx_timestamp(priv->tx_skb);
+			if (unlikely(skb_shinfo(priv->tx_skb)->tx_flags & SKBTX_HW_TSTAMP)) {
+				priv->txts_skb[0] = skb_get(priv->tx_skb);
+				priv->pending_tx_ts |= CANINTF_TX0IF;
+			}
 			mcp251x_hw_tx(spi, frame, 0);
 			priv->tx_len = 1 + frame->can_dlc;
 			can_put_echo_skb(priv->tx_skb, net, 0);
@@ -800,6 +815,37 @@ static void mcp251x_restart_work_handler(struct work_struct *ws)
 	mutex_unlock(&priv->mcp_lock);
 }
 
+static void mcp251x_can_tx_timestamp(struct mcp251x_priv *priv, u8 intf)
+{
+	struct skb_shared_hwtstamps shhwtstamps;
+	int i;
+	
+	shhwtstamps.hwtstamp = priv->last_irq;
+
+	for(i = 0;i < 3;++i) {
+		if ((intf & priv->pending_tx_ts) & (CANINTF_TX0IF << i)) {
+			if (WARN(priv->txts_skb[i] == NULL, "Spurious Tx TS")) {
+				priv->pending_tx_ts &= ~(CANINTF_TX0IF << i);
+				continue;
+			}
+			skb_tstamp_tx(priv->txts_skb[i], &shhwtstamps);
+			dev_kfree_skb_any(priv->txts_skb[i]);
+			priv->txts_skb[i] = NULL;
+			priv->pending_tx_ts &= ~(CANINTF_TX0IF << i);
+		}
+	}
+}
+
+/* hard interrupt: take timestamp for Tx ts, wake threaded handler */
+static irqreturn_t mcp251x_can_interrupt(int irq, void *dev_id)
+{
+	struct mcp251x_priv *priv = dev_id;
+
+	priv->last_irq = ktime_get();
+	
+	return IRQ_WAKE_THREAD;
+}
+
 static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 {
 	struct mcp251x_priv *priv = dev_id;
@@ -837,6 +883,10 @@ static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 				clear_intf |= CANINTF_RX1IF;
 		}
 
+		/* any tx timestamps we need to take? */
+		if (intf & priv->pending_tx_ts)
+			mcp251x_can_tx_timestamp(priv, intf & priv->pending_tx_ts);
+		
 		/* any error or tx interrupt we need to clear? */
 		if (intf & (CANINTF_ERR | CANINTF_TX))
 			clear_intf |= intf & (CANINTF_ERR | CANINTF_TX);
@@ -952,7 +1002,7 @@ static int mcp251x_open(struct net_device *net)
 	priv->tx_skb = NULL;
 	priv->tx_len = 0;
 
-	ret = request_threaded_irq(spi->irq, NULL, mcp251x_can_ist,
+	ret = request_threaded_irq(spi->irq, mcp251x_can_interrupt, mcp251x_can_ist,
 				   flags | IRQF_ONESHOT, DEVICE_NAME, priv);
 	if (ret) {
 		dev_err(&spi->dev, "failed to acquire irq %d\n", spi->irq);
@@ -998,6 +1048,29 @@ static const struct net_device_ops mcp251x_netdev_ops = {
 	.ndo_change_mtu = can_change_mtu,
 };
 
+static int mcp251x_get_ts_info(struct net_device *dev,
+							   struct ethtool_ts_info *info)
+{
+	info->phc_index = -1;
+	info->so_timestamping =
+		SOF_TIMESTAMPING_TX_SOFTWARE |
+		SOF_TIMESTAMPING_TX_HARDWARE |
+		SOF_TIMESTAMPING_SOFTWARE;
+
+	info->tx_types =
+			BIT(HWTSTAMP_TX_OFF) |
+			BIT(HWTSTAMP_TX_ON);
+
+	info->rx_filters =
+		BIT(HWTSTAMP_FILTER_NONE);
+
+	return 0;
+}
+
+static const struct ethtool_ops mcp251x_ethtool_ops = {
+	.get_ts_info = mcp251x_get_ts_info,
+};
+
 static const struct of_device_id mcp251x_of_match[] = {
 	{
 		.compatible	= "microchip,mcp2510",
@@ -1032,7 +1105,7 @@ static int mcp251x_can_probe(struct spi_device *spi)
 	struct net_device *net;
 	struct mcp251x_priv *priv;
 	struct clk *clk;
-	int freq, ret;
+	int freq, ret, i;
 
 	clk = devm_clk_get(&spi->dev, NULL);
 	if (IS_ERR(clk)) {
@@ -1060,6 +1133,7 @@ static int mcp251x_can_probe(struct spi_device *spi)
 	}
 
 	net->netdev_ops = &mcp251x_netdev_ops;
+	net->ethtool_ops = &mcp251x_ethtool_ops;
 	net->flags |= IFF_ECHO;
 
 	priv = netdev_priv(net);
@@ -1074,6 +1148,11 @@ static int mcp251x_can_probe(struct spi_device *spi)
 		priv->model = spi_get_device_id(spi)->driver_data;
 	priv->net = net;
 	priv->clk = clk;
+
+	priv->pending_tx_ts = 0;
+	for(i = 0;i < 3;++i) {
+		priv->txts_skb[i] = NULL;
+	}
 
 	spi_set_drvdata(spi, priv);
 

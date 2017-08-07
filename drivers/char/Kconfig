@@ -588,5 +588,13 @@ config TILE_SROM
 
 source "drivers/char/xillybus/Kconfig"
 
+config CHAR_CROSSTIMESTAMP
+	tristate "Crosstimestamping character device"
+	default m
+	help
+	  This device allows userspace programs to query crosstimestamps
+	  for supported devices as well as request an interpolation between
+	  device and system timestamps or between timestamps of two devices.
+
 endmenu
 

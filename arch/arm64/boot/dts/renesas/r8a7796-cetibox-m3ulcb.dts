@@ -667,6 +667,7 @@
 
 	renesas,can-clock-select = <0x0>;
 	renesas,no-can-fd; /* makes the driver to put controller into classic CAN mode */
+	renesas,tss-tsp = <128>; /* Set timestamp divider to 128 */
 
 	channel0 {
 		status = "okay";
