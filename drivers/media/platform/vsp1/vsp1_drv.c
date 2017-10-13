@@ -231,12 +231,17 @@ static irqreturn_t vsp1_irq_handler(int irq, void *data)
 	}
 
 	for (i = 0; i < vsp1->info->wpf_count; ++i) {
+		struct vsp1_rwpf *wpf = vsp1->wpf[i];
+
+		if (!wpf)
+			continue;
+
 		status = vsp1_read(vsp1, VI6_DISP_IRQ_STA(i));
 		vsp1_write(vsp1, VI6_DISP_IRQ_STA(i),
 				 ~status & VI6_DISP_IRQ_STA_DST);
 
 		if (status & VI6_DISP_IRQ_STA_DST) {
-			vsp1_drm_display_start(vsp1, i);
+			vsp1_drm_display_start(vsp1, i, wpf->pipe);
 			ret = IRQ_HANDLED;
 		}
 	}
@@ -1009,17 +1014,10 @@ done:
 static int vsp1_remove(struct platform_device *pdev)
 {
 	struct vsp1_device *vsp1 = platform_get_drvdata(pdev);
-	u32 i, lif_num = 1;
-
-	if (vsp1_gen3_vspdl_check(vsp1))
-		lif_num = 2;
 
 	vsp1_destroy_entities(vsp1);
-
-	for (i = 0; i < lif_num; i++) {
-		vsp1_device_put(vsp1);
-		rcar_fcp_put(vsp1->fcp);
-	}
+	vsp1_device_put(vsp1);
+	rcar_fcp_put(vsp1->fcp);
 
 	pm_runtime_disable(&pdev->dev);
 
@@ -1035,6 +1033,7 @@ static const struct of_device_id vsp1_of_match[] = {
 	{ .compatible = "renesas,vsp2" },
 	{ },
 };
+MODULE_DEVICE_TABLE(of, vsp1_of_match);
 
 static struct platform_driver vsp1_platform_driver = {
 	.probe		= vsp1_probe,
