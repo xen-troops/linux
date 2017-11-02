@@ -608,11 +608,12 @@
 
 	/* Ethernet switch, configured by userspace */
 	spidev@0 {
-		compatible = "renesas,sh-msiof";
+		compatible = "nxp,sja1105";
 		reg = <0>;
 		spi-max-frequency = <66666666>;
 		spi-cpha;
-		spi-cpol;
+		renesas,dtdl = <200>;
+		renesas,syncdl = <300>;
 	};
 	/* The PiCAN board */
 	can2: mcp2515@1 {
