@@ -454,8 +454,9 @@ static int ravb_dmac_init(struct net_device *ndev)
 	ravb_ring_format(ndev, RAVB_NC);
 
 	/* Set AVB RX */
-	ravb_write(ndev,
-		   RCR_EFFS | RCR_ENCF | RCR_ETS0 | RCR_ESF | 0x18000000, RCR);
+	/* CETITEC TMO: Removed RCR_ENCF, i.e. disabled Network Control queue so
+	   that META frames are treated equally to gPTP frames. */
+	ravb_write(ndev, RCR_EFFS | RCR_ETS0 | RCR_ESF | 0x18000000, RCR);
 
 	/* Set FIFO size */
 	ravb_write(ndev, TGC_TQP_AVBMODE1 | 0x00222200, TGC);
@@ -574,9 +575,8 @@ static bool ravb_rx(struct net_device *ndev, int *quota, int q)
 			dma_unmap_single(ndev->dev.parent, le32_to_cpu(desc->dptr),
 					 PKT_BUF_SZ,
 					 DMA_FROM_DEVICE);
-			get_ts &= (q == RAVB_NC) ?
-					RAVB_RXTSTAMP_TYPE_V2_L2_EVENT :
-					~RAVB_RXTSTAMP_TYPE_V2_L2_EVENT;
+			/* CETITEC TMO: Replace NC queue check with ETH_TYPE check because
+			   the NC queue is disbled */
 			if (get_ts) {
 				struct skb_shared_hwtstamps *shhwtstamps;
 
