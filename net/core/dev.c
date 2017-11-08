@@ -3884,7 +3884,9 @@ drop:
 	local_irq_restore(flags);
 
 	atomic_long_inc(&skb->dev->rx_dropped);
-	kfree_skb(skb);
+
+	/* We may have been called from within an IRQ context. */
+	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 }
 
