@@ -63,7 +63,7 @@ xendrm_kms_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 	drm_gem_object_unreference_unlocked(gem_obj);
 
 	ret = xendrm_dev->front_ops->fb_attach(
-		xendrm_dev->xdrv_info, xendrm_dumb_to_cookie(gem_obj),
+		xendrm_dev->xdrv_info, xendrm_dbuf_to_cookie(gem_obj),
 		xendrm_fb_to_cookie(fb), fb->width, fb->height,
 		fb->pixel_format);
 	if (ret < 0) {

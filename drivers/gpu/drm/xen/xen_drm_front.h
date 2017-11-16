@@ -32,11 +32,11 @@ struct xendispl_front_ops {
 		uint32_t width, uint32_t height, uint32_t bpp,
 		uint64_t fb_cookie);
 	struct page **(*dbuf_create)(struct xdrv_info *drv_info,
-		uint64_t dumb_cookie, uint32_t width, uint32_t height,
+		uint64_t dbuf_cookie, uint32_t width, uint32_t height,
 		uint32_t bpp, uint64_t size, struct page **pages,
 		struct sg_table *sgt);
-	int (*dbuf_destroy)(struct xdrv_info *drv_info, uint64_t dumb_cookie);
-	int (*fb_attach)(struct xdrv_info *drv_info, uint64_t dumb_cookie,
+	int (*dbuf_destroy)(struct xdrv_info *drv_info, uint64_t dbuf_cookie);
+	int (*fb_attach)(struct xdrv_info *drv_info, uint64_t dbuf_cookie,
 		uint64_t fb_cookie, uint32_t width, uint32_t height,
 		uint32_t pixel_format);
 	int (*fb_detach)(struct xdrv_info *drv_info, uint64_t fb_cookie);

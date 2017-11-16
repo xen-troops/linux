@@ -34,7 +34,7 @@
  */
 struct xdrv_shared_buffer_info {
 	struct list_head list;
-	uint64_t dumb_cookie;
+	uint64_t dbuf_cookie;
 	uint64_t fb_cookie;
 	/* number of references granted for the backend use:
 	 * for GEM/imported DMABUFS buffers this holds grefs for the
@@ -62,8 +62,8 @@ struct xdrv_shared_buffer_info {
 
 struct xdrv_shared_buffer_alloc_info {
 	struct xenbus_device *xb_dev;
-	struct list_head *dumb_buf_list;
-	uint64_t dumb_cookie;
+	struct list_head *dbuf_list;
+	uint64_t dbuf_cookie;
 	struct page **pages;
 	int num_pages;
 	struct sg_table *sgt;
@@ -75,11 +75,11 @@ struct xdrv_shared_buffer_info *xdrv_shbuf_alloc(
 	struct xdrv_shared_buffer_alloc_info *info);
 int xdrv_shbuf_be_alloc_map(struct xdrv_shared_buffer_info *buf);
 struct page **xdrv_shbuf_get_pages(struct xdrv_shared_buffer_info *buf);
-struct xdrv_shared_buffer_info *xdrv_shbuf_get_by_dumb_cookie(
-	struct list_head *dumb_buf_list, uint64_t dumb_cookie);
-void xdrv_shbuf_flush_fb(struct list_head *dumb_buf_list, uint64_t fb_cookie);
-void xdrv_shbuf_free_by_dumb_cookie(struct list_head *dumb_buf_list,
-	uint64_t dumb_cookie);
-void xdrv_shbuf_free_all(struct list_head *dumb_buf_list);
+struct xdrv_shared_buffer_info *xdrv_shbuf_get_by_dbuf_cookie(
+	struct list_head *dbuf_list, uint64_t dbuf_cookie);
+void xdrv_shbuf_flush_fb(struct list_head *dbuf_list, uint64_t fb_cookie);
+void xdrv_shbuf_free_by_dbuf_cookie(struct list_head *dbuf_list,
+	uint64_t dbuf_cookie);
+void xdrv_shbuf_free_all(struct list_head *dbuf_list);
 
 #endif /* __XEN_DRM_SHBUF_H_ */

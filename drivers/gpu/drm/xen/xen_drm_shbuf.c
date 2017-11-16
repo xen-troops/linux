@@ -36,24 +36,24 @@ grant_ref_t xdrv_shbuf_get_dir_start(struct xdrv_shared_buffer_info *buf)
 	return buf->grefs[0];
 }
 
-struct xdrv_shared_buffer_info *xdrv_shbuf_get_by_dumb_cookie(
-	struct list_head *dumb_buf_list, uint64_t dumb_cookie)
+struct xdrv_shared_buffer_info *xdrv_shbuf_get_by_dbuf_cookie(
+	struct list_head *dbuf_list, uint64_t dbuf_cookie)
 {
 	struct xdrv_shared_buffer_info *buf, *q;
 
-	list_for_each_entry_safe(buf, q, dumb_buf_list, list) {
-		if (buf->dumb_cookie == dumb_cookie)
+	list_for_each_entry_safe(buf, q, dbuf_list, list) {
+		if (buf->dbuf_cookie == dbuf_cookie)
 			return buf;
 	}
 	return NULL;
 }
 
-void xdrv_shbuf_flush_fb(struct list_head *dumb_buf_list, uint64_t fb_cookie)
+void xdrv_shbuf_flush_fb(struct list_head *dbuf_list, uint64_t fb_cookie)
 {
 #if defined(CONFIG_X86)
 	struct xdrv_shared_buffer_info *buf, *q;
 
-	list_for_each_entry_safe(buf, q, dumb_buf_list, list) {
+	list_for_each_entry_safe(buf, q, dbuf_list, list) {
 		if (buf->fb_cookie == fb_cookie) {
 			if (buf->sgt)
 				drm_clflush_sg(buf->sgt);
@@ -196,13 +196,13 @@ static void xdrv_shbuf_free(struct xdrv_shared_buffer_info *buf)
 	kfree(buf);
 }
 
-void xdrv_shbuf_free_by_dumb_cookie(struct list_head *dumb_buf_list,
-	uint64_t dumb_cookie)
+void xdrv_shbuf_free_by_dbuf_cookie(struct list_head *dbuf_list,
+	uint64_t dbuf_cookie)
 {
 	struct xdrv_shared_buffer_info *buf, *q;
 
-	list_for_each_entry_safe(buf, q, dumb_buf_list, list) {
-		if (buf->dumb_cookie == dumb_cookie) {
+	list_for_each_entry_safe(buf, q, dbuf_list, list) {
+		if (buf->dbuf_cookie == dbuf_cookie) {
 			list_del(&buf->list);
 			xdrv_shbuf_free(buf);
 			break;
@@ -210,11 +210,11 @@ void xdrv_shbuf_free_by_dumb_cookie(struct list_head *dumb_buf_list,
 	}
 }
 
-void xdrv_shbuf_free_all(struct list_head *dumb_buf_list)
+void xdrv_shbuf_free_all(struct list_head *dbuf_list)
 {
 	struct xdrv_shared_buffer_info *buf, *q;
 
-	list_for_each_entry_safe(buf, q, dumb_buf_list, list) {
+	list_for_each_entry_safe(buf, q, dbuf_list, list) {
 		list_del(&buf->list);
 		xdrv_shbuf_free(buf);
 	}
@@ -352,7 +352,7 @@ struct xdrv_shared_buffer_info *xdrv_shbuf_alloc(
 	num_pages_dir = DIV_ROUND_UP(info->num_pages,
 		XENDRM_NUM_GREFS_PER_PAGE);
 	buf->xb_dev = info->xb_dev;
-	buf->dumb_cookie = info->dumb_cookie;
+	buf->dbuf_cookie = info->dbuf_cookie;
 	buf->be_alloc = info->be_alloc;
 	buf->sgt = info->sgt;
 	buf->num_pages = info->num_pages;
@@ -366,7 +366,7 @@ struct xdrv_shared_buffer_info *xdrv_shbuf_alloc(
 	if (xdrv_shbuf_grant_refs(buf, info->num_pages, num_pages_dir) < 0)
 		goto fail;
 	xdrv_shbuf_fill_page_dir(buf, info->num_pages, num_pages_dir);
-	list_add(&buf->list, info->dumb_buf_list);
+	list_add(&buf->list, info->dbuf_list);
 	return buf;
 fail:
 	xdrv_shbuf_free(buf);

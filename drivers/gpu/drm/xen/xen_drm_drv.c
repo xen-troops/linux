@@ -80,7 +80,7 @@ static int xendrm_dumb_create(struct drm_file *file_priv,
 			sgt = xendrm_gem_get_sg_table(gem_obj);
 	}
 	pages = xendrm_dev->front_ops->dbuf_create(
-			xendrm_dev->xdrv_info, xendrm_dumb_to_cookie(gem_obj),
+			xendrm_dev->xdrv_info, xendrm_dbuf_to_cookie(gem_obj),
 			args->width, args->height, args->bpp, args->size,
 			pages, sgt);
 	if (IS_ERR_OR_NULL(pages)) {
@@ -103,7 +103,7 @@ static void xendrm_free_object(struct drm_gem_object *gem_obj)
 	struct xendrm_device *xendrm_dev = gem_obj->dev->dev_private;
 
 	xendrm_dev->front_ops->dbuf_destroy(xendrm_dev->xdrv_info,
-		xendrm_dumb_to_cookie(gem_obj));
+		xendrm_dbuf_to_cookie(gem_obj));
 	xendrm_gem_free_object(gem_obj);
 }
 

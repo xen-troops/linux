@@ -65,7 +65,7 @@ static inline uint64_t xendrm_fb_to_cookie(struct drm_framebuffer *fb)
 	return (uint64_t)fb;
 }
 
-static inline uint64_t xendrm_dumb_to_cookie(struct drm_gem_object *gem_obj)
+static inline uint64_t xendrm_dbuf_to_cookie(struct drm_gem_object *gem_obj)
 {
 	return (uint64_t)gem_obj;
 }
