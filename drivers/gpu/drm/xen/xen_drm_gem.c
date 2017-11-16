@@ -26,6 +26,7 @@
 #include <linux/shmem_fs.h>
 
 #include "xen_drm_drv.h"
+#include "xen_drm_front.h"
 #include "xen_drm_gem.h"
 
 struct xen_gem_object {
@@ -156,13 +157,17 @@ void xendrm_gem_free_object(struct drm_gem_object *gem_obj)
 {
 	struct xen_gem_object *xen_obj = to_xen_gem_obj(gem_obj);
 
-	if (xen_obj->pages) {
-		if (!xen_obj->be_alloc)
-			drm_gem_put_pages(&xen_obj->base, xen_obj->pages,
-				true, false);
-	}
-	if (xen_obj->base.import_attach)
+	if (xen_obj->base.import_attach) {
 		drm_prime_gem_destroy(&xen_obj->base, xen_obj->sgt_imported);
+		if (xen_obj->pages)
+			drm_free_large(xen_obj->pages);
+	} else {
+		if (xen_obj->pages) {
+			if (!xen_obj->be_alloc)
+				drm_gem_put_pages(&xen_obj->base,
+					xen_obj->pages, true, false);
+		}
+	}
 	drm_gem_object_release(gem_obj);
 	kfree(xen_obj);
 }
@@ -186,17 +191,39 @@ struct sg_table *xendrm_gem_get_sg_table(struct drm_gem_object *gem_obj)
 struct drm_gem_object *xendrm_gem_import_sg_table(struct drm_device *dev,
 	struct dma_buf_attachment *attach, struct sg_table *sgt)
 {
+	struct xendrm_device *xendrm_dev = dev->dev_private;
 	struct xen_gem_object *xen_obj;
+	struct page **pages;
+	int ret;
 
 	xen_obj = xendrm_gem_create_obj(dev, attach->dmabuf->size);
 	if (IS_ERR(xen_obj))
 		return ERR_CAST(xen_obj);
+
+	xen_obj->num_pages = DIV_ROUND_UP(attach->dmabuf->size, PAGE_SIZE);
+	xen_obj->pages = drm_malloc_ab(xen_obj->num_pages,
+		sizeof(struct page *));
+	if (xen_obj->pages == NULL)
+		return ERR_PTR(-ENOMEM);
+
 	xen_obj->sgt_imported = sgt;
-	/***********************************************************************
-	 * TODO: talk to backend and create dumb,
-	 * convert sgt to pages, so we can return those on xendrm_gem_get_pages
-	 **********************************************************************/
-	BUG();
+
+	ret = drm_prime_sg_to_page_addr_arrays(sgt, xen_obj->pages,
+		NULL, xen_obj->num_pages);
+	if (ret < 0)
+		return ERR_PTR(ret);
+
+	pages = xendrm_dev->front_ops->dbuf_create(
+		xendrm_dev->xdrv_info,
+		xendrm_dbuf_to_cookie(&xen_obj->base),
+		0, 0, 0, attach->dmabuf->size, xen_obj->pages, sgt);
+
+	if (IS_ERR_OR_NULL(pages))
+		return ERR_CAST(pages);
+
+	DRM_DEBUG("Imported buffer of size %zu with nents %u\n",
+		attach->dmabuf->size, sgt->nents);
+
 	return &xen_obj->base;
 }
 
