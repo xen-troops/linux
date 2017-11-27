@@ -785,6 +785,7 @@ int rcar_du_crtc_create(struct rcar_du_group *rgrp, unsigned int index)
 	int irq;
 	int ret;
 	static int setup_gfx_clk = false;
+	static int setup_vspm = false;
 
 	if (rcar_du_has(rcdu, RCAR_DU_FEATURE_VSPDL_SOURCE)) {
 		if (index == rcdu->info->vspdl_pair_ch)
@@ -859,6 +860,41 @@ int rcar_du_crtc_create(struct rcar_du_group *rgrp, unsigned int index)
 	}
 
 gfx_skip:
+	if (!setup_vspm) {
+		char* vspm_clk_names[] = {"vspb", "fcpvb",
+					  "vspbc", "fcpvbc",
+					  "vspbd", "fcpvbd",
+					  "vspi0", "fcpvi0",
+					  "vspi1", "fcpvi1",
+					  "fdp0", "fcpf0",
+					  "fdp1", "fcpf1"};
+
+		int vspm_clk_num = ARRAY_SIZE(vspm_clk_names);
+		int i;
+
+		for (i = 0; i < vspm_clk_num; i++) {
+			clk = devm_clk_get(&pdev->dev, vspm_clk_names[i]);
+			if (IS_ERR(clk)) {
+				dev_err(rcdu->dev,"Cannot get %s clock!!\n",
+					vspm_clk_names[i]);
+				continue;
+			}
+
+			ret = clk_prepare_enable(clk);
+			if (ret < 0) {
+				dev_err(rcdu->dev, "clk_prepare_enable for %s"
+					"clk failed. res = %d\n", ret);
+				return ret;
+			}
+
+			dev_err(rcdu->dev,"Enabled %s clock!!\n",
+				vspm_clk_names[i]);
+		}
+
+		dev_err(rcdu->dev, "VSPM clocks enabled\n");
+		setup_vspm = true;
+	}
+
 	init_waitqueue_head(&rcrtc->flip_wait);
 
 	rcrtc->group = rgrp;
