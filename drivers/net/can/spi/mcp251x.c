@@ -648,7 +648,7 @@ static int mcp251x_hw_reset(struct spi_device *spi)
 		return ret;
 
 	/* Wait for oscillator startup timer after reset */
-	mdelay(MCP251X_OST_DELAY_MS);
+	mdelay(MCP251X_OST_DELAY_MS * 10);
 	
 	reg = mcp251x_read_reg(spi, CANSTAT);
 	if ((reg & CANCTRL_REQOP_MASK) != CANCTRL_REQOP_CONF)

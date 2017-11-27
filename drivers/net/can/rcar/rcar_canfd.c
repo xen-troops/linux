@@ -511,6 +511,12 @@
  */
 #define RCANFD_CFFIFO_IDX		0
 
+/* Controls whether we enable/disable or wake/sleep the connected CAN
+ * transceivers globally or per channel. Note that this must be reflected in
+ * the device tree, too.
+ */
+#define RCANFD_GLOBAL_TRANSCEIVER_CONTROL	1
+
 /* fCAN clock select register settings */
 enum rcar_canfd_fcanclk {
 	RCANFD_CANFDCLK = 0,		/* CANFD clock */
@@ -531,8 +537,12 @@ struct rcar_canfd_channel {
 	u32 tx_tail;				/* Incremented on xmit done */
 	u32 channel;				/* Channel number */
 	spinlock_t tx_lock;			/* To protect tx path */
+
+#if(RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 0)
 	unsigned int enable_pin;		/* transceiver enable */
 	unsigned int standby_pin;		/* transceiver standby */
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
+
 	struct sk_buff *txts_skb[RCANFD_MAX_PENDING_TXTS];
 };
 
@@ -546,6 +556,12 @@ struct rcar_canfd_global {
 	enum rcar_canfd_fcanclk fcan;	/* CANFD or Ext clock */
 	unsigned long channels_mask;	/* Enabled channels mask */
 	bool fdmode;			/* CAN FD or Classical CAN only mode */
+
+#if(RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
+	unsigned int enable_pin;		/* transceiver enable */
+	unsigned int standby_pin;		/* transceiver standby */
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
+
 	unsigned tss_tsp;        /* Timestamp counter divider */
 	unsigned long ts_epoch;    /* Timestamp counter epoch */
 	u16 ts_last; /* Timestamp counter on last epoch update */
@@ -1425,8 +1441,13 @@ static int rcar_canfd_open(struct net_device *ndev)
 	int err;
 
 	/* transceiver normal mode */
+#if(RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
+	if (gpio_is_valid(gpriv->standby_pin))
+		gpio_set_value(gpriv->standby_pin, 1);
+#else
 	if (gpio_is_valid(priv->standby_pin))
 		gpio_set_value(priv->standby_pin, 1);
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
 
 	/* Peripheral clock is already enabled in probe */
 	err = clk_prepare_enable(gpriv->can_clk);
@@ -1496,9 +1517,16 @@ static int rcar_canfd_close(struct net_device *ndev)
 	clk_disable_unprepare(gpriv->can_clk);
 	close_candev(ndev);
 	can_led_event(ndev, CAN_LED_EVENT_STOP);
+
 	/* transceiver standby mode */
+#if(RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
+	if (gpio_is_valid(gpriv->standby_pin))
+		gpio_set_value(gpriv->standby_pin, 0);
+#else
 	if (gpio_is_valid(priv->standby_pin))
 		gpio_set_value(priv->standby_pin, 0);
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
+
 	return 0;
 }
 
@@ -1878,7 +1906,14 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	void __iomem *addr;
 	u32 sts, ch, fcan_freq;
 	struct rcar_canfd_global *gpriv;
+
+#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
+	struct device_node *of_child;
+	enum of_gpio_flags enable_flags, standby_flags;
+#else
 	struct device_node *of_child0, *of_child1;
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
+
 	unsigned long channels_mask = 0;
 	int err, ret, ch_irq, g_irq;
 	bool fdmode = true;			/* CAN FD only mode - default */
@@ -1892,7 +1927,16 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 		tss_tsp = 1;
 		dev_warn(&pdev->dev, "invalid timestamp divider");
 	}
-	
+
+#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
+	of_child = of_get_child_by_name(pdev->dev.of_node, "channel0");
+	if (of_child && of_device_is_available(of_child))
+		channels_mask |= BIT(0);	/* Channel 0 */
+
+	of_child = of_get_child_by_name(pdev->dev.of_node, "channel1");
+	if (of_child && of_device_is_available(of_child))
+		channels_mask |= BIT(1);	/* Channel 1 */
+#else
 	of_child0 = of_get_child_by_name(pdev->dev.of_node, "channel0");
 	if (of_child0 && of_device_is_available(of_child0))
 		channels_mask |= BIT(0);	/* Channel 0 */
@@ -1900,6 +1944,7 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	of_child1 = of_get_child_by_name(pdev->dev.of_node, "channel1");
 	if (of_child1 && of_device_is_available(of_child1))
 		channels_mask |= BIT(1);	/* Channel 1 */
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
 
 	ch_irq = platform_get_irq(pdev, 0);
 	if (ch_irq < 0) {
@@ -2046,7 +2091,41 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "Failed to register with devcts: %d\n", err);
 	}
 #endif
-		
+
+#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
+	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
+		err = rcar_canfd_channel_probe(gpriv, ch, fcan_freq);
+		if (err)
+			goto fail_channel;
+	}
+
+	gpriv->enable_pin = of_get_gpio_flags(pdev->dev.of_node, 0, &enable_flags);
+	gpriv->standby_pin = of_get_gpio_flags(pdev->dev.of_node, 1, &standby_flags);
+
+	if (gpio_is_valid(gpriv->enable_pin)) {
+		int val = enable_flags & OF_GPIO_ACTIVE_LOW ?
+			GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+			ret = devm_gpio_request_one(&pdev->dev, gpriv->enable_pin, val, "enable");
+			if (ret)
+				dev_info(&pdev->dev, "Failed to request enable pin %u\n", gpriv->enable_pin);
+			else
+				dev_info(&pdev->dev, "Successfully requested enable pin %u\n", gpriv->enable_pin);
+	}
+	else
+	{
+		dev_info(&pdev->dev, "No global enable pin defined. \n");
+	}
+
+	if (gpio_is_valid(gpriv->standby_pin)) {
+		int val = standby_flags & OF_GPIO_ACTIVE_LOW ?
+			GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+
+		/* transceiver standby mode */
+		ret = devm_gpio_request_one(&pdev->dev, gpriv->standby_pin, val, "standby");
+		if (ret)
+			dev_info(&pdev->dev, "Failed to request standby pin\n");
+	}
+#else /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 0 */
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
 		enum of_gpio_flags enable_flags, standby_flags;
 		struct device_node *of_node = ch == 0 ? of_child0 : of_child1;
@@ -2080,6 +2159,7 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 				dev_info(&pdev->dev, "Failed to request standby pin of can%u\n", ch);
 		}
 	}
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
 
 	platform_set_drvdata(pdev, gpriv);
 	dev_info(&pdev->dev, "global operational state (clk %d, fdmode %d)\n",
