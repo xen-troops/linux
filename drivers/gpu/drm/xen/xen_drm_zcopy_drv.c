@@ -105,7 +105,7 @@ static int xen_alloc_ballooned_pages(struct device *dev,
 	set_xen_guest_handle(reservation.extent_start, frame_list);
 	reservation.nr_extents = num_pages;
 	/* rc will hold number of pages processed */
-	ret = HYPERVISOR_memory_op(XENMEM_populate_physmap, &reservation);
+	ret = HYPERVISOR_memory_op(XENMEM_decrease_reservation, &reservation);
 	if (ret <= 0) {
 		DRM_ERROR("Failed to balloon out %d pages (%d), retrying\n",
 			num_pages, ret);
@@ -162,7 +162,7 @@ static void xen_free_ballooned_pages(struct device *dev,
 	set_xen_guest_handle(reservation.extent_start, frame_list);
 	reservation.nr_extents = num_pages;
 	/* rc will hold number of pages processed */
-	ret = HYPERVISOR_memory_op(XENMEM_decrease_reservation, &reservation);
+	ret = HYPERVISOR_memory_op(XENMEM_populate_physmap, &reservation);
 	if (ret <= 0) {
 		DRM_ERROR("Failed to balloon in %d pages\n", num_pages);
 		WARN_ON(ret != num_pages);
