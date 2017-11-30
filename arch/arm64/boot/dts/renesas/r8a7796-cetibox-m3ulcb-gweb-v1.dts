@@ -18,7 +18,7 @@
 
 / {
 	model = "CETiBOX X3 (GWEB V1) based on Renesas M3ULCB (r8a7796)";
-	compatible = "renesas,m3ulcb", "renesas,r8a7796";
+	compatible = "cetitec,m3-gweb-v1", "renesas,m3ulcb", "renesas,r8a7796";
 
 	aliases {
 		serial0 = &scif2;
