@@ -311,11 +311,12 @@
     phy-handle = <&phy0>;
     status = "okay";
 
-    phy-mode = "rgmii-rxid";  // tx ok, rx kapott (we have a delay line at SJA1105 rx clock -> we must not add tx delay!)
+    phy-mode = "rgmii";
 
     phy0: dummy_phy {
         compatible = "ethernet-phy-idFFFF.FFFE";
         reg = <0>;
+		speed = <1000>;
     };
 };
 
