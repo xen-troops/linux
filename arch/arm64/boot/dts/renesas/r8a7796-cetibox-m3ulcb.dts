@@ -276,6 +276,11 @@
 		function = "usb1";
 	};
 
+	i2c5_pins: i2c5 {
+		groups = "i2c5";
+		function = "i2c5";
+	};
+
 	can0_pins: can0 {
 		groups = "can0_data_a";
 		function = "can0";
@@ -500,6 +505,14 @@
         clocks = <&x23_clk>;
         clock-names = "xin";
     };
+};
+
+/* SM-Bus interface to the USB3.0 hub (Microchip USB5534B) on gateway board */
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+	pinctrl-0 = <&i2c5_pins>;
+	pinctrl-names = "default";
 };
 
 &rcar_sound {
