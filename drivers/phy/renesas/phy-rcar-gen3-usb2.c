@@ -77,6 +77,7 @@
 #define USB2_ADPCTRL_OTGSESSVLD		BIT(20)
 #define USB2_ADPCTRL_IDDIG		BIT(19)
 #define USB2_ADPCTRL_IDPULLUP		BIT(5)	/* 1 = ID sampling is enabled */
+#define USB2_ADPCTRL_OTGDISABLE		BIT(3)	/* 1 = VBUS valid comparator disabled */
 #define USB2_ADPCTRL_DRVVBUS		BIT(4)
 
 struct rcar_gen3_chan {
@@ -283,13 +284,12 @@ static void rcar_gen3_init_otg(struct rcar_gen3_chan *ch)
 	val = readl(usb2_base + USB2_OBINTEN);
 	writel(val | USB2_OBINT_BITS, usb2_base + USB2_OBINTEN);
 	val = readl(usb2_base + USB2_ADPCTRL);
-	writel(val | USB2_ADPCTRL_IDPULLUP, usb2_base + USB2_ADPCTRL);
+	writel((val & ~USB2_ADPCTRL_IDPULLUP) | USB2_ADPCTRL_OTGDISABLE, usb2_base + USB2_ADPCTRL);
 	val = readl(usb2_base + USB2_LINECTRL1);
 	rcar_gen3_set_linectrl(ch, 0, 0);
 	writel(val | USB2_LINECTRL1_DPRPD_EN | USB2_LINECTRL1_DMRPD_EN,
 	       usb2_base + USB2_LINECTRL1);
-
-	rcar_gen3_device_recognition(ch);
+	rcar_gen3_init_for_host(ch);
 }
 
 static int rcar_gen3_phy_usb2_init(struct phy *p)
