@@ -53,6 +53,8 @@ extern "C" {
  *      o closes real HW driver's handle with DRM_IOCTL_GEM_CLOSE
  *      o closes zero-copy driver's handle with DRM_IOCTL_GEM_CLOSE
  *      o closes file descriptor of the exported buffer
+ *      o may wait for the object to be actually freed via wait_handle
+ *        and DRM_XEN_ZCOPY_DUMB_WAIT_FREE
  */
 #define DRM_XEN_ZCOPY_DUMB_FROM_REFS	0x00
 
@@ -64,6 +66,7 @@ struct drm_xen_zcopy_dumb_from_refs {
 	uint32_t *grefs;
 	uint64_t otherend_id;
 	struct drm_mode_create_dumb dumb;
+	uint32_t wait_handle;
 };
 
 /*
@@ -97,10 +100,28 @@ struct drm_xen_zcopy_dumb_to_refs {
 	uint32_t handle;
 };
 
+/*
+ * This will block until dumb buffer with the wait handle provided be freed:
+ * this is needed for synchronization between frontend and backend in case
+ * frontend provides grant references of the buffer via
+ * DRM_XEN_ZCOPY_DUMB_FROM_REFS IOCTL and which must be released before
+ * backend replies with XENDISPL_OP_DBUF_DESTROY response
+ * wait_handle must be the same value returned while calling
+ * DRM_XEN_ZCOPY_DUMB_FROM_REFS IOCTL
+ */
+#define DRM_XEN_ZCOPY_DUMB_WAIT_FREE	0x02
+
+struct drm_xen_zcopy_dumb_wait_free {
+	uint32_t wait_handle;
+	uint32_t wait_to_ms;
+};
+
 #define DRM_IOCTL_XEN_ZCOPY_DUMB_FROM_REFS DRM_IOWR(DRM_COMMAND_BASE + \
 	DRM_XEN_ZCOPY_DUMB_FROM_REFS, struct drm_xen_zcopy_dumb_from_refs)
 #define DRM_IOCTL_XEN_ZCOPY_DUMB_TO_REFS DRM_IOWR(DRM_COMMAND_BASE + \
 	DRM_XEN_ZCOPY_DUMB_TO_REFS, struct drm_xen_zcopy_dumb_to_refs)
+#define DRM_IOCTL_XEN_ZCOPY_DUMB_WAIT_FREE DRM_IOWR(DRM_COMMAND_BASE + \
+	DRM_XEN_ZCOPY_DUMB_WAIT_FREE, struct drm_xen_zcopy_dumb_wait_free)
 
 #if defined(__cplusplus)
 }
