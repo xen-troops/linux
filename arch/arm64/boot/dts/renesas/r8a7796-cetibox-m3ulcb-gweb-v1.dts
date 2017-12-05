@@ -283,6 +283,16 @@
 		function = "usb1";
 	};
 
+	usb30_pins: usb30 {
+		groups = "usb30";
+		function = "usb30";
+	};
+
+	i2c5_pins: i2c5 {
+		groups = "i2c5";
+		function = "i2c5";
+	};
+
 	can0_pins: can0 {
 		groups = "can0_data_a";
 		function = "can0";
@@ -453,6 +463,14 @@
     };
 };
 
+/* SM-Bus interface to the USB3.0 hub (Microchip USB5534B) on gateway board */
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+	pinctrl-0 = <&i2c5_pins>;
+	pinctrl-names = "default";
+};
+
 &rcar_sound {
 	pinctrl-0 = <&sound_pins &sound_clk_pins>;
 	pinctrl-names = "default";
@@ -534,6 +552,14 @@
 };
 
 &ohci1 {
+	status = "okay";
+};
+
+&xhci0 {
+	status = "okay";
+};
+
+&usb3_peri0 {
 	status = "okay";
 };
 
