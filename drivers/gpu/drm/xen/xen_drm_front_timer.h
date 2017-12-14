@@ -11,37 +11,37 @@
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *   GNU General Public License for more details.
  *
- * Copyright (C) 2016 EPAM Systems Inc.
+ * Copyright (C) 2016-2017 EPAM Systems Inc.
  *
- * Author: Oleksandr Andrushchenko <Oleksandr_Andrushchenko@epam.com>
+ * Author: Oleksandr Andrushchenko <oleksandr_andrushchenko@epam.com>
  */
 
-#ifndef __XEN_DRM_TIMER_H_
-#define __XEN_DRM_TIMER_H_
+#ifndef __XEN_DRM_FRONT_TIMER_H_
+#define __XEN_DRM_FRONT_TIMER_H_
 
 #include <linux/time.h>
 #include <linux/interrupt.h>
 
-struct xendrm_timer_callbacks {
+struct xen_drm_front_timer_ops {
 	void (*on_period)(unsigned long data);
 };
 
-struct xendrm_timer {
+struct xen_drm_front_timer {
 	struct timer_list timer;
 	unsigned long period;
 	spinlock_t lock;
 	int to_period;
 	unsigned long clb_private;
-	struct xendrm_timer_callbacks *clb;
+	struct xen_drm_front_timer_ops *clb;
 	atomic_t running;
 };
 
-int xendrm_timer_init(struct xendrm_timer *timer,
-	unsigned long clb_private, struct xendrm_timer_callbacks *clb);
-void xendrm_timer_setup(struct xendrm_timer *timer,
+int xen_drm_front_timer_init(struct xen_drm_front_timer *timer,
+	unsigned long clb_private, struct xen_drm_front_timer_ops *clb);
+void xen_drm_front_timer_setup(struct xen_drm_front_timer *timer,
 	int freq_hz, int to_ms);
-void xendrm_timer_cleanup(struct xendrm_timer *timer);
-void xendrm_timer_start(struct xendrm_timer *timer);
-void xendrm_timer_stop(struct xendrm_timer *timer, bool force);
+void xen_drm_front_timer_cleanup(struct xen_drm_front_timer *timer);
+void xen_drm_front_timer_start(struct xen_drm_front_timer *timer);
+void xen_drm_front_timer_stop(struct xen_drm_front_timer *timer, bool force);
 
-#endif /* __XEN_DRM_TIMER_H_ */
+#endif /* __XEN_DRM_FRONT_TIMER_H_ */
