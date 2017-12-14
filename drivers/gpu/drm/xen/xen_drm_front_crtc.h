@@ -11,59 +11,62 @@
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *   GNU General Public License for more details.
  *
- * Copyright (C) 2016 EPAM Systems Inc.
+ * Copyright (C) 2016-2017 EPAM Systems Inc.
  *
- * Author: Oleksandr Andrushchenko <Oleksandr_Andrushchenko@epam.com>
+ * Author: Oleksandr Andrushchenko <oleksandr_andrushchenko@epam.com>
  */
 
-#ifndef __XEN_DRM_CRTC_H_
-#define __XEN_DRM_CRTC_H_
+#ifndef __XEN_DRM_FRONT_CRTC_H_
+#define __XEN_DRM_FRONT_CRTC_H_
 
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
 
 #include <linux/wait.h>
 
-struct xendrm_device;
-struct xendrm_cfg_connector;
+struct xen_drm_front_drm_info;
+struct xen_drm_front_cfg_connector;
 
 #define XENDRM_CRTC_VREFRESH_HZ	60
 /* timeout for page flip event reception: should be a little
  * bit more than i/o timeout */
 #define XENDRM_CRTC_PFLIP_TO_MS	(VDRM_WAIT_BACK_MS + 100)
 
-struct xendrm_connector {
+struct xen_drm_front_connector {
 	struct drm_connector base;
 	int width, height;
 };
 
-struct xendrm_crtc {
+struct xen_drm_front_crtc {
 	int index;
-	struct xendrm_device *xendrm_dev;
+	struct xen_drm_front_drm_info *drm_info;
 	struct drm_plane primary;
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
-	struct xendrm_connector connector;
-	struct {
-		struct drm_property *alpha;
-	} props;
+	struct xen_drm_front_connector connector;
+
 	/* vblank and flip handling */
-	atomic_t pg_flip_senders;
+	atomic_t pg_flip_source_cnt;
 	struct drm_pending_vblank_event *pg_flip_event;
 	wait_queue_head_t flip_wait;
 	/* current fb cookie */
 	uint64_t fb_cookie;
+
+	struct {
+		struct drm_property *alpha;
+	} props;
 };
 
-int xendrm_crtc_create(struct xendrm_device *xendrm_dev,
-	struct xendrm_crtc *xen_crtc, unsigned int index);
-int xendrm_encoder_create(struct xendrm_device *xendrm_dev,
-	struct xendrm_crtc *xen_crtc);
-int xendrm_connector_create(struct xendrm_device *xendrm_dev,
-	struct xendrm_crtc *xen_crtc, struct xendrm_cfg_connector *cfg);
+int xen_drm_front_crtc_create(struct xen_drm_front_drm_info *drm_info,
+	struct xen_drm_front_crtc *xen_crtc, unsigned int index);
+int xen_drm_front_crtc_encoder_create(struct xen_drm_front_drm_info *drm_info,
+	struct xen_drm_front_crtc *xen_crtc);
+int xen_drm_front_crtc_connector_create(struct xen_drm_front_drm_info *drm_info,
+	struct xen_drm_front_crtc *xen_crtc,
+	struct xen_drm_front_cfg_connector *cfg);
 
-void xendrm_crtc_on_page_flip_done(struct xendrm_crtc *xen_crtc,
+void xen_drm_front_crtc_on_page_flip_done(struct xen_drm_front_crtc *xen_crtc,
 	uint64_t fb_cookie);
-void xendrm_crtc_on_page_flip_to(struct xendrm_crtc *xen_crtc);
+void xen_drm_front_crtc_on_page_flip_to(struct xen_drm_front_crtc *xen_crtc);
 
-#endif /* __XEN_DRM_CRTC_H_ */
+#endif /* __XEN_DRM_FRONT_CRTC_H_ */

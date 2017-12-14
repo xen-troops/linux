@@ -11,16 +11,16 @@
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *   GNU General Public License for more details.
  *
- * Copyright (C) 2016 EPAM Systems Inc.
+ * Copyright (C) 2016-2017 EPAM Systems Inc.
  *
- * Author: Oleksandr Andrushchenko <Oleksandr_Andrushchenko@epam.com>
+ * Author: Oleksandr Andrushchenko <oleksandr_andrushchenko@epam.com>
  */
 
-#ifndef __XEN_DRM_KMS_H_
-#define __XEN_DRM_KMS_H_
+#ifndef __XEN_DRM_FRONT_KMS_H_
+#define __XEN_DRM_FRONT_KMS_H_
 
-struct xendrm_device;
+struct xen_drm_front_drm_info;
 
-int xendrm_kms_init(struct xendrm_device *xendrm_dev);
+int xen_drm_front_kms_init(struct xen_drm_front_drm_info *drm_info);
 
-#endif /* __XEN_DRM_KMS_H_ */
+#endif /* __XEN_DRM_FRONT_KMS_H_ */

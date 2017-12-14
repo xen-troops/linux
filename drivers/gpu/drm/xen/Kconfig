@@ -5,6 +5,10 @@ config DRM_XEN
 	  Choose this option if you want to enable DRM support
 	  for Xen.
 
+choice
+	prompt "DRM driver sub-type selection"
+	depends on DRM_XEN
+
 config DRM_XEN_FRONTEND
 	tristate "Front-end paravirtualized driver for Xen guest OS"
 	depends on DRM_XEN
@@ -60,3 +64,6 @@ config DRM_XEN_ZCOPY_CMA
 	  This is only available for built-in driver, because
 	  there is a dependency on DMA ops which are only available
 	  for built-in code.
+
+endchoice
+
