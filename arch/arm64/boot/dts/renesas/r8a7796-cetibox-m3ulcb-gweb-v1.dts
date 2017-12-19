@@ -274,7 +274,7 @@
 
 	sound_clk_pins: sound-clk {
 		groups = "audio_clk_a_a", "audio_clk_b_a", "audio_clk_c_a",
-			 "audio_clkout_a", "audio_clkout3_a";
+			  "audio_clkout3_a";
 		function = "audio_clk";
 	};
 
