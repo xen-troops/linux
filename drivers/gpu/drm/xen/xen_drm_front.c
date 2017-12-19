@@ -591,7 +591,7 @@ static int xen_drv_remove(struct xenbus_device *dev)
 	mutex_lock(&front_info->mutex);
 	remove_internal(front_info);
 	mutex_unlock(&front_info->mutex);
-	xenbus_switch_state(dev, XenbusStateClosed);
+	xenbus_frontend_closed(dev);
 	return 0;
 }
 
