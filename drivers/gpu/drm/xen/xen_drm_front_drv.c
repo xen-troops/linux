@@ -155,10 +155,10 @@ static void lastclose(struct drm_device *dev)
 
 static int gem_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-	struct drm_gem_object *obj = vma->vm_private_data;
-	struct xen_drm_front_drm_info *drm_info;
+	struct drm_file *file_priv = filp->private_data;
+	struct drm_device *dev = file_priv->minor->dev;
+	struct xen_drm_front_drm_info *drm_info = dev->dev_private;
 
-	drm_info = obj->dev->dev_private;
 	return drm_info->gem_ops->mmap(filp, vma);
 }
 
