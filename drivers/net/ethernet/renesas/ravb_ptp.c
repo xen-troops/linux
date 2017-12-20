@@ -26,7 +26,7 @@ static int ravb_ptp_tcr_request(struct ravb_private *priv, u32 request)
 }
 
 /* Caller must hold the lock */
-static int ravb_ptp_time_read(struct ravb_private *priv, struct timespec64 *ts)
+int ravb_ptp_time_read(struct ravb_private *priv, struct timespec64 *ts)
 {
 	struct net_device *ndev = priv->ndev;
 	int error;

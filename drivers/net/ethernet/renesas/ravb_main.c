@@ -456,7 +456,7 @@ static int ravb_dmac_init(struct net_device *ndev)
 	/* Set AVB RX */
 	/* CETITEC TMO: Removed RCR_ENCF, i.e. disabled Network Control queue so
 	   that META frames are treated equally to gPTP frames. */
-	ravb_write(ndev, RCR_EFFS | RCR_ETS0 | RCR_ESF | 0x18000000, RCR);
+	ravb_write(ndev, RCR_EFFS | RCR_ETS0 | /* RCR_ESF | */ 0x18000000, RCR);
 
 	/* Set FIFO size */
 	ravb_write(ndev, TGC_TQP_AVBMODE1 | 0x00222200, TGC);
@@ -2359,3 +2359,78 @@ module_platform_driver(ravb_driver);
 MODULE_AUTHOR("Mitsuhiro Kimura, Masaru Nagai");
 MODULE_DESCRIPTION("Renesas Ethernet AVB driver");
 MODULE_LICENSE("GPL v2");
+
+#include <linux/avbeth_ops.h>
+
+static int ravb_get_ethts(struct net_device *netdev, u_int64_t *ethts)
+{
+	struct ravb_private *priv = netdev_priv(netdev);
+	unsigned long flags;
+	int err;
+	struct timespec64 ts;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	err = ravb_ptp_time_read(priv, &ts);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	if (err == 0) {
+		*ethts = timespec64_to_ns(&ts);
+	}
+
+	return err;
+}
+
+static int ravb_get_queue_for_class(struct net_device *netdev,
+									ctc_avbeth_class_t class,
+									ctc_avbeth_queue_t *queue)
+{
+//	struct ravb_private *priv = netdev_priv(netdev);
+
+	*queue = RAVB_BE;
+	return 0;
+	/* if (class == ctc_avbeth_class_a) { */
+	/* 	*queue = 2; */
+	/* 	return 0; */
+	/* } else if (class == ctc_avbeth_class_b || */
+	/* 		   class == ctc_avbeth_class_c) { */
+	/* 	*queue = 3; */
+	/* 	return 0; */
+	/* } else { */
+	/* 	return -EINVAL; */
+	/* } */
+}
+
+static int ravb_queue_add_vlan(struct net_device *netdev, ctc_avbeth_queue_t queue,
+							   u_int16_t vlan_mask, u_int16_t vlan_match)
+{
+	return 0;
+}
+
+
+static int ravb_queue_remove_vlan(struct net_device *netdev, u_int16_t vlan_mask,
+								  u_int16_t vlan_match)
+{
+	return 0;
+}
+
+static int ravb_queue_adjust_shaper(struct net_device *netdev,
+									ctc_avbeth_queue_t queue, int32_t bytes)
+{
+	return 0;
+}
+
+static const struct ctc_avbeth_ops ravb_avbeth_ops = {
+	.get_ethts = ravb_get_ethts,
+	.get_queue_for_class = ravb_get_queue_for_class,
+	.queue_add_vlan = ravb_queue_add_vlan,
+	.queue_remove_vlan = ravb_queue_remove_vlan,
+	.queue_adjust_shaper = ravb_queue_adjust_shaper
+};
+
+struct ctc_avbeth_ops const* ravb_avbeth_get_ops(void)
+{
+	return &ravb_avbeth_ops;
+}
+EXPORT_SYMBOL(ravb_avbeth_get_ops);
