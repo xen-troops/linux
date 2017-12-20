@@ -278,6 +278,15 @@ out_free_newdev:
 }
 EXPORT_SYMBOL(register_vlan_device);
 
+/* Wrapper for vlan_find_dev(). For consistency, we follow the same interface as
+ * register_vlan_device(). Must be invoked with rcu_read_lock or with RTNL.
+ */
+struct net_device *find_vlan_device(struct net_device *real_dev, u16 vlan_id)
+{
+       return vlan_find_dev(real_dev, htons(ETH_P_8021Q), vlan_id);
+}
+EXPORT_SYMBOL(find_vlan_device);
+
 static void vlan_sync_address(struct net_device *dev,
 			      struct net_device *vlandev)
 {
