@@ -28,6 +28,12 @@
 #include "xen_drm_front_drv.h"
 
 /*
+ * timeout for page flip event reception: should be a little
+ * bit more than frontend/backend i/o timeout
+ */
+#define XENDRM_CRTC_PFLIP_TO_MS	(VDRM_WAIT_BACK_MS + 100)
+
+/*
  * page flip complete event can be sent by either on back's
  * page flip completed event or atomic_flush, whatever is the
  * _last_
@@ -304,8 +310,9 @@ static int crtc_do_page_flip(struct drm_crtc *crtc,
 		goto fail;
 	}
 
-	/* restart page flip time-out counter */
-	xen_drm_front_drv_vtimer_restart_to(drm_info, xen_crtc->index);
+	/* start page flip time-out timer */
+	mod_timer(&xen_crtc->pg_flip_to_timer,
+		jiffies + msecs_to_jiffies(XENDRM_CRTC_PFLIP_TO_MS));
 	return 0;
 
 fail:
@@ -323,7 +330,8 @@ static void crtc_ntfy_page_flip_completed(
 	struct drm_device *dev = xen_crtc->crtc.dev;
 	unsigned long flags;
 
-	xen_drm_front_drv_vtimer_cancel_to(xen_crtc->drm_info, xen_crtc->index);
+	del_timer(&xen_crtc->pg_flip_to_timer);
+
 	if (unlikely(!crtc_page_flip_pending(xen_crtc)))
 		return;
 
@@ -333,6 +341,16 @@ static void crtc_ntfy_page_flip_completed(
 	wake_up(&xen_crtc->flip_wait);
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 	drm_crtc_vblank_put(&xen_crtc->crtc);
+}
+static void crtc_on_page_flip_to(unsigned long data)
+{
+	struct xen_drm_front_crtc *xen_crtc = (struct xen_drm_front_crtc *)data;
+
+	if (crtc_page_flip_pending(xen_crtc)) {
+		DRM_ERROR("Flip event timed-out, releasing\n");
+		crtc_ntfy_page_flip_completed(xen_crtc);
+		atomic_set(&xen_crtc->pg_flip_source_cnt, 0);
+	}
 }
 
 void xen_drm_front_crtc_on_page_flip_done(struct xen_drm_front_crtc *xen_crtc,
@@ -348,15 +366,6 @@ void xen_drm_front_crtc_on_page_flip_done(struct xen_drm_front_crtc *xen_crtc,
 
 	if (atomic_dec_and_test(&xen_crtc->pg_flip_source_cnt))
 		crtc_ntfy_page_flip_completed(xen_crtc);
-}
-
-void xen_drm_front_crtc_on_page_flip_to(struct xen_drm_front_crtc *xen_crtc)
-{
-	if (crtc_page_flip_pending(xen_crtc)) {
-		DRM_ERROR("Flip event timed-out, releasing\n");
-		crtc_ntfy_page_flip_completed(xen_crtc);
-		atomic_set(&xen_crtc->pg_flip_source_cnt, 0);
-	}
 }
 
 static int crtc_set_config(struct drm_mode_set *set)
@@ -388,7 +397,8 @@ static void crtc_disable(struct drm_crtc *crtc)
 {
 	struct xen_drm_front_crtc *xen_crtc = to_xendrm_crtc(crtc);
 
-	xen_drm_front_drv_vtimer_cancel_to(xen_crtc->drm_info, xen_crtc->index);
+	del_timer_sync(&xen_crtc->pg_flip_to_timer);
+
 	if (wait_event_timeout(xen_crtc->flip_wait,
 			!crtc_page_flip_pending(xen_crtc),
 			msecs_to_jiffies(XENDRM_CRTC_PFLIP_TO_MS)) == 0) {
@@ -471,5 +481,9 @@ int xen_drm_front_crtc_create(struct xen_drm_front_drm_info *drm_info,
 	}
 
 	drm_crtc_helper_add(&xen_crtc->crtc, &xen_drm_crtc_helper_funcs);
+
+	setup_timer(&xen_crtc->pg_flip_to_timer, crtc_on_page_flip_to,
+		(unsigned long)xen_crtc);
+
 	return 0;
 }
