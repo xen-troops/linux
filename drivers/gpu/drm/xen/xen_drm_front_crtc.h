@@ -24,13 +24,10 @@
 
 #include <linux/wait.h>
 
+#define XENDRM_CRTC_VREFRESH_HZ	60
+
 struct xen_drm_front_drm_info;
 struct xen_drm_front_cfg_connector;
-
-#define XENDRM_CRTC_VREFRESH_HZ	60
-/* timeout for page flip event reception: should be a little
- * bit more than i/o timeout */
-#define XENDRM_CRTC_PFLIP_TO_MS	(VDRM_WAIT_BACK_MS + 100)
 
 struct xen_drm_front_connector {
 	struct drm_connector base;
@@ -49,6 +46,8 @@ struct xen_drm_front_crtc {
 	atomic_t pg_flip_source_cnt;
 	struct drm_pending_vblank_event *pg_flip_event;
 	wait_queue_head_t flip_wait;
+	/* page flip event time-out handling */
+	struct timer_list pg_flip_to_timer;
 	/* current fb cookie */
 	uint64_t fb_cookie;
 
@@ -67,6 +66,5 @@ int xen_drm_front_crtc_connector_create(struct xen_drm_front_drm_info *drm_info,
 
 void xen_drm_front_crtc_on_page_flip_done(struct xen_drm_front_crtc *xen_crtc,
 	uint64_t fb_cookie);
-void xen_drm_front_crtc_on_page_flip_to(struct xen_drm_front_crtc *xen_crtc);
 
 #endif /* __XEN_DRM_FRONT_CRTC_H_ */
