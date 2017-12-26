@@ -26,17 +26,17 @@
 #include "xen_drm_front_gem.h"
 #include "xen_drm_front_kms.h"
 
+static void rearm_vblank_timer(struct xen_drm_front_drm_info *drm_info)
+{
+	mod_timer(&drm_info->vblank_timer,
+		jiffies + msecs_to_jiffies(1000 / XENDRM_CRTC_VREFRESH_HZ));
+}
+
 static int enable_vblank(struct drm_device *dev, unsigned int pipe)
 {
 	struct xen_drm_front_drm_info *drm_info = dev->dev_private;
 
-	if (unlikely(pipe >= drm_info->num_crtcs))
-		return -EINVAL;
-
-	if (atomic_read(&drm_info->vblank_enabled[pipe]) == 0)
-		xen_drm_front_timer_start(&drm_info->vblank_timer);
-
-	atomic_set(&drm_info->vblank_enabled[pipe], 1);
+	drm_info->vblank_enabled[pipe] = true;
 	return 0;
 }
 
@@ -44,13 +44,25 @@ static void disable_vblank(struct drm_device *dev, unsigned int pipe)
 {
 	struct xen_drm_front_drm_info *drm_info = dev->dev_private;
 
-	if (unlikely(pipe >= drm_info->num_crtcs))
-		return;
+	drm_info->vblank_enabled[pipe] = false;
+}
 
-	if (atomic_read(&drm_info->vblank_enabled[pipe]))
-		xen_drm_front_timer_stop(&drm_info->vblank_timer, false);
+static void emulate_vblank_interrupt(unsigned long data)
+{
+	struct xen_drm_front_drm_info *drm_info =
+		(struct xen_drm_front_drm_info *)data;
+	int i;
 
-	atomic_set(&drm_info->vblank_enabled[pipe], 0);
+	/*
+	 * we are not synchronized with enable/disable vblank,
+	 * but calling drm_crtc_handle_vblank is safe with this respect,
+	 * e.g. checks if vblank is enabled for the crtc given are made in
+	 * the DRM core
+	 */
+	for (i = 0; i < ARRAY_SIZE(drm_info->vblank_enabled); i++)
+		if (drm_info->vblank_enabled[i])
+			drm_crtc_handle_vblank(&drm_info->crtcs[i].crtc);
+	rearm_vblank_timer(drm_info);
 }
 
 static int dumb_create(struct drm_file *file_priv,
@@ -122,28 +134,6 @@ static void on_page_flip(struct platform_device *pdev,
 		return;
 
 	xen_drm_front_crtc_on_page_flip_done(&drm_info->crtcs[conn_idx], fb_cookie);
-}
-
-static void handle_vblank(unsigned long data)
-{
-	struct xen_drm_front_drm_info *drm_info =
-		(struct xen_drm_front_drm_info *)data;
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(drm_info->crtcs); i++) {
-		if (atomic_read(&drm_info->vblank_enabled[i])) {
-			struct xen_drm_front_crtc *xen_crtc = &drm_info->crtcs[i];
-
-			drm_crtc_handle_vblank(&xen_crtc->crtc);
-			/* handle page flip time outs */
-			if (likely(atomic_read(&drm_info->pflip_to_cnt_armed[i])))
-				if (unlikely(atomic_dec_and_test(
-						&drm_info->pflip_to_cnt[i]))) {
-					atomic_set(&drm_info->pflip_to_cnt_armed[i], 0);
-					xen_drm_front_crtc_on_page_flip_to(xen_crtc);
-				}
-		}
-	}
 }
 
 static void lastclose(struct drm_device *dev)
@@ -263,10 +253,6 @@ struct drm_driver xendrm_driver = {
 	.minor                     = 0,
 };
 
-static struct xen_drm_front_timer_ops vblank_timer_ops = {
-	.on_period = handle_vblank,
-};
-
 int xen_drm_front_drv_probe(struct platform_device *pdev,
 	struct xen_drm_front_ops *xendrm_front_funcs)
 {
@@ -312,16 +298,10 @@ int xen_drm_front_drv_probe(struct platform_device *pdev,
 		goto fail_modeset;
 	}
 
-	/*
-	 * setup vblank emulation: all CRTCs are set for
-	 * XENDRM_CRTC_VREFRESH_HZ and lots of operations during vblank
-	 * interrupt are handled under drm_dev->event_lock. This allows
-	 * having a single vblank "interrupt"
-	 */
-	xen_drm_front_timer_init(&drm_info->vblank_timer,
-		(unsigned long)drm_info, &vblank_timer_ops);
-	xen_drm_front_timer_setup(&drm_info->vblank_timer,
-		XENDRM_CRTC_VREFRESH_HZ, XENDRM_CRTC_PFLIP_TO_MS);
+	setup_timer(&drm_info->vblank_timer, emulate_vblank_interrupt,
+		(unsigned long)drm_info);
+	rearm_vblank_timer(drm_info);
+
 	ddev->irq_enabled = 1;
 
 	/*
@@ -340,7 +320,7 @@ int xen_drm_front_drv_probe(struct platform_device *pdev,
 	return 0;
 
 fail_register:
-	xen_drm_front_timer_cleanup(&drm_info->vblank_timer);
+	del_timer_sync(&drm_info->vblank_timer);
 	drm_dev_unregister(ddev);
 fail_modeset:
 	drm_mode_config_cleanup(ddev);
@@ -354,7 +334,7 @@ int xen_drm_front_drv_remove(struct platform_device *pdev)
 	struct xen_drm_front_drm_info *drm_info = platform_get_drvdata(pdev);
 	struct drm_device *drm_dev = drm_info->drm_dev;
 
-	xen_drm_front_timer_cleanup(&drm_info->vblank_timer);
+	del_timer_sync(&drm_info->vblank_timer);
 	drm_dev_unregister(drm_dev);
 	drm_vblank_cleanup(drm_dev);
 	drm_mode_config_cleanup(drm_dev);
@@ -378,18 +358,4 @@ bool xen_drm_front_drv_is_used(struct platform_device *pdev)
 	 * race condition.
 	 */
 	return drm_dev->open_count != 0;
-}
-
-void xen_drm_front_drv_vtimer_restart_to(struct xen_drm_front_drm_info *drm_info,
-	int index)
-{
-	atomic_set(&drm_info->pflip_to_cnt[index],
-		drm_info->vblank_timer.to_period);
-	atomic_set(&drm_info->pflip_to_cnt_armed[index], 1);
-}
-
-void xen_drm_front_drv_vtimer_cancel_to(struct xen_drm_front_drm_info *drm_info,
-	int index)
-{
-	atomic_set(&drm_info->pflip_to_cnt_armed[index], 0);
 }

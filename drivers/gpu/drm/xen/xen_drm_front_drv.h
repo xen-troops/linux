@@ -24,7 +24,6 @@
 #include "xen_drm_front.h"
 #include "xen_drm_front_cfg.h"
 #include "xen_drm_front_crtc.h"
-#include "xen_drm_front_timer.h"
 
 struct xen_drm_front_drm_info {
 	struct xen_drm_front_info *front_info;
@@ -35,11 +34,9 @@ struct xen_drm_front_drm_info {
 	struct xen_drm_front_cfg_plat_data *plat_data;
 	struct xen_drm_front_crtc crtcs[XEN_DRM_FRONT_MAX_CRTCS];
 
-	/* vblank and page flip handling */
-	struct xen_drm_front_timer vblank_timer;
-	atomic_t pflip_to_cnt[XEN_DRM_FRONT_MAX_CRTCS];
-	atomic_t pflip_to_cnt_armed[XEN_DRM_FRONT_MAX_CRTCS];
-	atomic_t vblank_enabled[XEN_DRM_FRONT_MAX_CRTCS];
+	/* vblank emulation timer */
+	struct timer_list vblank_timer;
+	bool vblank_enabled[XEN_DRM_FRONT_MAX_CRTCS];
 };
 
 static inline uint64_t xen_drm_front_fb_to_cookie(struct drm_framebuffer *fb)
@@ -58,11 +55,6 @@ int xen_drm_front_drv_probe(struct platform_device *pdev,
 int xen_drm_front_drv_remove(struct platform_device *pdev);
 
 bool xen_drm_front_drv_is_used(struct platform_device *pdev);
-
-void xen_drm_front_drv_vtimer_restart_to(
-	struct xen_drm_front_drm_info *drm_info, int index);
-void xen_drm_front_drv_vtimer_cancel_to(
-	struct xen_drm_front_drm_info *drm_info, int index);
 
 #endif /* __XEN_DRM_FRONT_DRV_H_ */
 
