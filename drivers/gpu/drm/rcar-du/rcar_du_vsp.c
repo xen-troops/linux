@@ -369,6 +369,8 @@ rcar_du_vsp_plane_atomic_duplicate_state(struct drm_plane *plane)
 	if (copy == NULL)
 		return NULL;
 
+	memset(state->sg_tables, 0, sizeof(state->sg_tables));
+
 	__drm_atomic_helper_plane_duplicate_state(plane, &copy->state);
 
 	return &copy->state;
