@@ -341,6 +341,9 @@ rcar_du_vsp_plane_atomic_duplicate_state(struct drm_plane *plane)
 	if (copy == NULL)
 		return NULL;
 
+	memset(to_rcar_vsp_plane_state(plane->state)->sg_tables, 0,
+		sizeof(to_rcar_vsp_plane_state(plane->state)->sg_tables));
+
 	__drm_atomic_helper_plane_duplicate_state(plane, &copy->state);
 	copy->alpha = to_rcar_vsp_plane_state(plane->state)->alpha;
 	copy->colorkey = to_rcar_vsp_plane_state(plane->state)->colorkey;
