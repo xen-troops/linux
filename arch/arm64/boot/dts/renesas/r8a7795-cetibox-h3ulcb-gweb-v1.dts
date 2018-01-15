@@ -344,6 +344,16 @@
         reg = <0>;
 		speed = <1000>;
     };
+
+	phy1: ksz8041rnl {
+		reg = <1>;
+		speed = <100>;
+	};
+
+	phy2: ksz9031rnx {
+		reg = <2>;
+		speed = <1000>;
+	};
 };
 
 &du {
@@ -680,11 +690,14 @@
 		spi-cpha;
 		renesas,dtdl = <200>;
 		renesas,syncdl = <300>;
+
+		phy-handles = <&phy1 1>, <&phy2 4>;
+		phy-modes = "rmii", "rgmii";
 	};
 
 	/* Ethernet switch 2, configured by userspace. */
 	spidev@2 {
-		compatible = "renesas,sh-msiof"; // TODO change to nxp,sja1105
+		compatible = "nxp,sja1105";
 		reg = <2>;
 		spi-max-frequency = <66666666>;
 		spi-cpha;
