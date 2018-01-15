@@ -644,7 +644,7 @@
 
 	/* Ethernet switch 2, configured by userspace. */
 	spidev@2 {
-		compatible = "renesas,sh-msiof"; // TODO change to nxp,sja1105
+		compatible = "nxp,sja1105";
 		reg = <2>;
 		spi-max-frequency = <66666666>;
 		spi-cpha;
