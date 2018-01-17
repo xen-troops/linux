@@ -36,64 +36,12 @@ static struct ion_platform_heap rcar_ion_heaps[] = {
 
 static int num_heaps = ARRAY_SIZE(rcar_ion_heaps);
 
-enum {
-    RCAR_ION_IOC_CUSTOM_GETPHYADDR = 1,
-};
-
-struct rcar_ion_getphys_data {
-    int fd;
-    uint64_t paddr;
-};
-
-static long rcar_ion_get_phys_addr(struct ion_client *client, unsigned long arg)
-{
-    struct rcar_ion_getphys_data data;
-    size_t len;
-    struct ion_handle *handle;
-    int err;
-    ion_phys_addr_t paddr = 0;
-
-    if (copy_from_user(&data, (void __user *)arg,
-            sizeof(struct rcar_ion_getphys_data)))
-        return -EFAULT;
-
-    handle = ion_import_dma_buf_fd(client, data.fd);
-    if (IS_ERR(handle))
-        return PTR_ERR(handle);
-
-    err = ion_phys(client, handle, &paddr, &len);
-    data.paddr = (uint64_t)paddr;
-    ion_free(client, handle);
-    if (err)
-        return err;
-
-    if (copy_to_user((void __user *)arg, &data,
-                sizeof(struct rcar_ion_getphys_data)))
-        return -EFAULT;
-
-    return err;
-}
-
-static
-long rcar_custom_ioctl(struct ion_client *client,
-                    unsigned int cmd, unsigned long arg)
-{
-    switch (cmd) {
-        case RCAR_ION_IOC_CUSTOM_GETPHYADDR:
-            return rcar_ion_get_phys_addr(client, arg);
-        default:
-            pr_err("%s: Unknown custom ioctl: cmd=%d, arg=%lu\n", __func__, cmd, arg);
-        return -ENOTTY;
-    }
-    return 0;
-}
-
 int rcar_ion_probe(struct platform_device *pdev)
 {
 	int i, err;
 
 	/* Create the ion devicenode */
-	g_psIonDev = ion_device_create(rcar_custom_ioctl);
+	g_psIonDev = ion_device_create(NULL);
 	if (IS_ERR_OR_NULL(g_psIonDev))
 		return -ENOMEM;
 
