@@ -708,7 +708,15 @@
 	status = "okay";
 };
 
+&vspbd {
+	status = "okay";
+};
+
 &vspi0 {
+	status = "okay";
+};
+
+&vspi1 {
 	status = "okay";
 };
 
