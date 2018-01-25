@@ -2362,7 +2362,8 @@ MODULE_LICENSE("GPL v2");
 
 #include <linux/avbeth_ops.h>
 
-static int ravb_get_ethts(struct net_device *netdev, u_int64_t *ethts)
+static int ravb_get_ethts_and_systs(struct net_device *netdev, u_int64_t *ethts,
+									ktime_t *systs)
 {
 	struct ravb_private *priv = netdev_priv(netdev);
 	unsigned long flags;
@@ -2371,7 +2372,7 @@ static int ravb_get_ethts(struct net_device *netdev, u_int64_t *ethts)
 
 	spin_lock_irqsave(&priv->lock, flags);
 
-	err = ravb_ptp_time_read(priv, &ts);
+	err = ravb_ptp_time_read_xts(priv, &ts, systs);
 
 	spin_unlock_irqrestore(&priv->lock, flags);
 
@@ -2422,7 +2423,7 @@ static int ravb_queue_adjust_shaper(struct net_device *netdev,
 }
 
 static const struct ctc_avbeth_ops ravb_avbeth_ops = {
-	.get_ethts = ravb_get_ethts,
+	.get_ethts_and_systs = ravb_get_ethts_and_systs,
 	.get_queue_for_class = ravb_get_queue_for_class,
 	.queue_add_vlan = ravb_queue_add_vlan,
 	.queue_remove_vlan = ravb_queue_remove_vlan,

@@ -1202,6 +1202,7 @@ int ravb_wait(struct net_device *ndev, enum ravb_reg reg, u32 mask, u32 value);
 irqreturn_t ravb_ptp_interrupt(struct net_device *ndev);
 void ravb_ptp_init(struct net_device *ndev, struct platform_device *pdev);
 void ravb_ptp_stop(struct net_device *ndev);
-int ravb_ptp_time_read(struct ravb_private *priv, struct timespec64 *ts);
 
+int ravb_ptp_time_read_xts(struct ravb_private *priv, struct timespec64 *ts,
+						   ktime_t *time);
 #endif	/* #ifndef __RAVB_H__ */

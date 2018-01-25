@@ -26,7 +26,7 @@ static int ravb_ptp_tcr_request(struct ravb_private *priv, u32 request)
 }
 
 /* Caller must hold the lock */
-int ravb_ptp_time_read(struct ravb_private *priv, struct timespec64 *ts)
+static int ravb_ptp_time_read(struct ravb_private *priv, struct timespec64 *ts)
 {
 	struct net_device *ndev = priv->ndev;
 	int error;
@@ -35,6 +35,42 @@ int ravb_ptp_time_read(struct ravb_private *priv, struct timespec64 *ts)
 	if (error)
 		return error;
 
+	ts->tv_nsec = ravb_read(ndev, GCT0);
+	ts->tv_sec  = ravb_read(ndev, GCT1) |
+		((s64)ravb_read(ndev, GCT2) << 32);
+
+	return 0;
+}
+
+#define CTS_MAX_DELAY 1000 // 1 µs
+#define CTS_MAX_ITER 100
+
+int ravb_ptp_time_read_xts(struct ravb_private *priv, struct timespec64 *ts,
+						   ktime_t *time)
+{
+	struct net_device *ndev = priv->ndev;
+	int error;
+	ktime_t kt_before, kt_after;
+	int i = CTS_MAX_ITER;
+
+	do {
+		error = ravb_wait(ndev, GCCR, GCCR_TCR, GCCR_TCR_NOREQ);
+		if (error)
+			return error;
+
+		kt_before = ktime_get();
+		ravb_modify(ndev, GCCR, GCCR_TCR_CAPTURE, GCCR_TCR_CAPTURE);
+		error = ravb_wait(ndev, GCCR, GCCR_TCR, GCCR_TCR_NOREQ);
+		kt_after = ktime_get();
+		if (error)
+			return error;
+	} while (ktime_to_ns(ktime_sub(kt_after, kt_before)) > CTS_MAX_DELAY &&
+			 i-- > 0);
+
+	if (i <= 0)
+		return -ETIMEDOUT;
+
+	*time = ktime_add_ns(kt_before, ktime_divns(ktime_sub(kt_after, kt_before), 2));
 	ts->tv_nsec = ravb_read(ndev, GCT0);
 	ts->tv_sec  = ravb_read(ndev, GCT1) |
 		((s64)ravb_read(ndev, GCT2) << 32);
