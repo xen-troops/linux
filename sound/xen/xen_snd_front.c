@@ -19,10 +19,201 @@
 #include <xen/interface/io/sndif.h>
 
 #include "xen_snd_front.h"
+#include "xen_snd_front_alsa.h"
 #include "xen_snd_front_evtchnl.h"
+#include "xen_snd_front_shbuf.h"
+
+static struct xensnd_req *be_stream_prepare_req(
+		struct xen_snd_front_evtchnl *evtchnl, uint8_t operation)
+{
+	struct xensnd_req *req;
+
+	req = RING_GET_REQUEST(&evtchnl->u.req.ring,
+			evtchnl->u.req.ring.req_prod_pvt);
+	req->operation = operation;
+	req->id = evtchnl->evt_next_id++;
+	evtchnl->evt_id = req->id;
+	return req;
+}
+
+static int be_stream_do_io(struct xen_snd_front_evtchnl *evtchnl)
+{
+	if (unlikely(evtchnl->state != EVTCHNL_STATE_CONNECTED))
+		return -EIO;
+
+	reinit_completion(&evtchnl->u.req.completion);
+	xen_snd_front_evtchnl_flush(evtchnl);
+	return 0;
+}
+
+static int be_stream_wait_io(struct xen_snd_front_evtchnl *evtchnl)
+{
+	if (wait_for_completion_timeout(&evtchnl->u.req.completion,
+			msecs_to_jiffies(VSND_WAIT_BACK_MS)) <= 0)
+		return -ETIMEDOUT;
+
+	return evtchnl->u.req.resp_status;
+}
+
+int xen_snd_front_stream_query_hw_param(struct xen_snd_front_evtchnl *evtchnl,
+		struct xensnd_query_hw_param *hw_param_req,
+		struct xensnd_query_hw_param *hw_param_resp)
+{
+	struct xen_snd_front_info *front_info = evtchnl->front_info;
+	struct xensnd_req *req;
+	unsigned long flags;
+	int ret;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_stream_prepare_req(evtchnl, XENSND_OP_HW_PARAM_QUERY);
+	req->op.hw_param = *hw_param_req;
+
+	ret = be_stream_do_io(evtchnl);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret == 0)
+		ret = be_stream_wait_io(evtchnl);
+
+	if (ret == 0)
+		*hw_param_resp = evtchnl->u.req.resp.hw_param;
+
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	return ret;
+}
+
+int xen_snd_front_stream_prepare(struct xen_snd_front_evtchnl *evtchnl,
+		struct xen_snd_front_shbuf *sh_buf,
+		uint8_t format, unsigned int channels,
+		unsigned int rate, uint32_t buffer_sz,
+		uint32_t period_sz)
+{
+	struct xen_snd_front_info *front_info = evtchnl->front_info;
+	struct xensnd_req *req;
+	unsigned long flags;
+	int ret;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_stream_prepare_req(evtchnl, XENSND_OP_OPEN);
+	req->op.open.pcm_format = format;
+	req->op.open.pcm_channels = channels;
+	req->op.open.pcm_rate = rate;
+	req->op.open.buffer_sz = buffer_sz;
+	req->op.open.period_sz = period_sz;
+	req->op.open.gref_directory = xen_snd_front_shbuf_get_dir_start(sh_buf);
+
+	ret = be_stream_do_io(evtchnl);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret == 0)
+		ret = be_stream_wait_io(evtchnl);
+
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	return ret;
+}
+
+int xen_snd_front_stream_close(struct xen_snd_front_evtchnl *evtchnl)
+{
+	struct xen_snd_front_info *front_info = evtchnl->front_info;
+	struct xensnd_req *req;
+	unsigned long flags;
+	int ret;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_stream_prepare_req(evtchnl, XENSND_OP_CLOSE);
+
+	ret = be_stream_do_io(evtchnl);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret == 0)
+		ret = be_stream_wait_io(evtchnl);
+
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	return ret;
+}
+
+int xen_snd_front_stream_write(struct xen_snd_front_evtchnl *evtchnl,
+		unsigned long pos, unsigned long count)
+{
+	struct xen_snd_front_info *front_info = evtchnl->front_info;
+	struct xensnd_req *req;
+	unsigned long flags;
+	int ret;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_stream_prepare_req(evtchnl, XENSND_OP_WRITE);
+	req->op.rw.length = count;
+	req->op.rw.offset = pos;
+
+	ret = be_stream_do_io(evtchnl);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret == 0)
+		ret = be_stream_wait_io(evtchnl);
+
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	return ret;
+}
+
+int xen_snd_front_stream_read(struct xen_snd_front_evtchnl *evtchnl,
+		unsigned long pos, unsigned long count)
+{
+	struct xen_snd_front_info *front_info = evtchnl->front_info;
+	struct xensnd_req *req;
+	unsigned long flags;
+	int ret;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_stream_prepare_req(evtchnl, XENSND_OP_READ);
+	req->op.rw.length = count;
+	req->op.rw.offset = pos;
+
+	ret = be_stream_do_io(evtchnl);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret == 0)
+		ret = be_stream_wait_io(evtchnl);
+
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	return ret;
+}
+
+int xen_snd_front_stream_trigger(struct xen_snd_front_evtchnl *evtchnl,
+		int type)
+{
+	struct xen_snd_front_info *front_info = evtchnl->front_info;
+	struct xensnd_req *req;
+	unsigned long flags;
+	int ret;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_stream_prepare_req(evtchnl, XENSND_OP_TRIGGER);
+	req->op.trigger.type = type;
+
+	ret = be_stream_do_io(evtchnl);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret == 0)
+		ret = be_stream_wait_io(evtchnl);
+
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	return ret;
+}
 
 static void xen_snd_drv_fini(struct xen_snd_front_info *front_info)
 {
+	xen_snd_front_alsa_fini(front_info);
 	xen_snd_front_evtchnl_free_all(front_info);
 }
 
@@ -45,7 +236,7 @@ static int sndback_initwait(struct xen_snd_front_info *front_info)
 
 static int sndback_connect(struct xen_snd_front_info *front_info)
 {
-	return 0;
+	return xen_snd_front_alsa_init(front_info);
 }
 
 static void sndback_disconnect(struct xen_snd_front_info *front_info)
