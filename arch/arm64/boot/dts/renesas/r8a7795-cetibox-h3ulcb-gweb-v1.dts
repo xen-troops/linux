@@ -522,6 +522,12 @@
 	clock-frequency = <100000>;
 	pinctrl-0 = <&i2c5_pins>;
 	pinctrl-names = "default";
+
+	wakecpld: wakecpld@3c {
+		status = "okay";
+		compatible = "cetitec,wakecpld";
+		reg = <0x3c>;
+	};
 };
 
 &rcar_sound {

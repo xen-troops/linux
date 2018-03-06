@@ -92,6 +92,12 @@ config POWER_RESET_GPIO_RESTART
 	  If your board needs a GPIO high/low to restart, say Y and
 	  create a binding in your devicetree.
 
+config POWER_RESET_CETIBOX_POWEROFF
+	bool "CETITEC X3 power-off driver"
+	depends on I2C
+	help
+	  Poweroff support for CETITEC X3 boards via wakecpld.
+
 config POWER_RESET_HISI
 	bool "Hisilicon power-off driver"
 	depends on ARCH_HISI
