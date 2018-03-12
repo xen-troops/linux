@@ -204,6 +204,13 @@
 			};
 		};
 	};
+
+	cetibox-power {
+		status = "okay";
+		compatible = "cetitec,cetibox-poweroff";
+		wakecpld = <&i2c5 0x3C>; /* i2c bus, i2c addr */
+		wakecpld-config = <&i2c1 0x60>; /* i2c bus, i2c addr */
+	};
 };
 
 &extal_clk {
@@ -535,12 +542,6 @@
 	clock-frequency = <100000>;
 	pinctrl-0 = <&i2c5_pins>;
 	pinctrl-names = "default";
-
-	wakecpld: wakecpld@3c {
-		status = "okay";
-		compatible = "cetitec,wakecpld";
-		reg = <0x3c>;
-	};
 };
 
 &rcar_sound {

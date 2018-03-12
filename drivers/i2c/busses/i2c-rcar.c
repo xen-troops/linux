@@ -871,6 +871,79 @@ static const struct i2c_algorithm rcar_i2c_algo = {
 	.unreg_slave	= rcar_unreg_slave,
 };
 
+/* Transfer i2c messages without sleeping or using IRQs.
+   Used by the shutdown/reboot code in cetibox-poweroff.c */
+int rcar_i2c_xfer_atomic(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
+{
+	struct rcar_i2c_priv *priv = i2c_get_adapdata(adap);
+	int err, j;
+	uint32_t regval;
+
+	if ((msgs[0].flags & I2C_M_RD) ||
+		(msgs[0].len == 0) ||
+		num > 1) {
+		// Read from slave and repeated start not supported for atomic
+		// stop after address not supported by this HW
+		return -ENOTSUPP;
+	}
+
+	if (priv->rstc)
+		rcar_i2c_reset(priv);
+
+	err = rcar_i2c_bus_barrier(priv);
+	if (err != 0) {
+		return err;
+	}
+
+	/* Start i2c write transfer */
+	rcar_i2c_write(priv, ICMAR, msgs[0].addr << 1);
+	rcar_i2c_write(priv, ICMSR, 0);
+	rcar_i2c_write(priv, ICMCR, MDBS | MIE | ESG);
+
+	/* Wait for outputting address */
+	while (((regval = rcar_i2c_read(priv, ICMSR)) & (MAT | MDE)) != (MAT | MDE)) {
+		if (regval & (MAL | MNR)) {
+			rcar_i2c_write(priv, ICMCR, MDBS);
+			rcar_i2c_write(priv, ICMSR, 0x7F);
+			return -EIO;
+		}
+	}
+	rcar_i2c_write(priv, ICMCR, MDBS | MIE);
+
+	/* Monitor transmission of data */
+	for (j = 0;j < msgs[0].len;++j) {
+		rcar_i2c_write(priv, ICRXTX, msgs[0].buf[j]);
+		rcar_i2c_write(priv, ICMSR, RCAR_IRQ_ACK_SEND);
+
+		while (((regval = rcar_i2c_read(priv, ICMSR)) & MDE) != MDE) {
+			if (regval & (MAL | MNR)) {
+				rcar_i2c_write(priv, ICMCR, MDBS);
+				rcar_i2c_write(priv, ICMSR, 0x7F);
+				return -EIO;
+			}
+		}
+
+		rcar_i2c_write(priv, ICMCR, MDBS | MIE);
+	}
+
+	rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_STOP);
+	rcar_i2c_write(priv, ICMSR, RCAR_IRQ_ACK_SEND);
+
+	/* Wait for end of transmission */
+	while (((regval = rcar_i2c_read(priv, ICMSR)) & MST) != MST) {
+		if (regval & (MAL | MNR)) {
+			rcar_i2c_write(priv, ICMCR, MDBS);
+			rcar_i2c_write(priv, ICMSR, 0x7F);
+			return -EIO;
+		}
+	}
+
+	rcar_i2c_write(priv, ICMSR, 0);
+
+	return 0;
+}
+EXPORT_SYMBOL(rcar_i2c_xfer_atomic);
+
 static const struct of_device_id rcar_i2c_dt_ids[] = {
 	{ .compatible = "renesas,i2c-r8a7778", .data = (void *)I2C_RCAR_GEN1 },
 	{ .compatible = "renesas,i2c-r8a7779", .data = (void *)I2C_RCAR_GEN1 },
