@@ -618,13 +618,59 @@ static int rpc_hf_mtd_read(struct mtd_info *mtd, loff_t from, size_t len,
 			   size_t *retlen, u_char *buf)
 {
 	struct rpc_info *info = mtd->priv;
+	loff_t addr;
+	size_t cnt;
+	int retval, idx;
 
-	down_read(&info->lock);
-	memcpy_fromio(buf, info->flash_base + from, len);
-	up_read(&info->lock);
+	retval = 0;
+	*retlen = 0;
+	cnt = len;
+	idx = 0;
+	addr = from;
 
+	down_write(&info->lock);
+
+	while (cnt) {
+		enum rpc_hf_size bits;
+
+		if (cnt > 8) {
+			bits = RPC_HF_SIZE_64BIT;
+		} else if (cnt > 4) {
+			bits = RPC_HF_SIZE_32BIT;
+		} else {
+			bits = RPC_HF_SIZE_16BIT;
+		}
+
+		rpc_hf_read_mem(info, addr, (u16*)buf, bits);
+
+		switch(bits) {
+		case RPC_HF_SIZE_64BIT:
+			cnt -= 8;
+			addr += 8;
+			buf += 8;
+			break;
+		case RPC_HF_SIZE_32BIT:
+			cnt -= 4;
+			addr += 4;
+			buf += 4;
+			break;
+		case RPC_HF_SIZE_16BIT:
+			cnt -= 2;
+			addr += 2;
+			buf += 2;
+			break;
+		}
+
+		/* retval = rpc_hf_status(info, addr, 1000000, 10); */
+		/* if (retval) */
+		/* 	goto out; */
+	}
 	*retlen = len;
-	return 0;
+
+out:
+	rpc_hf_mode_ext(info);
+	up_write(&info->lock);
+	return retval;
 }
 
 /* Flash erase */
@@ -811,28 +857,32 @@ static struct mtd_partition partition_info[]={
 	}, {
 		.name = "u-boot",
 		.offset = MTDPART_OFS_APPEND,
-		.size = 0x80000,
+		.size = 0x100000,
 	}, {
 		.name = "reserved",
 		.offset = MTDPART_OFS_APPEND,
-		.size = 0x80000,
-	}, {
-		.name = "u-boot-env",
-		.offset = MTDPART_OFS_APPEND,
-		.size = 0x40000,
-	}, {
-		.name = "dtb",
-		.offset = MTDPART_OFS_APPEND,
-		.size = 0x80000,
-	}, {
-		.name = "kernel",
-		.offset = MTDPART_OFS_APPEND,
-		.size = 0x1000000,
-	}, {
-		.name = "user",
-		.offset = MTDPART_OFS_APPEND,
 		.size = MTDPART_SIZ_FULL,
-	},
+	},/*  { */
+	/* 	.name = "reserved", */
+	/* 	.offset = MTDPART_OFS_APPEND, */
+	/* 	.size = 0x80000, */
+	/* }, { */
+	/* 	.name = "u-boot-env", */
+	/* 	.offset = MTDPART_OFS_APPEND, */
+	/* 	.size = 0x40000, */
+	/* }, { */
+	/* 	.name = "dtb", */
+	/* 	.offset = MTDPART_OFS_APPEND, */
+	/* 	.size = 0x80000, */
+	/* }, { */
+	/* 	.name = "kernel", */
+	/* 	.offset = MTDPART_OFS_APPEND, */
+	/* 	.size = 0x1000000, */
+	/* }, { */
+	/* 	.name = "user", */
+	/* 	.offset = MTDPART_OFS_APPEND, */
+	/* 	.size = MTDPART_SIZ_FULL, */
+	/* }, */
 };
 
 static int rpc_hf_init_mtd(struct rpc_info *info)
