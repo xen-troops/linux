@@ -876,8 +876,12 @@ static const struct i2c_algorithm rcar_i2c_algo = {
 int rcar_i2c_xfer_atomic(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
 	struct rcar_i2c_priv *priv = i2c_get_adapdata(adap);
+	struct device *dev = rcar_i2c_priv_to_dev(priv);
 	int err, j;
 	uint32_t regval;
+
+	if (priv->suspended)
+		return -EBUSY;
 
 	if ((msgs[0].flags & I2C_M_RD) ||
 		(msgs[0].len == 0) ||
@@ -887,8 +891,10 @@ int rcar_i2c_xfer_atomic(struct i2c_adapter *adap, struct i2c_msg *msgs, int num
 		return -ENOTSUPP;
 	}
 
-	if (priv->rstc)
+	if (priv->quirks & RCAR_I2C_GEN3 && priv->rstc)
 		rcar_i2c_reset(priv);
+
+	rcar_i2c_init(priv);
 
 	err = rcar_i2c_bus_barrier(priv);
 	if (err != 0) {
@@ -897,8 +903,9 @@ int rcar_i2c_xfer_atomic(struct i2c_adapter *adap, struct i2c_msg *msgs, int num
 
 	/* Start i2c write transfer */
 	rcar_i2c_write(priv, ICMAR, msgs[0].addr << 1);
+	rcar_i2c_write(priv, ICMIER, 0);
 	rcar_i2c_write(priv, ICMSR, 0);
-	rcar_i2c_write(priv, ICMCR, MDBS | MIE | ESG);
+	rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_START);
 
 	/* Wait for outputting address */
 	while (((regval = rcar_i2c_read(priv, ICMSR)) & (MAT | MDE)) != (MAT | MDE)) {

@@ -38,7 +38,7 @@ static void (*orig_arm_pm_restart)(enum reboot_mode reboot_mode, const char *cmd
 
 static void wakecpld_poweroff(void)
 {
-	int err;
+	int err, i;
 	struct i2c_msg msgs[1];
 	char data[2];
 
@@ -56,7 +56,11 @@ static void wakecpld_poweroff(void)
 	msgs[0].len = 2;
 	msgs[0].buf = data;
 
-	err = rcar_i2c_xfer_atomic(i2c_adapt_cplds, msgs, 1);
+	/* Spurious i2c failures occur sometimes, retry a few times */
+	i = 0;
+	do {
+		err = rcar_i2c_xfer_atomic(i2c_adapt_cplds, msgs, 1);
+	} while (i++ < 5 && err != 0);
 
 	if (unlikely(err < 0)) {
 		dev_err(&cetibox_poweroff_pdev->dev, "%lu-bit %s failed at 0x%02x: %d\n", sizeof(data)*8,
@@ -66,7 +70,7 @@ static void wakecpld_poweroff(void)
 
 static void wakecpld_reconfigure(enum reboot_mode reboot_mode, const char *arg)
 {
-	int err;
+	int err, i;
 	struct i2c_msg msgs[1];
 	char data[4];
 
@@ -92,7 +96,11 @@ static void wakecpld_reconfigure(enum reboot_mode reboot_mode, const char *arg)
 	msgs[0].len = 4;
 	msgs[0].buf = data;
 
-	err = rcar_i2c_xfer_atomic(i2c_adapt_config, msgs, 1);
+	/* Spurious i2c failures occur sometimes, retry a few times */
+	i = 0;
+	do {
+		err = rcar_i2c_xfer_atomic(i2c_adapt_config, msgs, 1);
+	} while (i++ < 5 && err != 0);
 
 	if (unlikely(err < 0)) {
 		dev_err(&cetibox_poweroff_pdev->dev, "%lu-bit %s failed at 0x%02x\n", sizeof(data)*8,
