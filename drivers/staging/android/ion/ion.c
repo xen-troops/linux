@@ -874,8 +874,9 @@ static void ion_buffer_sync_for_device(struct ion_buffer *buffer,
 	mutex_unlock(&buffer->lock);
 }
 
-static int ion_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int ion_vm_fault(struct vm_fault *vmf)
 {
+	struct vm_area_struct *vma = vmf->vma;
 	struct ion_buffer *buffer = vma->vm_private_data;
 	unsigned long pfn;
 	int ret;
@@ -885,7 +886,7 @@ static int ion_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	BUG_ON(!buffer->pages || !buffer->pages[vmf->pgoff]);
 
 	pfn = page_to_pfn(ion_buffer_page(buffer->pages[vmf->pgoff]));
-	ret = vm_insert_pfn(vma, (unsigned long)vmf->virtual_address, pfn);
+	ret = vm_insert_pfn(vma, vmf->address, pfn);
 	mutex_unlock(&buffer->lock);
 	if (ret)
 		return VM_FAULT_ERROR;
