@@ -787,7 +787,6 @@
 	status = "okay";
 
 	renesas,can-clock-select = <0x0>;
-	renesas,no-can-fd; /* makes the driver to put controller into classic CAN mode */
 	renesas,tss-tsp = <128>; /* Set timestamp divider to 128 */
 
 	gpios = <&gpio5 13 GPIO_ACTIVE_HIGH /* enable */
