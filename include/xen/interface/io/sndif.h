@@ -833,7 +833,7 @@ struct xensnd_trigger_req {
 };
 
 /*
- * Request stream parameter's ranges: request intervals and
+ * Request stream parameter ranges: request intervals and
  *   masks of supported ranges for stream configuration values.
  *
  *   Sound device configuration for a particular stream is a limited subset
@@ -841,8 +841,8 @@ struct xensnd_trigger_req {
  *   once the frame rate has been selected there is a limited supported range
  *   for sample rates becomes available (which might be the same set configured
  *   on XenStore or less). For example, selecting 96kHz sample rate may limit
- *   number of channels available for such configuration from 4 to 2 etc.
- *   Thus, each call to XENSND_OP_HW_PARAM_QUERY will reduce configuration
+ *   number of channels available for such configuration from 4 to 2, etc.
+ *   Thus, each call to XENSND_OP_HW_PARAM_QUERY may reduce configuration
  *   space making it possible to iteratively get the final stream configuration,
  *   used in XENSND_OP_OPEN request.
  *
@@ -881,11 +881,10 @@ struct xensnd_trigger_req {
  * |                             reserved                              | 64
  * +----------------+----------------+----------------+----------------+
  *
- * For formats mask parameter the payload of the request:
- *   mask - uint64_t, bit mask representing values of the parameter
+ * formats - uint64_t, bit mask representing values of the parameter
  *     made as bitwise OR of (1 << XENSND_PCM_FORMAT_XXX) values
  *
- * For interval parameters the payload of the request:
+ * For interval parameters:
  *   min - uint32_t, minimum value of the parameter
  *   max - uint32_t, maximum value of the parameter
  *
@@ -972,9 +971,9 @@ struct xensnd_query_hw_param {
 /*
  *----------------------------------- Events ----------------------------------
  *
- * Events are sent via a shared page allocated by the front and propagated by
+ * Events are sent via shared page allocated by the front and propagated by
  *   evt-event-channel/evt-ring-ref XenStore entries
- * All event packets have the same length (32 octets)
+ * All event packets have the same length (64 octets)
  * All event packets have common header:
  *         0                1                 2               3        octet
  * +----------------+----------------+----------------+----------------+
