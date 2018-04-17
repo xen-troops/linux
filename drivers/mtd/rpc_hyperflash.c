@@ -158,6 +158,7 @@ struct rpc_info {
 	struct rw_semaphore lock;
 	void __iomem *rpc_base;
 	void __iomem *flash_base;
+	void __iomem *rpcckcr;
 	struct resource *rpc_res;
 	struct resource *flash_res;
 	u32 flash_id;
@@ -730,6 +731,7 @@ static int rpc_hf_mtd_write(struct mtd_info *mtd, loff_t offset, size_t len,
 	idx = 0;
 
 	down_write(&info->lock);
+	writel(0x17U, info->rpcckcr); /* RPC clock 40MHz */
 
 	/* Handle unaligned start */
 	if (offset & 0x1) {
@@ -829,6 +831,7 @@ static int rpc_hf_mtd_write(struct mtd_info *mtd, loff_t offset, size_t len,
 
 out:
 	rpc_hf_mode_ext(info);
+	writel(0x11U, info->rpcckcr); /* RPC clock 160MHz */
 	up_write(&info->lock);
 	return retval;
 }
@@ -973,17 +976,26 @@ static int rpc_flash_init(void)
 	base = ioremap(res->start, resource_size(res));
 	if (!base)
 		goto out_flash_res;
-
 	info->flash_base = base;
+
+	/* The RPCCKCR register of the CPG module.
+	   Needs to be used to slow down the RPC clock when writing to flash.
+	*/
+	info->rpcckcr = ioremap(0xE6150238LU, 4);
+	if (!info->rpcckcr)
+		goto out_flash_base;
+
 	retval = rpc_hf_init_mtd(info);
 	if (retval)
-		goto out_flash_base;
+		goto out_rpcckcr;
 
 	pr_info("HyperFlash Id: %x\n", info->flash_id);
 
 	rpc_info = info;
 	return 0;
 
+out_rpcckcr:
+	iounmap(info->rpcckcr);
 out_flash_base:
 	iounmap(info->flash_base);
 out_flash_res:
