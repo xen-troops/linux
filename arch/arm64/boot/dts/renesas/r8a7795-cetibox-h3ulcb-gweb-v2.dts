@@ -97,6 +97,12 @@
 			debounce-interval = <20>;
 			gpios = <&gpio6 11 GPIO_ACTIVE_LOW>;
 		};
+
+		key-pwr {
+			linux,code = <KEY_POWER>;
+			label = "POWER";
+			gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>;
+		};
 	};
 
 	reg_1p8v: regulator0 {
