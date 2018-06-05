@@ -68,13 +68,18 @@ static const struct soc_device_attribute r8a7795es2[] __initconst = {
 	{ /* sentinel */ }
 };
 
+static const struct soc_device_attribute r8a7795es3[] __initconst = {
+	{ .soc_id = "r8a7795", .revision = "ES3.0" },
+	{ /* sentinel */ }
+};
+
 static int __init r8a7795_sysc_init(void)
 {
 	if (!soc_device_match(r8a7795es1))
 		rcar_sysc_nullify(r8a7795_areas, ARRAY_SIZE(r8a7795_areas),
 				  R8A7795_PD_A2VC0);
 
-	if (soc_device_match(r8a7795es1) || soc_device_match(r8a7795es2))
+	if (soc_device_match(r8a7795es1) || soc_device_match(r8a7795es2) || soc_device_match(r8a7795es3))
 		r8a7795_sysc_info.extra_regs->sysc_extmask_msks = 0;
 
 	return 0;
