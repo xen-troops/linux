@@ -66,6 +66,12 @@
 static
 const struct soc_device_attribute rcar_sysc_quirks_match[] __initconst = {
 	{
+		.soc_id = "r8a7795", .revision = "ES3.0",
+		.data = (void *)(BIT(R8A7795_PD_A3VP) | BIT(R8A7795_PD_CR7)
+			| BIT(R8A7795_PD_A3VC) | BIT(R8A7795_PD_A2VC0)
+			| BIT(R8A7795_PD_A2VC1) | BIT(R8A7795_PD_A3IR)),
+	},
+	{
 		.soc_id = "r8a7795", .revision = "ES2.0",
 		.data = (void *)(BIT(R8A7795_PD_A3VP) | BIT(R8A7795_PD_CR7)
 			| BIT(R8A7795_PD_A3VC) | BIT(R8A7795_PD_A2VC0)
@@ -96,9 +102,23 @@ static u32 rcar_sysc_quirks;
 
 static void __iomem *rcar_sysc_base;
 static DEFINE_SPINLOCK(rcar_sysc_lock); /* SMP CPUs + I/O devices */
-
+static struct rcar_sysc_extra_regs *extra_regs;
 
 static const char *to_pd_name(const struct rcar_sysc_ch *sysc_ch);
+
+static void rcar_sysc_extmask_ctrl(bool on)
+{
+	u32 extmask_msks = 0;
+
+	if (!extra_regs || !extra_regs->sysc_extmask_msks)
+		return;
+
+	if (on)
+		extmask_msks = extra_regs->sysc_extmask_msks;
+
+	iowrite32(extmask_msks,
+		  rcar_sysc_base + extra_regs->sysc_extmask_offs);
+}
 
 static int rcar_sysc_pwr_on_off(const struct rcar_sysc_ch *sysc_ch, bool on)
 {
@@ -147,6 +167,7 @@ static int rcar_sysc_power(const struct rcar_sysc_ch *sysc_ch, bool on)
 
 	spin_lock_irqsave(&rcar_sysc_lock, flags);
 
+	rcar_sysc_extmask_ctrl(1); /* set EXTMSK0 */
 	iowrite32(isr_mask, rcar_sysc_base + SYSCISCR);
 
 	/* Submit power shutoff or resume request until it was accepted */
@@ -181,6 +202,7 @@ static int rcar_sysc_power(const struct rcar_sysc_ch *sysc_ch, bool on)
 	iowrite32(isr_mask, rcar_sysc_base + SYSCISCR);
 
  out:
+	rcar_sysc_extmask_ctrl(0); /* clear EXTMSK0 */
 	spin_unlock_irqrestore(&rcar_sysc_lock, flags);
 
 	pr_debug("sysc power %s domain %d: %08x -> %d\n", on ? "on" : "off",
@@ -435,6 +457,10 @@ static int __init rcar_sysc_pd_init(void)
 	}
 
 	rcar_sysc_base = base;
+
+	/* Check and get extra registers */
+	if (info->extra_regs)
+		extra_regs = info->extra_regs;
 
 	domains = kzalloc(sizeof(*domains), GFP_KERNEL);
 	if (!domains) {
