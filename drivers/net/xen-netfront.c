@@ -43,6 +43,7 @@
 #include <linux/moduleparam.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
+#include <linux/completion.h>
 #include <net/ip.h>
 
 #include <xen/xen.h>
@@ -56,12 +57,24 @@
 #include <xen/interface/memory.h>
 #include <xen/interface/grant_table.h>
 
+enum netif_suspend_state {
+	NETIF_SUSPEND_STATE_NONE,
+	NETIF_SUSPEND_STATE_SUSPENDING,
+	NETIF_SUSPEND_STATE_SUSPENDED,
+};
+
 /* Module parameters */
 #define MAX_QUEUES_DEFAULT 8
 static unsigned int xennet_max_queues;
 module_param_named(max_queues, xennet_max_queues, uint, 0644);
 MODULE_PARM_DESC(max_queues,
 		 "Maximum number of queues per virtual interface");
+
+static unsigned int netfront_suspend_timeout_secs = 10;
+module_param_named(suspend_timeout_secs,
+		   netfront_suspend_timeout_secs, uint, 0644);
+MODULE_PARM_DESC(suspend_timeout_secs,
+		 "timeout when suspending netfront device in seconds");
 
 static const struct ethtool_ops xennet_ethtool_ops;
 
@@ -160,6 +173,10 @@ struct netfront_info {
 	struct netfront_stats __percpu *tx_stats;
 
 	atomic_t rx_gso_checksum_fixup;
+
+	int suspend_state;
+
+	struct completion wait_backend_disconnected;
 };
 
 struct netfront_rx_info {
@@ -716,6 +733,21 @@ static int xennet_close(struct net_device *dev)
 	for (i = 0; i < num_queues; ++i) {
 		queue = &np->queues[i];
 		napi_disable(&queue->napi);
+	}
+	return 0;
+}
+
+static int xennet_disable_interrupts(struct net_device *dev)
+{
+	struct netfront_info *np = netdev_priv(dev);
+	unsigned int num_queues = dev->real_num_tx_queues;
+	unsigned int i;
+	struct netfront_queue *queue;
+
+	for (i = 0; i < num_queues; ++i) {
+		queue = &np->queues[i];
+		disable_irq(queue->tx_irq);
+		disable_irq(queue->rx_irq);
 	}
 	return 0;
 }
@@ -1293,6 +1325,8 @@ static struct net_device *xennet_create_dev(struct xenbus_device *dev)
 
 	np->queues = NULL;
 
+	init_completion(&np->wait_backend_disconnected);
+
 	err = -ENOMEM;
 	np->rx_stats = netdev_alloc_pcpu_stats(struct netfront_stats);
 	if (np->rx_stats == NULL)
@@ -1417,22 +1451,6 @@ static void xennet_disconnect_backend(struct netfront_info *info)
 		queue->tx.sring = NULL;
 		queue->rx.sring = NULL;
 	}
-}
-
-/**
- * We are reconnecting to the backend, due to a suspend/resume, or a backend
- * driver restart.  We tear down our netif structure and recreate it, but
- * leave the device-layer structures intact so that this is transparent to the
- * rest of the kernel.
- */
-static int netfront_resume(struct xenbus_device *dev)
-{
-	struct netfront_info *info = dev_get_drvdata(&dev->dev);
-
-	dev_dbg(&dev->dev, "%s\n", dev->nodename);
-
-	xennet_disconnect_backend(info);
-	return 0;
 }
 
 static int xen_net_read_mac(struct xenbus_device *dev, u8 mac[])
@@ -1798,6 +1816,67 @@ static int xennet_create_queues(struct netfront_info *info,
 	return 0;
 }
 
+static int netfront_suspend(struct xenbus_device *dev)
+{
+	struct netfront_info *info = dev_get_drvdata(&dev->dev);
+	unsigned long timeout = netfront_suspend_timeout_secs * HZ;
+	int err = 0;
+
+	xennet_disable_interrupts(info->netdev);
+
+	netif_device_detach(info->netdev);
+
+	info->suspend_state = NETIF_SUSPEND_STATE_SUSPENDING;
+
+	/* Kick the backend to disconnect */
+	reinit_completion(&info->wait_backend_disconnected);
+	xenbus_switch_state(dev, XenbusStateClosing);
+
+	/* We don't want to move forward before the frontend is diconnected
+	 * from the backend cleanly.
+	 */
+	timeout = wait_for_completion_timeout(&info->wait_backend_disconnected,
+					      timeout);
+	if (!timeout) {
+		err = -EBUSY;
+		xenbus_dev_error(dev, err, "Suspending timed out;"
+				 "the device may become inconsistent state");
+		return err;
+	}
+
+	/* Tear down queues */
+	xennet_disconnect_backend(info);
+	xennet_destroy_queues(info);
+
+	info->suspend_state = NETIF_SUSPEND_STATE_SUSPENDED;
+
+	return err;
+}
+
+static int netfront_resume(struct xenbus_device *dev)
+{
+	/*
+	 * FIXME: on .suspend we finally go into Closed state
+	 * and this is reflected in Xen store. But, when a Xen bus
+	 * device resumes its internal state is set to XenbusStateInitialising,
+	 * without changig the corresponding value in Xen store.
+	 * Then, xenbus_switch_state, when requested to set the state
+	 * to XenbusStateInitialising will not update Xen store as well
+	 * as there is a check that if we want to change the state to the
+	 * same one then do nothing, thus leaving device driver and Xen store
+	 * inconsistent: driver is in XenbusStateInitialising state and
+	 * Xen store remains in XenbusStateClosed. Work this around,
+	 * by first setting our state to XenbusStateClosed and then
+	 * to XenbusStateInitialising, so the later is finally set in Xen
+	 * store.
+	 */
+	xenbus_switch_state(dev, XenbusStateClosed);
+	/* Kick the backend to re-connect */
+	xenbus_switch_state(dev, XenbusStateInitialising);
+
+	return 0;
+}
+
 /* Common code used when first setting up, and when resuming. */
 static int talk_to_netback(struct xenbus_device *dev,
 			   struct netfront_info *info)
@@ -1989,6 +2068,8 @@ static int xennet_connect(struct net_device *dev)
 		spin_unlock_bh(&queue->rx_lock);
 	}
 
+	np->suspend_state = NETIF_SUSPEND_STATE_NONE;
+
 	return 0;
 }
 
@@ -2025,11 +2106,23 @@ static void netback_changed(struct xenbus_device *dev,
 
 	case XenbusStateClosed:
 		wake_up_all(&module_unload_q);
-		if (dev->state == XenbusStateClosed)
+		if (dev->state == XenbusStateClosed) {
+			/* dpm context is waiting for the backend */
+			if (np->suspend_state == NETIF_SUSPEND_STATE_SUSPENDING)
+				complete(&np->wait_backend_disconnected);
 			break;
+		}
 		/* Missed the backend's CLOSING state -- fallthrough */
 	case XenbusStateClosing:
 		wake_up_all(&module_unload_q);
+		/* We may see unexpected Closed or Closing from the backend.
+		 * Just ignore it not to prevent the frontend from being
+		 * re-connected in the case of PM suspend or hibernation.
+		 */
+		if (np->suspend_state == NETIF_SUSPEND_STATE_SUSPENDED &&
+		    dev->state == XenbusStateInitialising) {
+			break;
+		}
 		xenbus_frontend_closed(dev);
 		break;
 	}
@@ -2169,6 +2262,7 @@ static struct xenbus_driver netfront_driver = {
 	.ids = netfront_ids,
 	.probe = netfront_probe,
 	.remove = xennet_remove,
+	.suspend = netfront_suspend,
 	.resume = netfront_resume,
 	.otherend_changed = netback_changed,
 };
