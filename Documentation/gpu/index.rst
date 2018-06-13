@@ -20,7 +20,6 @@ Linux GPU Driver Developer's Guide
    vgaarbiter
    bridge/dw-hdmi
    xen-front
-   xen-zcopy
    todo
 
 .. only::  subproject and html
