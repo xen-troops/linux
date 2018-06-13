@@ -19,7 +19,6 @@ Linux GPU Driver Developer's Guide
    vga-switcheroo
    vgaarbiter
    bridge/dw-hdmi
-   xen-front
    todo
 
 .. only::  subproject and html
