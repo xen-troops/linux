@@ -94,6 +94,10 @@ static void rcar_du_lvdsenc_start_gen2(struct rcar_du_lvdsenc *lvds,
 			LVDCR1_CHSTBY_GEN2(1) | LVDCR1_CHSTBY_GEN2(0) |
 			LVDCR1_CLKSTBY_GEN2);
 
+	/* Enable LVDS operation and turn bias circuitry on. */
+	lvdcr0 |= LVDCR0_BEN | LVDCR0_LVEN;
+	rcar_lvds_write(lvds, LVDCR0, lvdcr0);
+
 	/*
 	 * Turn the PLL on, wait for the startup delay, and turn the output
 	 * on.
@@ -115,7 +119,7 @@ static void rcar_du_lvdsenc_start_gen3(struct rcar_du_lvdsenc *lvds,
 	u32 lvdcr0;
 	u32 pllcr;
 
-	/* PLL clock configuration */
+	/* Set the PLL clock configuration and LVDS mode. */
 	if (freq < 42000)
 		pllcr = LVDPLLCR_PLLDIVCNT_42M;
 	else if (freq < 85000)
@@ -140,7 +144,6 @@ static void rcar_du_lvdsenc_start_gen3(struct rcar_du_lvdsenc *lvds,
 	 * Turn the PLL on, set it to LVDS normal mode, wait for the startup
 	 * delay and turn the output on.
 	 */
-
 	lvdcr0 |= LVDCR0_PLLON;
 	rcar_lvds_write(lvds, LVDCR0, lvdcr0);
 
