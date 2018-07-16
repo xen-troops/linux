@@ -562,6 +562,12 @@
 	clock-frequency = <100000>;
 	pinctrl-0 = <&i2c5_pins>;
 	pinctrl-names = "default";
+
+	eeprom@50 {
+		compatible = "microchip,24c16", "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+	};
 };
 
 &rcar_sound {
