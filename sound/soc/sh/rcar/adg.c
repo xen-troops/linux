@@ -477,10 +477,10 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 	}
 
 	if (req_rate[0] % 48000 == 0)
-		rsnd_flags_set(adg, AUDIO_OUT_48);
+		adg->flags |= AUDIO_OUT_48;
 
 	if (of_get_property(np, "clkout-lr-asynchronous", NULL))
-		rsnd_flags_set(adg, LRCLK_ASYNC);
+		adg->flags |= LRCLK_ASYNC;
 
 	/*
 	 * This driver is assuming that AUDIO_CLKA/AUDIO_CLKB/AUDIO_CLKC
