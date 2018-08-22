@@ -184,6 +184,14 @@ struct drm_gem_object *rcar_du_gem_prime_import_sg_table(struct drm_device *dev,
 				struct dma_buf_attachment *attach,
 				struct sg_table *sgt)
 {
+#ifdef CONFIG_XEN
+	/*
+	 * While running under Xen all the IOMMUs belong to
+	 * the hypervisor, thus the assumption that VSP is backed
+	 * by the IOMMU is wrong. Use CMA helper for this use-case then.
+	 */
+	return drm_gem_cma_prime_import_sg_table(dev, attach, sgt);
+#else
 	struct rcar_du_device *rcdu = dev->dev_private;
 	struct drm_gem_cma_object *cma_obj;
 	struct drm_gem_object *gem_obj;
@@ -216,6 +224,7 @@ struct drm_gem_object *rcar_du_gem_prime_import_sg_table(struct drm_device *dev,
 error:
 	kfree(cma_obj);
 	return ERR_PTR(ret);
+#endif
 }
 
 int rcar_du_dumb_create(struct drm_file *file, struct drm_device *dev,
