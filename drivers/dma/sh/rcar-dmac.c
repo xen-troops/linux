@@ -1955,7 +1955,8 @@ static int rcar_dmac_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dmac);
 	dmac->dev->dma_parms = &dmac->parms;
 	dma_set_max_seg_size(dmac->dev, RCAR_DMATCR_MASK);
-	dma_set_mask_and_coherent(dmac->dev, DMA_BIT_MASK(40));
+	/* Due to the R-Car Gen3 HW restriction */
+	dma_set_mask_and_coherent(dmac->dev, DMA_BIT_MASK(32));
 
 	dmac->info = of_device_get_match_data(&pdev->dev);
 
