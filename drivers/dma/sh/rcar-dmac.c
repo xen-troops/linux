@@ -1814,7 +1814,8 @@ static int rcar_dmac_probe(struct platform_device *pdev)
 
 	dmac->dev = &pdev->dev;
 	platform_set_drvdata(pdev, dmac);
-	dma_set_mask_and_coherent(dmac->dev, DMA_BIT_MASK(40));
+	/* Due to the R-Car Gen3 HW restriction */
+	dma_set_mask_and_coherent(dmac->dev, DMA_BIT_MASK(32));
 
 	ret = rcar_dmac_parse_of(&pdev->dev, dmac);
 	if (ret < 0)
