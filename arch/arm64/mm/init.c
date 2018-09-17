@@ -42,6 +42,10 @@
 #include <asm/tlb.h>
 #include <asm/alternative.h>
 
+#if defined(CONFIG_XT_CMA_HELPER)
+#include <xen/xt_cma_helper.h>
+#endif
+
 #define ARM64_ZONE_DMA_BITS	30
 
 /*
@@ -391,6 +395,10 @@ void __init arm64_memblock_init(void)
 	reserve_elfcorehdr();
 
 	high_memory = __va(memblock_end_of_DRAM() - 1) + 1;
+
+#if defined(CONFIG_XT_CMA_HELPER)
+	xt_cma_helper_init();
+#endif
 
 	dma_contiguous_reserve(arm64_dma32_phys_limit);
 }

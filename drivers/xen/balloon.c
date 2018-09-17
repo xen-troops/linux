@@ -71,7 +71,9 @@
 #include <xen/page.h>
 #include <xen/mem-reservation.h>
 
+#if !defined(CONFIG_XT_CMA_HELPER)
 static int xen_hotplug_unpopulated;
+#endif
 
 #ifdef CONFIG_XEN_BALLOON_MEMORY_HOTPLUG
 
@@ -546,6 +548,7 @@ void balloon_set_new_target(unsigned long target)
 }
 EXPORT_SYMBOL_GPL(balloon_set_new_target);
 
+#if !defined(CONFIG_XT_CMA_HELPER)
 static int add_ballooned_pages(int nr_pages)
 {
 	enum bp_state st;
@@ -652,6 +655,7 @@ void free_xenballooned_pages(int nr_pages, struct page **pages)
 	mutex_unlock(&balloon_mutex);
 }
 EXPORT_SYMBOL(free_xenballooned_pages);
+#endif
 
 #if defined(CONFIG_XEN_PV) && !defined(CONFIG_XEN_UNPOPULATED_ALLOC)
 static void __init balloon_add_region(unsigned long start_pfn,
