@@ -63,6 +63,10 @@
 #include <asm/pgtable.h>
 #include <asm/sync_bitops.h>
 
+#if defined(CONFIG_XT_CMA_HELPER)
+#include <xen/xt_cma_helper.h>
+#endif
+
 /* External tools reserve first few grant table entries. */
 #define NR_RESERVED_ENTRIES 8
 #define GNTTAB_LIST_END 0xffffffff
@@ -763,6 +767,16 @@ int gnttab_dma_alloc_pages(struct gnttab_dma_alloc_args *args)
 	int i, ret;
 
 	size = args->nr_pages << PAGE_SHIFT;
+#if defined(CONFIG_XT_CMA_HELPER)
+	if (args->coherent)
+		args->vaddr = xt_cma_dma_alloc_coherent(args->dev, size,
+							&args->dev_bus_addr,
+							GFP_KERNEL | __GFP_NOWARN);
+	else
+		args->vaddr = xt_cma_dma_alloc_wc(args->dev, size,
+						  &args->dev_bus_addr,
+						  GFP_KERNEL | __GFP_NOWARN);
+#else
 	if (args->coherent)
 		args->vaddr = dma_alloc_coherent(args->dev, size,
 						 &args->dev_bus_addr,
@@ -771,6 +785,7 @@ int gnttab_dma_alloc_pages(struct gnttab_dma_alloc_args *args)
 		args->vaddr = dma_alloc_wc(args->dev, size,
 					   &args->dev_bus_addr,
 					   GFP_KERNEL | __GFP_NOWARN);
+#endif
 	if (!args->vaddr) {
 		pr_debug("Failed to allocate DMA buffer of size %zu\n", size);
 		return -ENOMEM;
@@ -833,12 +848,21 @@ int gnttab_dma_free_pages(struct gnttab_dma_alloc_args *args)
 					     args->frames);
 
 	size = args->nr_pages << PAGE_SHIFT;
+#if defined(CONFIG_XT_CMA_HELPER)
+	if (args->coherent)
+		xt_cma_dma_free_coherent(args->dev, size,
+					 args->vaddr, args->dev_bus_addr);
+	else
+		xt_cma_dma_free_wc(args->dev, size,
+				   args->vaddr, args->dev_bus_addr);
+#else
 	if (args->coherent)
 		dma_free_coherent(args->dev, size,
 				  args->vaddr, args->dev_bus_addr);
 	else
 		dma_free_wc(args->dev, size,
 			    args->vaddr, args->dev_bus_addr);
+#endif
 	return ret;
 }
 EXPORT_SYMBOL_GPL(gnttab_dma_free_pages);
