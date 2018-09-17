@@ -36,6 +36,10 @@
 
 #include <linux/mm.h>
 
+#if defined(CONFIG_XT_CMA_HELPER)
+#include <xen/xt_cma_helper.h>
+#endif
+
 struct start_info _xen_start_info;
 struct start_info *xen_start_info = &_xen_start_info;
 EXPORT_SYMBOL(xen_start_info);
@@ -353,7 +357,11 @@ static int __init xen_guest_init(void)
 	if (efi_enabled(EFI_RUNTIME_SERVICES))
 		xen_efi_runtime_setup();
 
+#if defined(CONFIG_XT_CMA_HELPER)
+	shared_info_page = (struct shared_info *)xt_cma_get_zeroed_page(GFP_KERNEL);
+#else
 	shared_info_page = (struct shared_info *)get_zeroed_page(GFP_KERNEL);
+#endif
 
 	if (!shared_info_page) {
 		pr_err("not enough memory\n");
