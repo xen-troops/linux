@@ -334,4 +334,11 @@ config XEN_SYMS
 config XEN_HAVE_VPMU
        bool
 
+config XEN_COORD_SUSPEND
+    bool
+    depends on (ARM || ARM64) && SUSPEND
+    help
+        Enables support for handling of coordinated suspend interrupts. Allows
+        DomU guests to suspend when notified by Dom0.
+
 endmenu
