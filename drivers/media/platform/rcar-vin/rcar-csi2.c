@@ -18,6 +18,7 @@
 #include <linux/of_graph.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/reset.h>
 #include <linux/sys_soc.h>
 
 #include <media/v4l2-ctrls.h>
@@ -85,6 +86,9 @@
 
 /* Interrupt Enable */
 #define INTEN_REG			0x30
+#define INTEN_INT_AFIFO_OF		BIT(27)
+#define INTEN_INT_ERRSOTHS		BIT(4)
+#define INTEN_INT_ERRSOTSYNCHS		BIT(3)
 
 /* Interrupt Source Mask */
 #define INTCLOSE_REG			0x34
@@ -365,6 +369,7 @@ struct rcar_csi2 {
 	struct device *dev;
 	void __iomem *base;
 	const struct rcar_csi2_info *info;
+	struct reset_control *rstc;
 
 	struct v4l2_subdev subdev;
 	struct media_pad pads[NR_OF_RCAR_CSI2_PAD];
@@ -401,11 +406,27 @@ static void rcar_csi2_write(struct rcar_csi2 *priv, unsigned int reg, u32 data)
 	iowrite32(data, priv->base + reg);
 }
 
-static void rcar_csi2_reset(struct rcar_csi2 *priv)
+static irqreturn_t rcar_csi2_irq(int irq, void *data)
 {
-	rcar_csi2_write(priv, SRST_REG, SRST_SRST);
-	usleep_range(100, 150);
-	rcar_csi2_write(priv, SRST_REG, 0);
+	struct rcar_csi2 *priv = data;
+	u32 int_status, int_err_status;
+	unsigned int handled = 0;
+
+	int_status = rcar_csi2_read(priv, INTSTATE_REG);
+	int_err_status = rcar_csi2_read(priv, INTERRSTATE_REG);
+
+	if (int_status) {
+		rcar_csi2_write(priv, INTSTATE_REG, int_status);
+		if (int_err_status) {
+			rcar_csi2_write(priv, INTERRSTATE_REG, int_err_status);
+			dev_err(priv->dev,
+				"Reinitialize for transfer error.\n");
+			reset_control_assert(priv->rstc);
+		}
+		handled = 1;
+	}
+
+	return IRQ_RETVAL(handled);
 }
 
 static int rcar_csi2_wait_phy_start(struct rcar_csi2 *priv)
@@ -584,20 +605,15 @@ static int rcar_csi2_start(struct rcar_csi2 *priv, struct v4l2_subdev *nextsd)
 	if (ret)
 		return ret;
 
-	/* Clear Ultra Low Power interrupt */
-	if (priv->info->clear_ulps)
-		rcar_csi2_write(priv, INTSTATE_REG,
-				INTSTATE_INT_ULPS_START |
-				INTSTATE_INT_ULPS_END);
-
 	/* Init */
 	rcar_csi2_write(priv, TREF_REG, TREF_TREF);
-	rcar_csi2_reset(priv);
 	rcar_csi2_write(priv, PHTC_REG, 0);
 
+	/* Enable interrupt */
+	rcar_csi2_write(priv, INTEN_REG, INTEN_INT_AFIFO_OF |
+			INTEN_INT_ERRSOTHS | INTEN_INT_ERRSOTSYNCHS);
+
 	/* Configure */
-	rcar_csi2_write(priv, FLD_REG, fld | FLD_FLD_EN4 |
-			FLD_FLD_EN3 | FLD_FLD_EN2 | FLD_FLD_EN);
 	rcar_csi2_write(priv, VCDT_REG, vcdt);
 	if (priv->info->device != R8A77990)
 		rcar_csi2_write(priv, VCDT2_REG, vcdt2);
@@ -644,19 +660,35 @@ static int rcar_csi2_start(struct rcar_csi2 *priv, struct v4l2_subdev *nextsd)
 	rcar_csi2_write(priv, PHYCNT_REG, phycnt);
 	rcar_csi2_write(priv, LINKCNT_REG, LINKCNT_MONITOR_EN |
 			LINKCNT_REG_MONI_PACT_EN | LINKCNT_ICLK_NONSTOP);
+
+	if (priv->mf.field != V4L2_FIELD_NONE)
+		rcar_csi2_write(priv, FLD_REG, fld | FLD_FLD_EN4 |
+				FLD_FLD_EN3 | FLD_FLD_EN2 | FLD_FLD_EN);
+	else
+		rcar_csi2_write(priv, FLD_REG, 0);
+
 	rcar_csi2_write(priv, PHYCNT_REG, phycnt | PHYCNT_SHUTDOWNZ);
 	rcar_csi2_write(priv, PHYCNT_REG, phycnt | PHYCNT_SHUTDOWNZ |
 			PHYCNT_RSTZ);
 
-	return rcar_csi2_wait_phy_start(priv);
+	ret = rcar_csi2_wait_phy_start(priv);
+	if (ret)
+		return ret;
+
+	/* Clear Ultra Low Power interrupt */
+	if (priv->info->clear_ulps)
+		rcar_csi2_write(priv, INTSTATE_REG,
+				INTSTATE_INT_ULPS_START |
+				INTSTATE_INT_ULPS_END);
+	return ret;
 }
 
 static void rcar_csi2_stop(struct rcar_csi2 *priv)
 {
 	rcar_csi2_write(priv, PHYCNT_REG, 0);
-	iowrite32(PHTC_TESTCLR, priv->base + PHTC_REG);
-
-	rcar_csi2_reset(priv);
+	rcar_csi2_write(priv, PHTC_REG, PHTC_TESTCLR);
+	reset_control_assert(priv->rstc);
+	usleep_range(100, 150);
 }
 
 static int rcar_csi2_sd_info(struct rcar_csi2 *priv, struct v4l2_subdev **sd)
@@ -692,6 +724,7 @@ static int rcar_csi2_s_stream(struct v4l2_subdev *sd, int enable)
 
 	if (enable && priv->stream_count == 0) {
 		pm_runtime_get_sync(priv->dev);
+		reset_control_deassert(priv->rstc);
 
 		ret =  rcar_csi2_start(priv, nextsd);
 		if (ret) {
@@ -903,7 +936,8 @@ static int rcar_csi2_probe_resources(struct rcar_csi2 *priv,
 	if (irq < 0)
 		return irq;
 
-	return 0;
+	return devm_request_irq(&pdev->dev, irq, rcar_csi2_irq, IRQF_SHARED,
+				dev_name(&pdev->dev), priv);
 }
 
 static const struct rcar_csi2_info rcar_csi2_info_r8a7795 = {
@@ -1005,6 +1039,13 @@ static int rcar_csi2_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(priv->dev, "Failed to get resources\n");
 		return ret;
+	}
+
+	priv->rstc = devm_reset_control_get(&pdev->dev, NULL);
+	if (IS_ERR(priv->rstc)) {
+		dev_err(&pdev->dev, "failed to get cpg reset %s\n",
+			dev_name(priv->dev));
+		return PTR_ERR(priv->rstc);
 	}
 
 	platform_set_drvdata(pdev, priv);

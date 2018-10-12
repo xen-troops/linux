@@ -100,8 +100,11 @@
 #define VNMC_INF_YUV8_BT601	(1 << 16)
 #define VNMC_INF_YUV10_BT656	(2 << 16)
 #define VNMC_INF_YUV10_BT601	(3 << 16)
+#define VNMC_INF_RAW8		(4 << 16)
 #define VNMC_INF_YUV16		(5 << 16)
 #define VNMC_INF_RGB888		(6 << 16)
+#define VNMC_INF_RGB666		(7 << 16)
+#define VNMC_INF_MASK		(7 << 16)
 #define VNMC_VUP		(1 << 10)
 #define VNMC_IM_ODD		(0 << 3)
 #define VNMC_IM_ODD_EVEN	(1 << 3)
@@ -910,6 +913,27 @@ static int rvin_setup(struct rvin_dev *vin)
 		interrupts |= VNIE_FOE;
 	}
 
+	/* Check INF bit in VnMR register setting */
+	if (vin->info->chip == RCAR_GEN3) {
+		if (vin->mbus_cfg.type == V4L2_MBUS_CSI2) {
+			if (((vnmc & VNMC_INF_MASK) == VNMC_INF_YUV8_BT656) ||
+			    ((vnmc & VNMC_INF_MASK) == VNMC_INF_YUV10_BT656) ||
+			    ((vnmc & VNMC_INF_MASK) == VNMC_INF_YUV16) ||
+			    ((vnmc & VNMC_INF_MASK) == VNMC_INF_RGB666)) {
+				vin_err(vin, "Invalid setting in MIPI CSI2\n");
+
+				return -EINVAL;
+			}
+		} else {
+			if ((vnmc & VNMC_INF_MASK) == VNMC_INF_RAW8) {
+				vin_err(vin,
+					"Invalid setting in Digital Pins\n");
+
+				return -EINVAL;
+			}
+		}
+	}
+
 	/* Ack interrupts */
 	rvin_write(vin, interrupts, VNINTS_REG);
 	/* Enable interrupts */
@@ -942,6 +966,11 @@ static void rvin_ack_interrupt(struct rvin_dev *vin)
 static bool rvin_capture_active(struct rvin_dev *vin)
 {
 	return rvin_read(vin, VNMS_REG) & VNMS_CA;
+}
+
+static void rvin_disable_uds(struct rvin_dev *vin)
+{
+	rvin_write(vin, rvin_read(vin, VNMC_REG) & ~VNMC_SCLE, VNMC_REG);
 }
 
 static void rvin_set_slot_addr(struct rvin_dev *vin, int slot, dma_addr_t addr)
@@ -1048,7 +1077,7 @@ static void rvin_capture_stop(struct rvin_dev *vin)
 		u32 vnmc;
 
 		vnmc = rvin_read(vin, VNMC_REG);
-		rvin_write(vin, vnmc & ~(VNMC_SCLE | VNMC_VUP), VNMC_REG);
+		rvin_write(vin, vnmc & ~VNMC_VUP, VNMC_REG);
 	}
 
 	/* Disable module */
@@ -1150,6 +1179,10 @@ static irqreturn_t rvin_irq(int irq, void *data)
 	}
 
 	if (!rvin_seq_field_done(vin))
+		goto done;
+
+	/* Check FIS bit before reading VnMS register */
+	if (!(int_status & VNINTS_FIS))
 		goto done;
 
 	/* Prepare for capture and update state */
@@ -1305,6 +1338,9 @@ static int rvin_set_stream(struct rvin_dev *vin, int on)
 		return -EPIPE;
 
 	if (!on) {
+		if (vin->vdev.entity.stream_count <= 0)
+			return 0;
+
 		media_pipeline_stop(&vin->vdev.entity);
 		ret = v4l2_subdev_call(sd, video, s_stream, 0);
 		return 0;
@@ -1396,9 +1432,7 @@ static int rvin_start_streaming(struct vb2_queue *vq, unsigned int count)
 		spin_lock_irqsave(&vin->qlock, flags);
 		return_all_buffers(vin, VB2_BUF_STATE_QUEUED);
 		spin_unlock_irqrestore(&vin->qlock, flags);
-		if (vin->info->use_mc)
-			pm_runtime_put(vin->dev);
-		return ret;
+		goto error;
 	}
 
 	spin_lock_irqsave(&vin->qlock, flags);
@@ -1416,12 +1450,17 @@ static int rvin_start_streaming(struct vb2_queue *vq, unsigned int count)
 	ret = rvin_capture_start(vin);
 	if (ret) {
 		return_all_buffers(vin, VB2_BUF_STATE_QUEUED);
+		spin_unlock_irqrestore(&vin->qlock, flags);
 		rvin_set_stream(vin, 0);
-		if (vin->info->use_mc)
-			pm_runtime_put(vin->dev);
+		goto error;
 	}
 
 	spin_unlock_irqrestore(&vin->qlock, flags);
+
+	return 0;
+error:
+	if (vin->info->use_mc)
+		pm_runtime_put(vin->dev);
 
 	if (ret)
 		dma_free_coherent(vin->dev, vin->format.sizeimage,
@@ -1472,6 +1511,10 @@ static void rvin_stop_streaming(struct vb2_queue *vq)
 	spin_unlock_irqrestore(&vin->qlock, flags);
 
 	rvin_set_stream(vin, 0);
+
+	/* disable UDS */
+	if (vin->info->chip == RCAR_GEN3)
+		rvin_disable_uds(vin);
 
 	/* disable interrupts */
 	rvin_disable_interrupts(vin);
@@ -1557,6 +1600,10 @@ void rvin_suspend_stop_streaming(struct rvin_dev *vin)
 	spin_unlock_irqrestore(&vin->qlock, flags);
 
 	rvin_set_stream(vin, 0);
+
+	/* disable UDS */
+	if (vin->info->chip == RCAR_GEN3)
+		rvin_disable_uds(vin);
 
 	/* disable interrupts */
 	rvin_disable_interrupts(vin);

@@ -133,8 +133,8 @@ static const struct mssr_mod_clk r8a7796_mod_clks[] __initconst = {
 	DEF_MOD("msiof2",		 209,	R8A7796_CLK_MSO),
 	DEF_MOD("msiof1",		 210,	R8A7796_CLK_MSO),
 	DEF_MOD("msiof0",		 211,	R8A7796_CLK_MSO),
-	DEF_MOD("sys-dmac2",		 217,	R8A7796_CLK_S0D3),
-	DEF_MOD("sys-dmac1",		 218,	R8A7796_CLK_S0D3),
+	DEF_MOD("sys-dmac2",		 217,	R8A7796_CLK_S3D1),
+	DEF_MOD("sys-dmac1",		 218,	R8A7796_CLK_S3D1),
 	DEF_MOD("sys-dmac0",		 219,	R8A7796_CLK_S0D3),
 	DEF_MOD("cmt3",			 300,	R8A7796_CLK_R),
 	DEF_MOD("cmt2",			 301,	R8A7796_CLK_R),
@@ -151,10 +151,8 @@ static const struct mssr_mod_clk r8a7796_mod_clks[] __initconst = {
 	DEF_MOD("usb-dmac0",		 330,	R8A7796_CLK_S3D1),
 	DEF_MOD("usb-dmac1",		 331,	R8A7796_CLK_S3D1),
 	DEF_MOD("rwdt",			 402,	R8A7796_CLK_R),
-	DEF_MOD("intc-ex",		 407,	R8A7796_CLK_CP),
-	DEF_MOD("intc-ap",		 408,	R8A7796_CLK_S0D3),
-	DEF_MOD("audmac1",		 501,	R8A7796_CLK_S0D3),
-	DEF_MOD("audmac0",		 502,	R8A7796_CLK_S0D3),
+	DEF_MOD("audmac1",		 501,	R8A7796_CLK_S1D2),
+	DEF_MOD("audmac0",		 502,	R8A7796_CLK_S1D2),
 	DEF_MOD("adsp",			 506,	R8A7796_CLK_S1D1),
 	DEF_MOD("drif7",		 508,	R8A7796_CLK_S3D2),
 	DEF_MOD("drif6",		 509,	R8A7796_CLK_S3D2),
@@ -184,9 +182,9 @@ static const struct mssr_mod_clk r8a7796_mod_clks[] __initconst = {
 	DEF_MOD("vspd0",		 623,	R8A7796_CLK_S0D2),
 	DEF_MOD("vspb",			 626,	R8A7796_CLK_S0D1),
 	DEF_MOD("vspi0",		 631,	R8A7796_CLK_S0D1),
-	DEF_MOD("ehci1",		 702,	R8A7796_CLK_S3D4),
-	DEF_MOD("ehci0",		 703,	R8A7796_CLK_S3D4),
-	DEF_MOD("hsusb",		 704,	R8A7796_CLK_S3D4),
+	DEF_MOD("ehci1",		 702,	R8A7796_CLK_S3D2),
+	DEF_MOD("ehci0",		 703,	R8A7796_CLK_S3D2),
+	DEF_MOD("hsusb",		 704,	R8A7796_CLK_S3D2),
 	DEF_MOD("csi20",		 714,	R8A7796_CLK_CSI0),
 	DEF_MOD("csi40",		 716,	R8A7796_CLK_CSI0),
 	DEF_MOD("du2",			 722,	R8A7796_CLK_S2D1),
@@ -252,11 +250,6 @@ static const struct mssr_mod_clk r8a7796_mod_clks[] __initconst = {
 	DEF_MOD("scu-src1",		1030,	MOD_CLK_ID(1017)),
 	DEF_MOD("scu-src0",		1031,	MOD_CLK_ID(1017)),
 };
-
-static const unsigned int r8a7796_crit_mod_clks[] __initconst = {
-	MOD_CLK_ID(408),	/* INTC-AP (GIC) */
-};
-
 
 /*
  * CPG Clock Data
@@ -361,10 +354,6 @@ const struct cpg_mssr_info r8a7796_cpg_mssr_info __initconst = {
 	.mod_clks = r8a7796_mod_clks,
 	.num_mod_clks = ARRAY_SIZE(r8a7796_mod_clks),
 	.num_hw_mod_clks = 12 * 32,
-
-	/* Critical Module Clocks */
-	.crit_mod_clks = r8a7796_crit_mod_clks,
-	.num_crit_mod_clks = ARRAY_SIZE(r8a7796_crit_mod_clks),
 
 	/* Callbacks */
 	.init = r8a7796_cpg_mssr_init,

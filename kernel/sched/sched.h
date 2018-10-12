@@ -621,11 +621,11 @@ struct root_domain {
 	cpumask_var_t online;
 
 	/*
-	 * Indicate whether the idle balance can be used to solve
-	 * imbalance within the root domain.
-	 * e.g. There is more than one runnable task for any CPU
+	 * Indicate pullable load on at least one CPU, e.g:
+	 * - More than one runnable task
+	 * - Running task is misfit
 	 */
-	bool should_idle_balance;
+	int			overload;
 
 	/*
 	 * The bit corresponding to a CPU gets set here if such CPU has more
@@ -748,7 +748,8 @@ struct rq {
 
 	unsigned char idle_balance;
 
-	unsigned int misfit_task_load;
+	unsigned long		misfit_task_load;
+
 	/* For active balancing */
 	int active_balance;
 	int push_cpu;
@@ -1083,6 +1084,7 @@ struct sched_group_capacity {
 	 */
 	unsigned long capacity;
 	unsigned long min_capacity; /* Min per-CPU capacity in group */
+	unsigned long		max_capacity;		/* Max per-CPU capacity in group */
 	unsigned long next_update;
 	int imbalance; /* XXX unrelated to capacity but shared group state */
 
@@ -1606,8 +1608,8 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 
 	if (prev_nr < 2 && rq->nr_running >= 2) {
 #ifdef CONFIG_SMP
-		if (!rq->rd->should_idle_balance)
-			rq->rd->should_idle_balance = true;
+		if (!READ_ONCE(rq->rd->overload))
+			WRITE_ONCE(rq->rd->overload, 1);
 #endif
 	}
 
