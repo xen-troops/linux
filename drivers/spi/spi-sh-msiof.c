@@ -1559,35 +1559,25 @@ MODULE_DEVICE_TABLE(platform, spi_driver_ids);
 #ifdef CONFIG_PM_SLEEP
 static int sh_msiof_spi_suspend(struct device *dev)
 {
-	int ret = 0;
 	struct platform_device *pdev = to_platform_device(dev);
 	struct sh_msiof_spi_priv *p = platform_get_drvdata(pdev);
 
-	ret = spi_master_suspend(p->master);
-	if (ret)
-		return ret;
-
-	return ret;
+	return spi_master_suspend(p->master);
 }
 
 static int sh_msiof_spi_resume(struct device *dev)
 {
-	int ret = 0;
 	struct platform_device *pdev = to_platform_device(dev);
 	struct sh_msiof_spi_priv *p = platform_get_drvdata(pdev);
 
-	ret = spi_master_resume(p->master);
-	if (ret)
-		return ret;
-
-	return ret;
+	return spi_master_resume(p->master);
 }
 
-static SIMPLE_DEV_PM_OPS(sh_msiof_spi_pm_ops,
-			sh_msiof_spi_suspend, sh_msiof_spi_resume);
-#define DEV_PM_OPS (&sh_msiof_spi_pm_ops)
+static SIMPLE_DEV_PM_OPS(sh_msiof_spi_pm_ops, sh_msiof_spi_suspend,
+			 sh_msiof_spi_resume);
+#define DEV_PM_OPS	&sh_msiof_spi_pm_ops
 #else
-#define DEV_PM_OPS NULL
+#define DEV_PM_OPS	NULL
 #endif /* CONFIG_PM_SLEEP */
 
 static struct platform_driver sh_msiof_spi_drv = {
