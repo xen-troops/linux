@@ -1261,13 +1261,11 @@ static irqreturn_t rcar_canfd_global_interrupt(int irq, void *dev_id)
 		/* Handle Rx interrupts */
 		sts = rcar_canfd_read(priv->base, RCANFD_RFSTS(ridx));
 		if (likely(sts & RCANFD_RFSTS_RFIF)) {
-			if (napi_schedule_prep(&priv->napi)) {
-				/* Disable Rx FIFO interrupts */
-				rcar_canfd_clear_bit(priv->base,
-						     RCANFD_RFCC(ridx),
-						     RCANFD_RFCC_RFIE);
-				__napi_schedule(&priv->napi);
-			}
+			/* Disable Rx FIFO interrupts */
+			rcar_canfd_clear_bit(priv->base,
+								 RCANFD_RFCC(ridx),
+								 RCANFD_RFCC_RFIE);
+			napi_schedule(&priv->napi);
 		}
 	}
 	return IRQ_HANDLED;
