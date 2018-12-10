@@ -29,6 +29,6 @@ obj-$(CONFIG_CEC_CORE) += cec/
 # Finally, merge the drivers that require the core
 #
 
-obj-y += common/ platform/ pci/ usb/ mmc/ firewire/ spi/ test-drivers/
+obj-y += common/ platform/ pci/ usb/ mmc/ firewire/ spi/ test-drivers/ xen/
 obj-$(CONFIG_VIDEO_DEV) += radio/
 
