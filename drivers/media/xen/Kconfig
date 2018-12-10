@@ -1,0 +1,9 @@
+config MEDIA_XEN_FRONTEND
+	tristate "Xen para-virtualized camera frontend driver"
+	depends on XEN && MEDIA_SUPPORT && VIDEO_V4L2
+	select XEN_XENBUS_FRONTEND
+	select VIDEOBUF2_DMA_SG
+	select XEN_FRONT_PGDIR_SHBUF
+	help
+	  Choose this option if you want to enable a para-virtualized
+	  frontend camera driver for Xen guest OSes.
