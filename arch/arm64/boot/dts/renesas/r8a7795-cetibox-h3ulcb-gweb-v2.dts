@@ -87,6 +87,12 @@
 		};
 	};
 
+// regulator/gpio-regulator.txt:
+// input/gpio-beeper.txt
+// input/gpio-keys.txt
+// pps/pps-gpio.txt
+// w1/w1-gpio.txt
+
 	keyboard {
 		compatible = "gpio-keys";
 
@@ -103,6 +109,12 @@
 			label = "POWER";
 			gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>;
 		};
+//        //A fake key to set the gpio 6 pin 25 to GPIO_ACTIVE_HIGH to suppress over-current condition at usb1-port1
+//		key-fake {
+//			linux,code = <KEY_UNKNOWN>;
+//			label = "FAKE";
+//            gpios = <&gpio6 25 GPIO_ACTIVE_HIGH>;
+//		};
 	};
 
 	reg_1p8v: regulator0 {
@@ -816,4 +828,228 @@
 
 &pwm2 {
 	status = "okay";
+};
+
+//Set dangeling testpoint-gpios to something:
+
+&gpio0 {
+//connected to starterkit mode setting CPLD (ExD0, LBSD_D)
+//    tp74 {
+//        gpio-hog;  
+//        gpios = <0 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit mode setting CPLD (ExD3, LBSD_D)
+//    tp75 {
+//        gpio-hog;  
+//        gpios = <3 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit mode setting CPLD (ExD4, LBSD_D)
+//    tp72 {
+//        gpio-hog;  
+//        gpios = <4 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit mode setting CPLD (ExD5, LBSD_D)
+//    tp73 {
+//        gpio-hog;  
+//        gpios = <5 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+};
+
+&gpio1 {
+//pull down on starterkit BKUP_REQB
+//    tp40 {
+//        gpio-hog;  
+//        gpios = <9 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to Mode Setting CPLD CS0n
+//    tp98 {
+//        gpio-hog;  
+//        gpios = <20 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to LBSC/DU CS1n/A26
+    tp102 {
+        gpio-hog;  
+        gpios = <21 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+//connected to LBSC/DU WE0n/GP1_25/CAN_CLK 
+    tp97 {
+        gpio-hog;  
+        gpios = <25 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+};
+
+&gpio2 {
+//connected to starterkit PMIC INT_B GP2_00/IRQ0n
+//    tp100 {
+//        gpio-hog;  
+//        gpios = <0 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit mode setting CPLD ExA25/PWM4
+//    tp101 {
+//        gpio-hog;  
+//        gpios = <3 GPIO_ACTIVE_HIGH>;
+//        output-high;
+//    };
+//connected to starterkit mode setting CPLD & PMIC PWM2
+//    tp62 {
+//        gpio-hog;  
+//        gpios = <8 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+};
+
+&gpio3 {
+//connected to starterkit SDHI0 SD0_CD Note: "SD0_WP"and "SD0_CD" D3.3V signal is fixed at 3.3V.
+//    tp83 {
+//        gpio-hog;  
+//        gpios = <12 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit SDHI0 SD0_WP "Note: "SD0_WP"and "SD0_CD" D3.3V signal is fixed at 3.3V."
+//    tp85 {
+//        gpio-hog;  
+//        gpios = <13 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit PMIC & SDHI_PW SCL0/SD3_VL
+//    tp80 {
+//        gpio-hog;  
+//        gpios = <14 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit SDHI_PW SDA0/SD3_PWEN
+//    tp70 {
+//        gpio-hog;  
+//        gpios = <15 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+};
+
+&gpio4 {
+//connected to starterkit GPIO_Unused GP4_14 and pulled down.
+//    tp78 {
+//        gpio-hog;  
+//        gpios = <14 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit SDHI3 SD3_CD_V "Note: "SD3_WP"and "SD3_CD" signal changes to 1.8V and 3.3V by the voltage supplied to the VDDQVA_SD3."
+    tp86 {
+        gpio-hog;  
+        gpios = <15 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+//connected to starterkit SDHI3 SD3_WP_V "Note: "SD3_WP"and "SD3_CD" signal changes to 1.8V and 3.3V by the voltage supplied to the VDDQVA_SD3."
+    tp87 {
+        gpio-hog;  
+        gpios = <16 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+//connected to starterkit GPIO_Unused SD3_PWR_EN and pulled down.
+//    tp99 {
+//        gpio-hog;  
+//        gpios = <17 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+};
+
+&gpio5 {
+//connected to starterkit Audio Clock & I2C SCIF0_SCK/I2C2_SDA
+//    tp96 {
+//        gpio-hog;  
+//        gpios = <0 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to PMIC & SDHI_PW SCIF0_RX/SD0_VL
+//    tp63 {
+//        gpio-hog;  
+//        gpios = <1 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit SDHI_PW SCIF0_TX/SD0_PWEN and pulled up.
+//    tp94 {
+//        gpio-hog;  
+//        gpios = <2 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to rcar scif2_txd (debug uart)
+//    tp103 {
+//        gpio-hog;  
+//        gpios = <10 GPIO_ACTIVE_HIGH>;
+//        output-high;
+//    };
+//connected to rcar scif2_rxd (debug uart)
+//    tp93 {
+//        gpio-hog;  
+//        gpios = <11 GPIO_ACTIVE_HIGH>;
+//        output-high;
+//    };
+//connected to starterkit SRU HSCIF0_HSCK (probably connected to AUDIO_CLKB)
+//    tp89 {
+//        gpio-hog;  
+//        gpios = <12 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit SRU (Audio) MSIOF0_SS1 (probably connected to AUDIO_CLKOUT3)
+//    tp88 {
+//        gpio-hog;  
+//        gpios = <19 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+};
+
+&gpio6 {
+//connected to starterkit mode setting CPLD & SSI MSIOF1_SYNC/SSI_WS4
+//    tp95 {
+//        gpio-hog;  
+//        gpios = <9 GPIO_ACTIVE_HIGH>;
+//        output-high;
+//    };
+//connected to starterkit SRU GP6_22 (probably connected to AUDIO_CLKA)
+//    tp92 {
+//        gpio-hog;  
+//        gpios = <22 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit USB USB20_OVC should be fixed. Fixes Bug with USB-Overcurrent.
+    tp28 {
+        gpio-hog;  
+        gpios = <25 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+//connected to starterkit USB USB31_PWEN
+    tp67 {
+        gpio-hog;  
+        gpios = <30 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+//connected to starterkit USB USB31_OVC
+    tp69 {
+        gpio-hog;  
+        gpios = <31 GPIO_ACTIVE_HIGH>;
+        output-low;
+    };
+};
+
+&gpio7 {
+//connected to starterkit AVS & PMIC AVS1/GP7_00/PMIC
+//    tp66 {
+//        gpio-hog;  
+//        gpios = <0 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
+//connected to starterkit AVS & PMIC AVS2/GP7_01/PMIC 
+//    tp64 {
+//        gpio-hog;  
+//        gpios = <1 GPIO_ACTIVE_HIGH>;
+//        output-low;
+//    };
 };
