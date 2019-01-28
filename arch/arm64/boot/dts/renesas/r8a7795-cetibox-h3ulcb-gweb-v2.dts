@@ -87,12 +87,6 @@
 		};
 	};
 
-// regulator/gpio-regulator.txt:
-// input/gpio-beeper.txt
-// input/gpio-keys.txt
-// pps/pps-gpio.txt
-// w1/w1-gpio.txt
-
 	keyboard {
 		compatible = "gpio-keys";
 
@@ -109,12 +103,6 @@
 			label = "POWER";
 			gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>;
 		};
-//        //A fake key to set the gpio 6 pin 25 to GPIO_ACTIVE_HIGH to suppress over-current condition at usb1-port1
-//		key-fake {
-//			linux,code = <KEY_UNKNOWN>;
-//			label = "FAKE";
-//            gpios = <&gpio6 25 GPIO_ACTIVE_HIGH>;
-//		};
 	};
 
 	reg_1p8v: regulator0 {

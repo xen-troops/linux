@@ -3922,7 +3922,6 @@ static const unsigned int tmu_tclk2_b_mux[] = {
 };
 
 /* - USB0 ------------------------------------------------------------------- */
-/* - pwen wird für inic gebraucht, ovc führt zu tp28 -> ausschalten */
 static const unsigned int usb0_pins[] = {
 	/* PWEN, OVC */
 	RCAR_GP_PIN(6, 24), RCAR_GP_PIN(6, 25),
@@ -3930,23 +3929,6 @@ static const unsigned int usb0_pins[] = {
 static const unsigned int usb0_mux[] = {
 	USB0_PWEN_MARK, USB0_OVC_MARK,
 };
-
-//static const unsigned int usb0pwen_pins[] = {
-//	/* PWEN */
-//	RCAR_GP_PIN(6, 24), 
-//};
-//static const unsigned int usb0pwen_mux[] = {
-//	USB0_PWEN_MARK, 
-//};
-
-//static const unsigned int usb0ovc_pins[] = {
-//	/* OVC */
-//	RCAR_GP_PIN(6, 25),
-//};
-//static const unsigned int usb0ovc_mux[] = {
-//	USB0_OVC_MARK,
-//};
-
 /* - USB1 ------------------------------------------------------------------- */
 static const unsigned int usb1_pins[] = {
 	/* PWEN, OVC */
@@ -4609,8 +4591,6 @@ static const struct sh_pfc_pin_group pinmux_groups[] = {
 	SH_PFC_PIN_GROUP(tmu_tclk2_a),
 	SH_PFC_PIN_GROUP(tmu_tclk2_b),
 	SH_PFC_PIN_GROUP(usb0),
-//	SH_PFC_PIN_GROUP(usb0pwen),
-//	SH_PFC_PIN_GROUP(usb0ovc),
 	SH_PFC_PIN_GROUP(usb1),
 	SH_PFC_PIN_GROUP(usb2),
 	SH_PFC_PIN_GROUP(usb2_ch3),
@@ -5103,8 +5083,6 @@ static const char * const tmu_groups[] = {
 
 static const char * const usb0_groups[] = {
 	"usb0",
-//	"usb0pwen",
-//	"usb0ovc",
 };
 
 static const char * const usb1_groups[] = {
