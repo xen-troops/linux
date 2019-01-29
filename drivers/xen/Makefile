@@ -6,6 +6,8 @@ obj-y	+= mem-reservation.o
 obj-y	+= events/
 obj-y	+= xenbus/
 
+obj-y	+= dbg_page_prot.o
+
 nostackp := $(call cc-option, -fno-stack-protector)
 CFLAGS_features.o			:= $(nostackp)
 
