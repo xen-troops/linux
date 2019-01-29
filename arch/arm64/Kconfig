@@ -314,6 +314,11 @@ config XENGNTDEV_ALLOC_PAGES_EXACT
 	  Note! This will ignore libxenbe provided GNTDEV_DMA_FLAG_WC and
 	  GNTDEV_DMA_FLAG_COHERENT flags during dma-buf export.
 
+config XENDRM_PRINT_PGPROT
+	bool "DOM{U|D}: print buffer pages' pgprot"
+	help
+	  Print pgprot's of the first 5 pages of the buffer.
+
 endif
 
 source "init/Kconfig"

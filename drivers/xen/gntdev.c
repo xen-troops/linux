@@ -52,6 +52,8 @@
 #include "gntdev-dmabuf.h"
 #endif
 
+#include <xen/dbg_page_prot.h>
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Derek G. Murray <Derek.Murray@cl.cam.ac.uk>, "
 	      "Gerd Hoffmann <kraxel@redhat.com>");
@@ -362,6 +364,18 @@ int gntdev_map_grant_pages(struct gntdev_grant_map *map)
 		}
 #endif
 	}
+
+#ifdef CONFIG_XENDRM_PRINT_PGPROT
+	{
+	  int cnt = map->count > 5 ? 5 : map->count;
+
+	  printk("-------------------- %s After grant map, num pages %d\n",
+		 __func__, map->count);
+	  for (i = 0; i < cnt; i++)
+	    xen_dump_page_prot(map->pages[i]);
+	}
+#endif
+
 	return err;
 }
 

@@ -251,6 +251,17 @@ xen_drm_front_gem_import_sg_table(struct drm_device *dev,
 	if (ret < 0)
 		return ERR_PTR(ret);
 
+#ifdef CONFIG_XENDRM_PRINT_PGPROT
+	{
+		int i, cnt = xen_obj->num_pages > 5 ? 5 : xen_obj->num_pages;
+
+		printk("-------------------- %s, num pages %zu\n",
+		       __func__, xen_obj->num_pages);
+		for (i = 0; i < cnt; i++)
+			xen_dump_page_prot(xen_obj->pages[i]);
+	}
+#endif
+
 	ret = xen_drm_front_dbuf_create(drm_info->front_info,
 					xen_drm_front_dbuf_to_cookie(&xen_obj->base),
 					0, 0, 0, size, xen_obj->pages);
@@ -290,6 +301,17 @@ static int gem_mmap_obj(struct xen_gem_object *xen_obj,
 	vma->vm_page_prot = pgprot_noncached(vm_get_page_prot(vma->vm_flags));
 #else
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
+#endif
+
+#ifdef CONFIG_XENDRM_PRINT_PGPROT
+	{
+		int cnt = xen_obj->num_pages > 5 ? 5 : xen_obj->num_pages;
+
+		printk("-------------------- %s, num pages %zu\n",
+		       __func__, xen_obj->num_pages);
+		for (i = 0; i < cnt; i++)
+			xen_dump_page_prot(xen_obj->pages[i]);
+	}
 #endif
 
 	/*
