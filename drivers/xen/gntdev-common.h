@@ -32,13 +32,6 @@ struct gntdev_priv {
 	struct mmu_notifier mn;
 
 #ifdef CONFIG_XEN_GRANT_DMA_ALLOC
-	/*
-	 * This is a workaround for 4.14 kernel:
-	 * of_dma_configure needs to access dev->bus->force_dma,
-	 * but misc device doesn't have bus. Provide one,
-	 * so of_dma_configure can complete.
-	 */
-	struct bus_type dma_dev_bus;
 	/* Device for which DMA memory is allocated. */
 	struct device *dma_dev;
 #endif
