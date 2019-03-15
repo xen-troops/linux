@@ -32,6 +32,12 @@
 #include <xen/xenbus.h>
 #include <xen/platform_pci.h>
 
+enum xenkbd_suspend_state {
+	XENKBD_SUSPEND_STATE_NONE,
+	XENKBD_SUSPEND_STATE_SUSPENDING,
+	XENKBD_SUSPEND_STATE_SUSPENDED,
+};
+
 struct xenkbd_info {
 	struct input_dev *kbd;
 	struct input_dev *ptr;
@@ -43,6 +49,9 @@ struct xenkbd_info {
 	char phys[32];
 	/* current MT slot/contact ID we are injecting events in */
 	int mtouch_cur_contact_id;
+
+	int suspend_state;
+	struct completion wait_backend_disconnected;
 };
 
 enum { KPARAM_X, KPARAM_Y, KPARAM_CNT };
@@ -50,6 +59,12 @@ static int ptr_size[KPARAM_CNT] = { XENFB_WIDTH, XENFB_HEIGHT };
 module_param_array(ptr_size, int, NULL, 0444);
 MODULE_PARM_DESC(ptr_size,
 	"Pointing device width, height in pixels (default 800,600)");
+
+static unsigned int xenkbd_suspend_timeout_secs = 10;
+module_param_named(suspend_timeout_secs,
+		   xenkbd_suspend_timeout_secs, uint, 0644);
+MODULE_PARM_DESC(suspend_timeout_secs,
+		 "timeout when suspending kbdfront device in seconds");
 
 static int xenkbd_remove(struct xenbus_device *);
 static int xenkbd_connect_backend(struct xenbus_device *, struct xenkbd_info *);
@@ -219,6 +234,8 @@ static int xenkbd_probe(struct xenbus_device *dev,
 	info->page = (void *)__get_free_page(GFP_KERNEL | __GFP_ZERO);
 	if (!info->page)
 		goto error_nomem;
+
+	init_completion(&info->wait_backend_disconnected);
 
 	/*
 	 * The below are reverse logic, e.g. if the feature is set, then
@@ -395,12 +412,60 @@ static int xenkbd_probe(struct xenbus_device *dev,
 	return ret;
 }
 
+static int xenkbd_suspend(struct xenbus_device *dev)
+{
+	struct xenkbd_info *info = dev_get_drvdata(&dev->dev);
+	unsigned long timeout = xenkbd_suspend_timeout_secs * HZ;
+	int err = 0;
+
+	info->suspend_state = XENKBD_SUSPEND_STATE_SUSPENDING;
+
+	/* Kick the backend to disconnect */
+	reinit_completion(&info->wait_backend_disconnected);
+	xenbus_switch_state(dev, XenbusStateClosing);
+
+	/*
+	 * We don't want to move forward before the frontend is disconnected
+	 * from the backend cleanly.
+	 */
+	timeout = wait_for_completion_timeout(&info->wait_backend_disconnected,
+					      timeout);
+	if (!timeout) {
+		err = -EBUSY;
+		xenbus_dev_error(dev, err, "Suspending timed out;"
+				 "the device may become inconsistent state");
+		return err;
+	}
+
+	xenkbd_disconnect_backend(info);
+	memset(info->page, 0, PAGE_SIZE);
+
+	info->suspend_state = XENKBD_SUSPEND_STATE_SUSPENDED;
+
+	return err;
+}
+
 static int xenkbd_resume(struct xenbus_device *dev)
 {
 	struct xenkbd_info *info = dev_get_drvdata(&dev->dev);
 
-	xenkbd_disconnect_backend(info);
-	memset(info->page, 0, PAGE_SIZE);
+	/*
+	 * FIXME: on .suspend we finally go into Closed state
+	 * and this is reflected in Xen store. But, when a Xen bus
+	 * device resumes its internal state is set to XenbusStateInitialising,
+	 * without changig the corresponding value in Xen store.
+	 * Then, xenbus_switch_state, when requested to set the state
+	 * to XenbusStateInitialising will not update Xen store as well
+	 * as there is a check that if we want to change the state to the
+	 * same one then do nothing, thus leaving device driver and Xen store
+	 * inconsistent: driver is in XenbusStateInitialising state and
+	 * Xen store remains in XenbusStateClosed. Work this around,
+	 * by first setting our state to XenbusStateClosed and then
+	 * to XenbusStateInitialising, so the later is finally set in Xen
+	 * store.
+	 */
+	xenbus_switch_state(dev, XenbusStateClosed);
+	xenbus_switch_state(dev, XenbusStateInitialising);
 	return xenkbd_connect_backend(dev, info);
 }
 
@@ -469,6 +534,8 @@ static int xenkbd_connect_backend(struct xenbus_device *dev,
 		goto error_irqh;
 	}
 
+	info->suspend_state = XENKBD_SUSPEND_STATE_NONE;
+
 	xenbus_switch_state(dev, XenbusStateInitialised);
 	return 0;
 
@@ -488,6 +555,8 @@ static int xenkbd_connect_backend(struct xenbus_device *dev,
 
 static void xenkbd_disconnect_backend(struct xenkbd_info *info)
 {
+	xenbus_switch_state(info->xbdev, XenbusStateClosing);
+
 	if (info->irq >= 0)
 		unbind_from_irqhandler(info->irq, info);
 	info->irq = -1;
@@ -499,6 +568,8 @@ static void xenkbd_disconnect_backend(struct xenkbd_info *info)
 static void xenkbd_backend_changed(struct xenbus_device *dev,
 				   enum xenbus_state backend_state)
 {
+	struct xenkbd_info *info = dev_get_drvdata(&dev->dev);
+
 	switch (backend_state) {
 	case XenbusStateInitialising:
 	case XenbusStateInitialised:
@@ -522,10 +593,23 @@ static void xenkbd_backend_changed(struct xenbus_device *dev,
 		break;
 
 	case XenbusStateClosed:
-		if (dev->state == XenbusStateClosed)
+		if (dev->state == XenbusStateClosed) {
+			/* dpm context is waiting for the backend */
+			if (info->suspend_state ==
+			    XENKBD_SUSPEND_STATE_SUSPENDING)
+				complete(&info->wait_backend_disconnected);
 			break;
+		}
 		/* Missed the backend's CLOSING state -- fallthrough */
 	case XenbusStateClosing:
+		/* We may see unexpected Closed or Closing from the backend.
+		 * Just ignore it not to prevent the frontend from being
+		 * re-connected in the case of PM suspend or hibernation.
+		 */
+		if (info->suspend_state == XENKBD_SUSPEND_STATE_SUSPENDED &&
+		    dev->state == XenbusStateInitialising) {
+			break;
+		}
 		xenbus_frontend_closed(dev);
 		break;
 	}
@@ -540,6 +624,7 @@ static struct xenbus_driver xenkbd_driver = {
 	.ids = xenkbd_ids,
 	.probe = xenkbd_probe,
 	.remove = xenkbd_remove,
+	.suspend = xenkbd_suspend,
 	.resume = xenkbd_resume,
 	.otherend_changed = xenkbd_backend_changed,
 };
