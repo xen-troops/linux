@@ -335,7 +335,7 @@ config XEN_HAVE_VPMU
        bool
 
 config XEN_COORD_SUSPEND
-    bool
+    def_bool y
     depends on (ARM || ARM64) && SUSPEND
     help
         Enables support for handling of coordinated suspend interrupts. Allows
