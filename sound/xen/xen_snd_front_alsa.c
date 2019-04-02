@@ -356,9 +356,9 @@ static int alsa_open(struct snd_pcm_substream *substream)
 			      SNDRV_PCM_INFO_DOUBLE |
 			      SNDRV_PCM_INFO_BATCH |
 			      SNDRV_PCM_INFO_NONINTERLEAVED |
-			      SNDRV_PCM_INFO_RESUME |
 			      SNDRV_PCM_INFO_PAUSE);
-	runtime->hw.info |= SNDRV_PCM_INFO_INTERLEAVED;
+	runtime->hw.info |= SNDRV_PCM_INFO_INTERLEAVED |
+			    SNDRV_PCM_INFO_RESUME;
 
 	stream->evt_pair = &front_info->evt_pairs[stream->index];
 
@@ -819,4 +819,23 @@ void xen_snd_front_alsa_fini(struct xen_snd_front_info *front_info)
 
 	/* Card_info will be freed when destroying front_info->xb_dev->dev. */
 	card_info->card = NULL;
+}
+
+int xen_snd_front_alsa_suspend(struct xen_snd_front_info *front_info)
+{
+	struct xen_snd_front_card_info *card_info = front_info->card_info;
+	int i;
+
+	snd_power_change_state(card_info->card, SNDRV_CTL_POWER_D3hot);
+	for (i = 0; i < card_info->num_pcm_instances; i++)
+		snd_pcm_suspend_all(card_info->pcm_instances[i].pcm);
+	return 0;
+}
+
+int xen_snd_front_alsa_resume(struct xen_snd_front_info *front_info)
+{
+	struct snd_card *card = front_info->card_info->card;
+
+	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
+	return 0;
 }

@@ -351,6 +351,16 @@ static int xen_drv_remove(struct xenbus_device *dev)
 	return 0;
 }
 
+static int xen_drv_suspend(struct xenbus_device *xb_dev)
+{
+	return xen_snd_front_alsa_suspend(dev_get_drvdata(&xb_dev->dev));
+}
+
+static int xen_drv_resume(struct xenbus_device *xb_dev)
+{
+	return xen_snd_front_alsa_resume(dev_get_drvdata(&xb_dev->dev));
+}
+
 static const struct xenbus_device_id xen_drv_ids[] = {
 	{ XENSND_DRIVER_NAME },
 	{ "" }
@@ -360,6 +370,8 @@ static struct xenbus_driver xen_driver = {
 	.ids = xen_drv_ids,
 	.probe = xen_drv_probe,
 	.remove = xen_drv_remove,
+	.suspend = xen_drv_suspend,
+	.resume = xen_drv_resume,
 	.otherend_changed = sndback_changed,
 };
 
