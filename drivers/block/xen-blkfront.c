@@ -2057,6 +2057,7 @@ static int blkif_recover(struct blkfront_info *info)
  */
 static int blkfront_resume(struct xenbus_device *dev)
 {
+#if 0
 	struct blkfront_info *info = dev_get_drvdata(&dev->dev);
 	int err = 0;
 	unsigned int i, j;
@@ -2113,6 +2114,20 @@ static int blkfront_resume(struct xenbus_device *dev)
 	 */
 
 	return err;
+#else
+	/*
+	 * FIXME: When a Xen bus device resumes its internal state is set to
+	 * XenbusStateInitialising, without changig the corresponding value
+	 * in Xen store. Then, xenbus_switch_state, when requested to set
+	 * new state will not update Xen store as well as there is a check
+	 * that if we want to change the state to the same one then do nothing,
+	 * thus leaving device driver and Xen store inconsistent: driver is in
+	 * XenbusStateInitialising state and Xen store remains as it was.
+	 */
+	dev->state = XenbusStateUnknown;
+	xenbus_switch_state(dev, XenbusStateConnected);
+	return 0;
+#endif
 }
 
 static void blkfront_closing(struct blkfront_info *info)
