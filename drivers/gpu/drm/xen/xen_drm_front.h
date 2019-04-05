@@ -120,6 +120,7 @@ struct xen_drm_front_drm_pipeline {
 struct xen_drm_front_drm_info {
 	struct xen_drm_front_info *front_info;
 	struct drm_device *drm_dev;
+	struct drm_atomic_state *suspend_state;
 
 	struct xen_drm_front_drm_pipeline pipeline[XEN_DRM_FRONT_MAX_CRTCS];
 };

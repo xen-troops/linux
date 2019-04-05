@@ -364,3 +364,30 @@ void xen_drm_front_kms_fini(struct xen_drm_front_drm_info *drm_info)
 		send_pending_event(pipeline);
 	}
 }
+
+int xen_drm_front_kms_suspend(struct xen_drm_front_drm_info *drm_info)
+{
+	drm_info->suspend_state = drm_atomic_helper_suspend(drm_info->drm_dev);
+	if (IS_ERR(drm_info->suspend_state)) {
+		int ret = PTR_ERR(drm_info->suspend_state);
+
+		DRM_ERROR("Failed kms suspend: %d\n", ret);
+		drm_info->suspend_state = NULL;
+
+		return ret;
+	}
+	return 0;
+}
+
+int xen_drm_front_kms_resume(struct xen_drm_front_drm_info *drm_info)
+{
+	int ret;
+
+	if (WARN_ON(!drm_info->suspend_state))
+		return 0;
+
+	ret = drm_atomic_helper_resume(drm_info->drm_dev,
+				       drm_info->suspend_state);
+	drm_info->suspend_state = NULL;
+	return 0;
+}
