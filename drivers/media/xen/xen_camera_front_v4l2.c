@@ -110,7 +110,11 @@ static const struct xen_to_v4l2 XEN_COLORSPACE_TO_V4L2[] = {
 	},
 	{
 		.xen = XENCAMERA_COLORSPACE_OPRGB,
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+		.v4l2 = V4L2_COLORSPACE_ADOBERGB,
+#else
 		.v4l2 = V4L2_COLORSPACE_OPRGB,
+#endif
 	},
 	{
 		.xen = XENCAMERA_COLORSPACE_BT2020,
@@ -137,7 +141,11 @@ static const struct xen_to_v4l2 XEN_XFER_FUNC_TO_V4L2[] = {
 	},
 	{
 		.xen = XENCAMERA_XFER_FUNC_OPRGB,
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+		.v4l2 = V4L2_XFER_FUNC_ADOBERGB,
+#else
 		.v4l2 = V4L2_XFER_FUNC_OPRGB,
+#endif
 	},
 	{
 		.xen = XENCAMERA_XFER_FUNC_NONE,
