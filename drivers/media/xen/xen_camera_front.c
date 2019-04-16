@@ -728,7 +728,12 @@ static int xen_drv_probe(struct xenbus_device *xb_dev,
 	 * node to set default DMA ops.
 	 */
 	dev->coherent_dma_mask = DMA_BIT_MASK(64);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+	dev->bus->force_dma = true;
+	ret = of_dma_configure(dev, NULL);
+#else
 	ret = of_dma_configure(dev, NULL, true);
+#endif
 	if (ret < 0) {
 		xenbus_dev_fatal(xb_dev, ret, "setting up DMA ops");
 		return ret;
