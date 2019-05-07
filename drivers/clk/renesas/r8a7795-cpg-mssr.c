@@ -144,7 +144,7 @@ static struct mssr_mod_clk r8a7795_mod_clks[] __initdata = {
 	DEF_MOD("cmt2",			 301,	R8A7795_CLK_R),
 	DEF_MOD("cmt1",			 302,	R8A7795_CLK_R),
 	DEF_MOD("cmt0",			 303,	R8A7795_CLK_R),
-	DEF_MOD("scif2",		 310,	R8A7795_CLK_S3D4),
+	/*DEF_MOD("scif2",		 310,	R8A7795_CLK_S3D4),*/
 	DEF_MOD("sdif3",		 311,	R8A7795_CLK_SD3),
 	DEF_MOD("sdif2",		 312,	R8A7795_CLK_SD2),
 	DEF_MOD("sdif1",		 313,	R8A7795_CLK_SD1),
@@ -176,7 +176,7 @@ static struct mssr_mod_clk r8a7795_mod_clks[] __initdata = {
 	DEF_MOD("hscif2",		 518,	R8A7795_CLK_S3D1),
 	DEF_MOD("hscif1",		 519,	R8A7795_CLK_S3D1),
 	DEF_MOD("hscif0",		 520,	R8A7795_CLK_S3D1),
-	DEF_MOD("thermal",		 522,	R8A7795_CLK_CP),
+	/*DEF_MOD("thermal",		 522,	R8A7795_CLK_CP),*/
 	DEF_MOD("pwm",			 523,	R8A7795_CLK_S0D12),
 	DEF_MOD("fcpvd3",		 600,	R8A7795_CLK_S2D1), /* ES1.x */
 	DEF_MOD("fcpvd2",		 601,	R8A7795_CLK_S0D2),
@@ -247,7 +247,7 @@ static struct mssr_mod_clk r8a7795_mod_clks[] __initdata = {
 	DEF_MOD("i2c6",			 918,	R8A7795_CLK_S0D6),
 	DEF_MOD("i2c5",			 919,	R8A7795_CLK_S0D6),
 	DEF_MOD("adg",			 922,	R8A7795_CLK_S0D1),
-	DEF_MOD("i2c-dvfs",		 926,	R8A7795_CLK_CP),
+	/*DEF_MOD("i2c-dvfs",		 926,	R8A7795_CLK_CP),*/
 	DEF_MOD("i2c4",			 927,	R8A7795_CLK_S0D6),
 	DEF_MOD("i2c3",			 928,	R8A7795_CLK_S0D6),
 	DEF_MOD("i2c2",			 929,	R8A7795_CLK_S3D2),

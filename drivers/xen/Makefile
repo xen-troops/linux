@@ -2,6 +2,7 @@
 obj-$(CONFIG_HOTPLUG_CPU)		+= cpu_hotplug.o
 obj-$(CONFIG_X86)			+= fallback.o
 obj-y	+= grant-table.o features.o balloon.o manage.o preempt.o time.o
+obj-y	+= mem-reservation.o
 obj-y	+= events/
 obj-y	+= xenbus/
 
@@ -39,5 +40,6 @@ obj-$(CONFIG_XEN_AUTO_XLATE)		+= xlate_mmu.o
 obj-$(CONFIG_XEN_PVCALLS_BACKEND)	+= pvcalls-back.o
 xen-evtchn-y				:= evtchn.o
 xen-gntdev-y				:= gntdev.o
+xen-gntdev-$(CONFIG_XEN_GNTDEV_DMABUF)	+= gntdev-dmabuf.o
 xen-gntalloc-y				:= gntalloc.o
 xen-privcmd-y				:= privcmd.o
