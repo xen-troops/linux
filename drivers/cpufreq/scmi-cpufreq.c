@@ -203,7 +203,7 @@ static int scmi_cpufreq_init(struct cpufreq_policy *policy)
 
 	em_register_perf_domain(policy->cpus, nr_opp, &em_cb);
 
-	return 0;
+	return cpufreq_table_validate_and_show(policy, freq_table);
 
 out_free_priv:
 	kfree(priv);
