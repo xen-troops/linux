@@ -1292,6 +1292,7 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 	struct sh_msiof_spi_info *info;
 	struct sh_msiof_spi_priv *p;
 	unsigned long clksrc;
+	struct clk *ref_clk;
 	int i;
 	int ret;
 
@@ -1335,6 +1336,17 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "cannot get clock\n");
 		ret = PTR_ERR(p->clk);
 		goto err1;
+	}
+
+	/* MSIOF module clock setup */
+	ref_clk = devm_clk_get(&pdev->dev, "msiof_ref_clk");
+	if (!IS_ERR(ref_clk)) {
+		clksrc = clk_get_rate(ref_clk);
+		if (clksrc) {
+			clk_prepare_enable(p->clk);
+			clk_set_rate(p->clk, clksrc);
+			clk_disable_unprepare(p->clk);
+		}
 	}
 
 	i = platform_get_irq(pdev, 0);
