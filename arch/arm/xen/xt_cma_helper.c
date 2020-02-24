@@ -206,13 +206,13 @@ int alloc_xenballooned_pages(int nr_pages, struct page **pages)
 
 	ret = xt_cma_alloc_pages(GFP_KERNEL, nr_pages, pages);
 	if (ret < 0) {
-		pr_debug("Failed to allocate pages\n");
+		pr_err("Failed to allocate pages\n");
 		return ret;
 	}
 
 	frames = kcalloc(nr_pages, sizeof(*frames), GFP_KERNEL);
 	if (!frames) {
-		pr_debug("Failed to allocate frames to decrease reservation\n");
+		pr_err("Failed to allocate frames to decrease reservation\n");
 		ret = -ENOMEM;
 		goto fail;
 	}
@@ -228,7 +228,7 @@ int alloc_xenballooned_pages(int nr_pages, struct page **pages)
 
 	ret = xenmem_reservation_decrease(nr_pages, frames);
 	if (ret != nr_pages) {
-		pr_debug("Failed to decrease reservation for pages\n");
+		pr_err("Failed to decrease reservation for pages\n");
 		ret = -EFAULT;
 		goto fail;
 	}
@@ -256,7 +256,7 @@ void free_xenballooned_pages(int nr_pages, struct page **pages)
 
 	frames = kcalloc(nr_pages, sizeof(*frames), GFP_KERNEL);
 	if (!frames) {
-		pr_debug("Failed to allocate frames to increase reservation\n");
+		pr_err("Failed to allocate frames to increase reservation\n");
 		return;
 	}
 
@@ -265,7 +265,7 @@ void free_xenballooned_pages(int nr_pages, struct page **pages)
 
 	ret = xenmem_reservation_increase(nr_pages, frames);
 	if (ret != nr_pages)
-		pr_debug("Failed to increase reservation for pages\n");
+		pr_err("Failed to increase reservation for pages\n");
 
 	xenmem_reservation_va_mapping_update(nr_pages, pages, frames);
 
