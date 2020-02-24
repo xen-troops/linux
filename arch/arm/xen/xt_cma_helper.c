@@ -106,16 +106,21 @@ struct page *xt_cma_alloc_page(gfp_t gfp_mask)
 
 	va = (void *)gen_pool_alloc(xt_cma_helper_bootmem_page_pool,
 				    PAGE_SIZE);
-	if (IS_ERR(va))
-		return va;
+	if (!va)
+		return NULL;
 
 	return virt_to_page(va);
 }
 
 unsigned long xt_cma_get_zeroed_page(gfp_t gfp_mask)
 {
-	void *va = page_to_virt(xt_cma_alloc_page(gfp_mask));
+	struct page *page = xt_cma_alloc_page(gfp_mask);
+	void *va;
 
+	if (!page)
+		return 0;
+
+	va = page_to_virt(page);
 	memset(va, 0, PAGE_SIZE);
 	return (unsigned long)va;
 }
@@ -138,13 +143,13 @@ static int xt_cma_alloc_pages(gfp_t gfp_mask, int count,
 	 */
 	for (i = 0; i < count; i++) {
 		pages[i] = xt_cma_alloc_page(gfp_mask);
-		if (IS_ERR(pages[i]))
+		if (!pages[i])
 			goto fail;
 	}
 	return 0;
 
 fail:
-	for (; i >=0; i--)
+	while (i-- > 0)
 		xt_cma_free_page((unsigned long)page_to_virt(pages[i]));
 	return -ENOMEM;
 }
@@ -164,8 +169,8 @@ void *xt_cma_dma_alloc_coherent(struct device *dev, size_t size,
 
 	va = (void *)gen_pool_alloc(xt_cma_helper_bootmem_cma_pool,
 				    ALIGN(size, PAGE_SIZE));
-	if (IS_ERR(va))
-		return va;
+	if (!va)
+		return NULL;
 
 	*dma_handle = virt_to_phys(va);
 	return va;
@@ -200,8 +205,10 @@ int alloc_xenballooned_pages(int nr_pages, struct page **pages)
 	int i, ret;
 
 	ret = xt_cma_alloc_pages(GFP_KERNEL, nr_pages, pages);
-	if (ret < 0)
+	if (ret < 0) {
+		pr_debug("Failed to allocate pages\n");
 		return ret;
+	}
 
 	frames = kcalloc(nr_pages, sizeof(*frames), GFP_KERNEL);
 	if (!frames) {
