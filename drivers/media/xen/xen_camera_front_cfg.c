@@ -37,9 +37,13 @@ static int cfg_read_framerates(struct xenbus_device *xb_dev,
 		return PTR_ERR(list);
 	}
 
-	/* Make sure the list is not empty. */
+	/*
+	 * Empty list just means that frame rates are not configured for
+	 * the given guest. Return -ENOTTY to the upper layer for treating
+	 * this error accordingly and continue initialization sequence.
+	 */
 	if (!list[0]) {
-		ret = -EINVAL;
+		ret = -ENOTTY;
 		goto fail;
 	}
 
@@ -130,6 +134,8 @@ static int cfg_read_format(struct xenbus_device *xb_dev,
 	}
 
 	for (i = 0; i < num_resolutions; i++) {
+		bool no_framerate = false;
+
 		cnt = sscanf(dir_nodes[i],
 			     "%d" XENCAMERA_RESOLUTION_SEPARATOR "%d",
 			     &width, &height);
@@ -138,10 +144,23 @@ static int cfg_read_format(struct xenbus_device *xb_dev,
 			ret = -EINVAL;
 			goto fail;
 		}
-		ret = cfg_read_framerates(xb_dev, &fmt->resolution[i],
-					  xs_res_base_path, dir_nodes[i]);
-		if (ret < 0)
-			goto fail;
+
+		if (!no_framerate) {
+			ret = cfg_read_framerates(xb_dev, &fmt->resolution[i],
+						  xs_res_base_path, dir_nodes[i]);
+			if (ret < 0) {
+				if (ret != -ENOTTY)
+					goto fail;
+
+				/*
+				 * There is no need to try to read frame rates for other
+				 * resolutions if they are not configured for the first one.
+				 * The frame rates must be either configured for all resolutions
+				 * or for none of them.
+				 */
+				no_framerate = true;
+			}
+		}
 
 		fmt->resolution[i].width = width;
 		fmt->resolution[i].height = height;
