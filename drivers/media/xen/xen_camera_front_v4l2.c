@@ -797,6 +797,25 @@ int ioctl_enum_framesizes(struct file *file, void *fh,
 	return 0;
 }
 
+/*
+ * This function is only called from IOCTLs to determine whether the frame rates
+ * are supported (configured for the given guest) and if no frame rates are
+ * supported it is equivalent to the corresponding IOCTL is not supported and
+ * this can be handled by user-space.
+ *
+ * If this gets called there must be at least one format and one resolution,
+ * there is no need to check for cfg->num_formats and format->num_resolutions
+ * to be greater than 0 before dereferencing format[0] and resolution[0].
+ */
+static bool frame_rates_supported(struct xen_camera_front_v4l2_info *v4l2_info)
+{
+	struct xen_camera_front_cfg_card *cfg = &v4l2_info->front_info->cfg;
+	struct xen_camera_front_cfg_format *format = &cfg->format[0];
+	struct xen_camera_front_cfg_resolution *resolution = &format->resolution[0];
+
+	return !!resolution->num_frame_rates;
+}
+
 int ioctl_enum_frameintervals(struct file *file, void *fh,
 			      struct v4l2_frmivalenum *fival)
 {
@@ -804,6 +823,9 @@ int ioctl_enum_frameintervals(struct file *file, void *fh,
 	struct xen_camera_front_cfg_card *cfg = &v4l2_info->front_info->cfg;
 	struct xen_camera_front_cfg_format *format;
 	struct xen_camera_front_cfg_resolution *resolution;
+
+	if (!frame_rates_supported(v4l2_info))
+		return -ENOTTY;
 
 	format = enum_get_format(cfg, fival->pixel_format);
 	if (!format)
@@ -875,6 +897,9 @@ static int ioctl_g_parm(struct file *file, void *priv,
 {
 	struct xen_camera_front_v4l2_info *v4l2_info = video_drvdata(file);
 
+	if (!frame_rates_supported(v4l2_info))
+		return -ENOTTY;
+
 	if (parm->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 
@@ -887,6 +912,9 @@ static int ioctl_s_parm(struct file *file, void *priv,
 	struct xen_camera_front_v4l2_info *v4l2_info = video_drvdata(file);
 	struct xencamera_frame_rate_req frame_rate_req;
 	int ret;
+
+	if (!frame_rates_supported(v4l2_info))
+		return -ENOTTY;
 
 	if (parm->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
