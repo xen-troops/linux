@@ -212,13 +212,9 @@ static struct i2c_bus_recovery_info rcar_i2c_bri = {
 };
 static void rcar_i2c_init(struct rcar_i2c_priv *priv)
 {
-	/* reset master mode */
-	rcar_i2c_write(priv, ICMIER, 0);
-	rcar_i2c_write(priv, ICMCR, MDBS);
-	rcar_i2c_write(priv, ICMSR, 0);
 	/* start clock */
 	rcar_i2c_write(priv, ICCCR, priv->icccr);
-
+	/* 1st bit setup cycle */
 	if (priv->devtype == I2C_RCAR_GEN3)
 		rcar_i2c_write(priv, ICFBSCR, TCYC17);
 
