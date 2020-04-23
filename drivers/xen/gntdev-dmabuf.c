@@ -43,6 +43,7 @@ struct gntdev_dmabuf {
 
 			struct gntdev_priv *priv;
 			struct gntdev_grant_map *map;
+			unsigned int data_ofs;
 		} exp;
 		struct {
 			/* Granted references of the imported buffer. */
@@ -198,7 +199,8 @@ static int dmabuf_exp_wait_released(struct gntdev_dmabuf_priv *priv, int fd,
 /* DMA buffer export support. */
 
 static struct sg_table *
-dmabuf_pages_to_sgt(struct page **pages, unsigned int nr_pages)
+dmabuf_pages_to_sgt(struct page **pages, unsigned int nr_pages,
+		    unsigned int data_ofs)
 {
 	struct sg_table *sgt;
 	int ret;
@@ -209,7 +211,7 @@ dmabuf_pages_to_sgt(struct page **pages, unsigned int nr_pages)
 		goto out;
 	}
 
-	ret = sg_alloc_table_from_pages(sgt, pages, nr_pages, 0,
+	ret = sg_alloc_table_from_pages(sgt, pages, nr_pages, data_ofs,
 					nr_pages << PAGE_SHIFT,
 					GFP_KERNEL);
 	if (ret)
@@ -286,7 +288,8 @@ dmabuf_exp_ops_map_dma_buf(struct dma_buf_attachment *attach,
 		return ERR_PTR(-EBUSY);
 
 	sgt = dmabuf_pages_to_sgt(gntdev_dmabuf->pages,
-				  gntdev_dmabuf->nr_pages);
+				  gntdev_dmabuf->nr_pages,
+				  gntdev_dmabuf->u.exp.data_ofs);
 	if (!IS_ERR(sgt)) {
 		if (!dma_map_sg_attrs(attach->dev, sgt->sgl, sgt->nents, dir,
 				      DMA_ATTR_SKIP_CPU_SYNC)) {
@@ -381,6 +384,7 @@ struct gntdev_dmabuf_export_args {
 	int count;
 	struct page **pages;
 	u32 fd;
+	unsigned int data_ofs;
 };
 
 static int dmabuf_exp_from_pages(struct gntdev_dmabuf_export_args *args)
@@ -400,6 +404,7 @@ static int dmabuf_exp_from_pages(struct gntdev_dmabuf_export_args *args)
 	gntdev_dmabuf->pages = args->pages;
 	gntdev_dmabuf->u.exp.priv = args->priv;
 	gntdev_dmabuf->u.exp.map = args->map;
+	gntdev_dmabuf->u.exp.data_ofs = args->data_ofs;
 
 	exp_info.exp_name = KBUILD_MODNAME;
 	if (args->dev->driver && args->dev->driver->owner)
@@ -468,7 +473,8 @@ dmabuf_exp_alloc_backing_storage(struct gntdev_priv *priv, int dmabuf_flags,
 }
 
 static int dmabuf_exp_from_refs(struct gntdev_priv *priv, int flags,
-				int count, u32 domid, u32 *refs, u32 *fd)
+				int count, u32 domid, u32 *refs, u32 *fd,
+				unsigned int data_ofs)
 {
 	struct gntdev_grant_map *map;
 	struct gntdev_dmabuf_export_args args;
@@ -503,6 +509,7 @@ static int dmabuf_exp_from_refs(struct gntdev_priv *priv, int flags,
 	args.count = map->count;
 	args.pages = map->pages;
 	args.fd = -1; /* Shut up unnecessary gcc warning for i386 */
+	args.data_ofs = data_ofs;
 
 	ret = dmabuf_exp_from_pages(&args);
 	if (ret < 0)
@@ -605,7 +612,7 @@ fail_no_free:
 
 static struct gntdev_dmabuf *
 dmabuf_imp_to_refs(struct gntdev_dmabuf_priv *priv, struct device *dev,
-		   int fd, int count, int domid)
+		   int fd, int count, int domid, unsigned int *offset)
 {
 	struct gntdev_dmabuf *gntdev_dmabuf, *ret;
 	struct dma_buf *dma_buf;
@@ -641,8 +648,11 @@ dmabuf_imp_to_refs(struct gntdev_dmabuf_priv *priv, struct device *dev,
 		goto fail_detach;
 	}
 
-	/* Check that we have zero offset. */
-	if (sgt->sgl->offset) {
+	/*
+	 * Check that we have zero offset if it cannot be reported
+	 * back to user-space.
+	 */
+	if (!offset && sgt->sgl->offset) {
 		ret = ERR_PTR(-EINVAL);
 		pr_debug("DMA buffer has %d bytes offset, user-space expects 0\n",
 			 sgt->sgl->offset);
@@ -681,6 +691,9 @@ dmabuf_imp_to_refs(struct gntdev_dmabuf_priv *priv, struct device *dev,
 						      count, domid));
 	if (IS_ERR(ret))
 		goto fail_end_access;
+
+	if (offset)
+		*offset = sgt->sgl->offset;
 
 	pr_debug("Imported DMA buffer with fd %d\n", fd);
 
@@ -792,7 +805,48 @@ long gntdev_ioctl_dmabuf_exp_from_refs(struct gntdev_priv *priv, int use_ptemod,
 	}
 
 	ret = dmabuf_exp_from_refs(priv, op.flags, op.count,
-				   op.domid, refs, &op.fd);
+				   op.domid, refs, &op.fd, 0);
+	if (ret)
+		goto out;
+
+	if (copy_to_user(u, &op, sizeof(op)) != 0)
+		ret = -EFAULT;
+
+out:
+	kfree(refs);
+	return ret;
+}
+
+long gntdev_ioctl_dmabuf_exp_from_refs_v2(struct gntdev_priv *priv, int use_ptemod,
+					  struct ioctl_gntdev_dmabuf_exp_from_refs_v2 __user *u)
+{
+	struct ioctl_gntdev_dmabuf_exp_from_refs_v2 op;
+	u32 *refs;
+	long ret;
+
+	if (use_ptemod) {
+		pr_debug("Cannot provide dma-buf: use_ptemode %d\n",
+			 use_ptemod);
+		return -EINVAL;
+	}
+
+	if (copy_from_user(&op, u, sizeof(op)) != 0)
+		return -EFAULT;
+
+	if (unlikely(op.count <= 0))
+		return -EINVAL;
+
+	refs = kcalloc(op.count, sizeof(*refs), GFP_KERNEL);
+	if (!refs)
+		return -ENOMEM;
+
+	if (copy_from_user(refs, u->refs, sizeof(*refs) * op.count) != 0) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = dmabuf_exp_from_refs(priv, op.flags, op.count,
+				   op.domid, refs, &op.fd, op.data_ofs);
 	if (ret)
 		goto out;
 
@@ -831,7 +885,38 @@ long gntdev_ioctl_dmabuf_imp_to_refs(struct gntdev_priv *priv,
 
 	gntdev_dmabuf = dmabuf_imp_to_refs(priv->dmabuf_priv,
 					   priv->dma_dev, op.fd,
-					   op.count, op.domid);
+					   op.count, op.domid, NULL);
+	if (IS_ERR(gntdev_dmabuf))
+		return PTR_ERR(gntdev_dmabuf);
+
+	if (copy_to_user(u->refs, gntdev_dmabuf->u.imp.refs,
+			 sizeof(*u->refs) * op.count) != 0) {
+		ret = -EFAULT;
+		goto out_release;
+	}
+	return 0;
+
+out_release:
+	dmabuf_imp_release(priv->dmabuf_priv, op.fd);
+	return ret;
+}
+
+long gntdev_ioctl_dmabuf_imp_to_refs_v2(struct gntdev_priv *priv,
+					struct ioctl_gntdev_dmabuf_imp_to_refs_v2 __user *u)
+{
+	struct ioctl_gntdev_dmabuf_imp_to_refs_v2 op;
+	struct gntdev_dmabuf *gntdev_dmabuf;
+	long ret;
+
+	if (copy_from_user(&op, u, sizeof(op)) != 0)
+		return -EFAULT;
+
+	if (unlikely(op.count <= 0))
+		return -EINVAL;
+
+	gntdev_dmabuf = dmabuf_imp_to_refs(priv->dmabuf_priv,
+					   priv->dma_dev, op.fd,
+					   op.count, op.domid, &op.data_ofs);
 	if (IS_ERR(gntdev_dmabuf))
 		return PTR_ERR(gntdev_dmabuf);
 

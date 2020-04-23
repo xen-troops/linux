@@ -1059,11 +1059,17 @@ static long gntdev_ioctl(struct file *flip,
 	case IOCTL_GNTDEV_DMABUF_EXP_FROM_REFS:
 		return gntdev_ioctl_dmabuf_exp_from_refs(priv, use_ptemod, ptr);
 
+	case IOCTL_GNTDEV_DMABUF_EXP_FROM_REFS_V2:
+		return gntdev_ioctl_dmabuf_exp_from_refs_v2(priv, use_ptemod, ptr);
+
 	case IOCTL_GNTDEV_DMABUF_EXP_WAIT_RELEASED:
 		return gntdev_ioctl_dmabuf_exp_wait_released(priv, ptr);
 
 	case IOCTL_GNTDEV_DMABUF_IMP_TO_REFS:
 		return gntdev_ioctl_dmabuf_imp_to_refs(priv, ptr);
+
+	case IOCTL_GNTDEV_DMABUF_IMP_TO_REFS_V2:
+		return gntdev_ioctl_dmabuf_imp_to_refs_v2(priv, ptr);
 
 	case IOCTL_GNTDEV_DMABUF_IMP_RELEASE:
 		return gntdev_ioctl_dmabuf_imp_release(priv, ptr);
