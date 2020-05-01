@@ -19,6 +19,7 @@ struct xen_drm_front_cfg_connector {
 	int width;
 	int height;
 	char *xenstore_path;
+	struct edid *edid;
 };
 
 struct xen_drm_front_cfg {
@@ -33,5 +34,11 @@ struct xen_drm_front_cfg {
 
 int xen_drm_front_cfg_card(struct xen_drm_front_info *front_info,
 			   struct xen_drm_front_cfg *cfg);
+
+int xen_drm_front_cfg_tail(struct xen_drm_front_info *front_info,
+						   struct xen_drm_front_cfg *cfg);
+
+void xen_drm_front_cfg_free(struct xen_drm_front_info *front_info,
+							struct xen_drm_front_cfg *cfg);
 
 #endif /* __XEN_DRM_FRONT_CFG_H_ */

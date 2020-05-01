@@ -112,8 +112,11 @@ struct xen_drm_front_drm_pipeline {
 	struct drm_simple_display_pipe pipe;
 
 	struct drm_connector conn;
-	/* These are only for connector mode checking */
+	/* These are only for connector mode checking if no EDID present */
 	int width, height;
+
+	/* Is not NULL if EDID is used for connector configuration. */
+	struct edid *edid;
 
 	struct drm_pending_vblank_event *pending_event;
 
@@ -159,5 +162,9 @@ int xen_drm_front_page_flip(struct xen_drm_front_info *front_info,
 
 void xen_drm_front_on_frame_done(struct xen_drm_front_info *front_info,
 				 int conn_idx, u64 fb_cookie);
+
+int xen_drm_front_get_edid(struct xen_drm_front_info *front_info,
+			   int conn_idx, struct page **pages,
+			   u32 buffer_sz, u32 *edid_sz);
 
 #endif /* __XEN_DRM_FRONT_H_ */
