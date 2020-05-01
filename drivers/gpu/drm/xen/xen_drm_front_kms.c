@@ -276,6 +276,10 @@ display_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 			container_of(crtc, struct xen_drm_front_drm_pipeline,
 				     pipe.crtc);
 
+	/* We have nothing to check if EDID is present. */
+	if (pipeline->edid)
+		return MODE_OK;
+
 	if (mode->hdisplay != pipeline->width)
 		return MODE_ERROR;
 
@@ -306,6 +310,7 @@ static int display_pipe_init(struct xen_drm_front_drm_info *drm_info,
 	pipeline->index = index;
 	pipeline->height = cfg->height;
 	pipeline->width = cfg->width;
+	pipeline->edid = cfg->edid;
 
 	INIT_DELAYED_WORK(&pipeline->pflip_to_worker, pflip_to_worker);
 

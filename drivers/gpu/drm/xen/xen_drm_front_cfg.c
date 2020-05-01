@@ -45,6 +45,64 @@ static int cfg_connector(struct xen_drm_front_info *front_info,
 	return 0;
 }
 
+static void
+cfg_connector_free_edid(struct xen_drm_front_cfg_connector *connector)
+{
+	vfree(connector->edid);
+	connector->edid = NULL;
+}
+
+static void cfg_connector_edid(struct xen_drm_front_info *front_info,
+			       struct xen_drm_front_cfg_connector *connector,
+			       int index)
+{
+	struct page **pages;
+	u32 edid_sz;
+	int i, npages, ret = -ENOMEM;
+
+	connector->edid = vmalloc(XENDISPL_EDID_MAX_SIZE);
+	if (!connector->edid)
+		goto fail;
+
+	npages = DIV_ROUND_UP(XENDISPL_EDID_MAX_SIZE, PAGE_SIZE);
+	pages = kvmalloc_array(npages, sizeof(struct page *), GFP_KERNEL);
+	if (!pages)
+		goto fail_free_edid;
+
+	for (i = 0; i < npages; i++)
+		pages[i] = vmalloc_to_page((u8 *)connector->edid +
+					   i * PAGE_SIZE);
+
+	ret = xen_drm_front_get_edid(front_info, index, pages,
+				     XENDISPL_EDID_MAX_SIZE, &edid_sz);
+
+	kvfree(pages);
+
+	if (ret < 0)
+		goto fail_free_edid;
+
+	ret = -EINVAL;
+	if (!edid_sz || (edid_sz % EDID_LENGTH))
+		goto fail_free_edid;
+
+	if (!drm_edid_is_valid(connector->edid))
+		goto fail_free_edid;
+
+	DRM_INFO("Connector %s: using EDID for configuration, size %d\n",
+		 connector->xenstore_path, edid_sz);
+	return;
+
+fail_free_edid:
+	cfg_connector_free_edid(connector);
+fail:
+	/*
+	 * If any error this is not critical as we can still read
+	 * connector settings from XenStore, so just warn.
+	 */
+	DRM_WARN("Connector %s: cannot read or wrong EDID: %d\n",
+		 connector->xenstore_path, ret);
+}
+
 int xen_drm_front_cfg_card(struct xen_drm_front_info *front_info,
 			   struct xen_drm_front_cfg *cfg)
 {
@@ -73,5 +131,29 @@ int xen_drm_front_cfg_card(struct xen_drm_front_info *front_info,
 	}
 
 	return 0;
+}
+
+int xen_drm_front_cfg_tail(struct xen_drm_front_info *front_info,
+			   struct xen_drm_front_cfg *cfg)
+{
+	int i;
+
+	/*
+	 * Try reading EDID(s) from the backend: it is not an error
+	 * if backend doesn't support or provides no EDID.
+	 */
+	for (i = 0; i < cfg->num_connectors; i++)
+		cfg_connector_edid(front_info, &cfg->connectors[i], i);
+
+	return 0;
+}
+
+void xen_drm_front_cfg_free(struct xen_drm_front_info *front_info,
+			    struct xen_drm_front_cfg *cfg)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cfg->connectors); i++)
+		cfg_connector_free_edid(&cfg->connectors[i]);
 }
 

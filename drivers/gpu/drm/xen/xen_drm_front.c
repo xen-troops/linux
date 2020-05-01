@@ -379,6 +379,59 @@ void xen_drm_front_on_frame_done(struct xen_drm_front_info *front_info,
 					fb_cookie);
 }
 
+int xen_drm_front_get_edid(struct xen_drm_front_info *front_info,
+			   int conn_idx, struct page **pages,
+			   u32 buffer_sz, u32 *edid_sz)
+{
+	struct xen_drm_front_evtchnl *evtchnl;
+	struct xen_front_pgdir_shbuf_cfg buf_cfg;
+	struct xen_front_pgdir_shbuf shbuf;
+	struct xendispl_req *req;
+	unsigned long flags;
+	int ret;
+
+	if (unlikely(conn_idx >= front_info->num_evt_pairs))
+		return -EINVAL;
+
+	memset(&buf_cfg, 0, sizeof(buf_cfg));
+	buf_cfg.xb_dev = front_info->xb_dev;
+	buf_cfg.num_pages = DIV_ROUND_UP(buffer_sz, PAGE_SIZE);
+	buf_cfg.pages = pages;
+	buf_cfg.pgdir = &shbuf;
+	buf_cfg.be_alloc = false;
+
+	ret = xen_front_pgdir_shbuf_alloc(&buf_cfg);
+	if (ret < 0)
+		return ret;
+
+	evtchnl = &front_info->evt_pairs[conn_idx].req;
+
+	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	spin_lock_irqsave(&front_info->io_lock, flags);
+	req = be_prepare_req(evtchnl, XENDISPL_OP_GET_EDID);
+	req->op.get_edid.gref_directory =
+		xen_front_pgdir_shbuf_get_dir_start(&shbuf);
+	req->op.get_edid.buffer_sz = buffer_sz;
+
+	ret = be_stream_do_io(evtchnl, req);
+	spin_unlock_irqrestore(&front_info->io_lock, flags);
+
+	if (ret < 0)
+		goto fail;
+
+	ret = be_stream_wait_io(evtchnl);
+	if (ret < 0)
+		goto fail;
+
+	*edid_sz = evtchnl->u.req.resp.get_edid.edid_sz;
+
+fail:
+	mutex_unlock(&evtchnl->u.req.req_io_lock);
+	xen_front_pgdir_shbuf_free(&shbuf);
+	return ret;
+}
+
 static int xen_drm_drv_dumb_create(struct drm_file *filp,
 				   struct drm_device *dev,
 				   struct drm_mode_create_dumb *args)
@@ -467,6 +520,7 @@ static void xen_drm_drv_release(struct drm_device *dev)
 		xenbus_switch_state(front_info->xb_dev,
 				    XenbusStateInitialising);
 
+	xen_drm_front_cfg_free(front_info, &front_info->cfg);
 	kfree(drm_info);
 }
 
@@ -562,6 +616,7 @@ fail_modeset:
 	drm_kms_helper_poll_fini(drm_dev);
 	drm_mode_config_cleanup(drm_dev);
 fail:
+	xen_drm_front_cfg_free(front_info, &front_info->cfg);
 	kfree(drm_info);
 	return ret;
 }
@@ -622,7 +677,14 @@ static int displback_initwait(struct xen_drm_front_info *front_info)
 
 static int displback_connect(struct xen_drm_front_info *front_info)
 {
+	int ret;
+
 	xen_drm_front_evtchnl_set_state(front_info, EVTCHNL_STATE_CONNECTED);
+
+	/* We are all set to read additional configuration from the backend. */
+	ret = xen_drm_front_cfg_tail(front_info, &front_info->cfg);
+	if (ret < 0)
+		return ret;
 	return xen_drm_drv_init(front_info);
 }
 
