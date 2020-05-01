@@ -44,6 +44,9 @@ again:
 			continue;
 
 		switch (resp->operation) {
+		case XENDISPL_OP_GET_EDID:
+			evtchnl->u.req.resp.get_edid =
+				resp->op.get_edid;
 		case XENDISPL_OP_PG_FLIP:
 		case XENDISPL_OP_FB_ATTACH:
 		case XENDISPL_OP_FB_DETACH:

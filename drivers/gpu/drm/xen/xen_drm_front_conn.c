@@ -65,6 +65,16 @@ static int connector_get_modes(struct drm_connector *connector)
 	struct videomode videomode;
 	int width, height;
 
+	if (pipeline->edid) {
+		int count;
+
+		drm_connector_update_edid_property(connector,
+							pipeline->edid);
+		count = drm_add_edid_modes(connector, pipeline->edid);
+		if (count)
+			return count;
+	}
+
 	mode = drm_mode_create(connector->dev);
 	if (!mode)
 		return 0;
@@ -102,6 +112,7 @@ int xen_drm_front_conn_init(struct xen_drm_front_drm_info *drm_info,
 {
 	struct xen_drm_front_drm_pipeline *pipeline =
 			to_xen_drm_pipeline(connector);
+	int ret;
 
 	drm_connector_helper_add(connector, &connector_helper_funcs);
 
@@ -110,6 +121,17 @@ int xen_drm_front_conn_init(struct xen_drm_front_drm_info *drm_info,
 	connector->polled = DRM_CONNECTOR_POLL_CONNECT |
 			DRM_CONNECTOR_POLL_DISCONNECT;
 
-	return drm_connector_init(drm_info->drm_dev, connector,
-				  &connector_funcs, DRM_MODE_CONNECTOR_VIRTUAL);
+	ret = drm_connector_init(drm_info->drm_dev, connector,
+				 &connector_funcs, DRM_MODE_CONNECTOR_VIRTUAL);
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * Virtual connectors do not have EDID property, but we do,
+	 * so add it manually if EDID is present.
+	 */
+	if (pipeline->edid)
+		drm_connector_attach_edid_property(connector);
+
+	return 0;
 }

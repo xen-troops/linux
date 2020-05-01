@@ -53,6 +53,9 @@ struct xen_drm_front_evtchnl {
 			struct completion completion;
 			/* latest response status */
 			int resp_status;
+			union {
+				struct xendispl_get_edid_resp get_edid;
+			} resp;
 			/* serializer for backend IO: request/response */
 			struct mutex req_io_lock;
 		} req;
