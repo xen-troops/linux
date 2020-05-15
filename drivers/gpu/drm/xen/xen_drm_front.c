@@ -40,6 +40,38 @@ struct xen_drm_front_dbuf {
 	struct xen_front_pgdir_shbuf shbuf;
 };
 
+#ifdef CONFIG_XENDRM_FLUSH_ON_FLIP
+static struct xen_drm_front_dbuf *dbuf_get_by_fb(struct list_head *dbuf_list,
+						 u64 fb_cookie)
+{
+	struct xen_drm_front_dbuf *buf, *q;
+
+	list_for_each_entry_safe(buf, q, dbuf_list, list)
+		if (buf->fb_cookie == fb_cookie)
+			return buf;
+
+	return NULL;
+}
+
+static void xendrm_cache_debug_flush_fb(struct list_head *dbuf_list,
+					u64 fb_cookie)
+{
+	struct xen_drm_front_dbuf *buf;
+	int i;
+
+	if (!fb_cookie)
+		return;
+
+	buf = dbuf_get_by_fb(dbuf_list, fb_cookie);
+	if (!buf)
+		return;
+
+	for (i = 0; i < buf->shbuf.num_pages; i++)
+		xendrm_cache_debug_flush(page_to_phys(buf->shbuf.pages[i]),
+					 PAGE_SIZE);
+}
+#endif
+
 static void dbuf_add_to_list(struct xen_drm_front_info *front_info,
 			     struct xen_drm_front_dbuf *dbuf, u64 dbuf_cookie)
 {
@@ -135,6 +167,9 @@ int xen_drm_front_mode_set(struct xen_drm_front_drm_pipeline *pipeline,
 
 	mutex_lock(&evtchnl->u.req.req_io_lock);
 
+#ifdef CONFIG_XENDRM_FLUSH_ON_FLIP
+	xendrm_cache_debug_flush_fb(&front_info->dbuf_list, fb_cookie);
+#endif
 	spin_lock_irqsave(&front_info->io_lock, flags);
 	req = be_prepare_req(evtchnl, XENDISPL_OP_SET_CONFIG);
 	req->op.set_config.x = x;
@@ -352,6 +387,9 @@ int xen_drm_front_page_flip(struct xen_drm_front_info *front_info,
 
 	mutex_lock(&evtchnl->u.req.req_io_lock);
 
+#ifdef CONFIG_XENDRM_FLUSH_ON_FLIP
+	xendrm_cache_debug_flush_fb(&front_info->dbuf_list, fb_cookie);
+#endif
 	spin_lock_irqsave(&front_info->io_lock, flags);
 	req = be_prepare_req(evtchnl, XENDISPL_OP_PG_FLIP);
 	req->op.pg_flip.fb_cookie = fb_cookie;

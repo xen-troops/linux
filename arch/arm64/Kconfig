@@ -289,6 +289,12 @@ config XENDRM_FLUSH_ON_MMAP
 	help
 	  While mmaping pages to user space also flush those.
 
+config XENDRM_FLUSH_ON_FLIP
+	bool "DOMU: flush buffer pages during set config and page flip"
+	help
+	  While setting config and flipping pages also flush the
+	  relevant buffer.
+
 endif
 
 source "init/Kconfig"
