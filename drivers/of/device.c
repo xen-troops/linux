@@ -150,6 +150,10 @@ int of_dma_configure(struct device *dev, struct device_node *np)
 	*dev->dma_mask &= mask;
 
 	coherent = of_dma_is_coherent(np);
+#ifdef CONFIG_XENDRM_FORCE_PVDRM_COHERENT
+	if (dev->bus->force_coherent)
+		coherent = true;
+#endif
 	dev_dbg(dev, "device is%sdma coherent\n",
 		coherent ? " " : " not ");
 

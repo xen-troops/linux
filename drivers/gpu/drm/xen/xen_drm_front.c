@@ -765,6 +765,9 @@ static int xen_drv_probe(struct xenbus_device *xb_dev,
 	 * node to set default DMA ops.
 	 */
 	dev->bus->force_dma = true;
+#ifdef CONFIG_XENDRM_FORCE_PVDRM_COHERENT
+	dev->bus->force_coherent = true;
+#endif
 	dev->coherent_dma_mask = DMA_BIT_MASK(32);
 	ret = of_dma_configure(dev, NULL);
 	if (ret < 0) {

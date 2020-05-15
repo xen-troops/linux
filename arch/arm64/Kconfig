@@ -300,6 +300,13 @@ config XENDRM_USE_DMA_ALLOC_WC
 	help
 	  Allocate buffer pages using DMA API and not DRM's.
 
+config XENDRM_FORCE_PVDRM_COHERENT
+	bool "DOMU: force DMA subsystem to think we are a coherent device"
+	help
+	  Tell DMA subsystem that we are coherent device: normally this
+	  property is read out of the device tree device node, but
+	  we are a platform device without any nodes.
+
 config XENGNTDEV_ALLOC_PAGES_EXACT
 	bool "DOMD: use alloc_pages instead of dma_alloc_XXX"
 	help

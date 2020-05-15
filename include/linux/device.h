@@ -139,6 +139,9 @@ struct bus_type {
 	struct lock_class_key lock_key;
 
 	bool force_dma;
+#ifdef CONFIG_XENDRM_FORCE_PVDRM_COHERENT
+	bool force_coherent;
+#endif
 };
 
 extern int __must_check bus_register(struct bus_type *bus);
