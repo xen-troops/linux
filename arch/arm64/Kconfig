@@ -284,6 +284,11 @@ config XENDRM_PGPROT_NONCACHED
 
 endchoice
 
+config XENDRM_FLUSH_ON_MMAP
+	bool "DOMU: flush pages during mmap"
+	help
+	  While mmaping pages to user space also flush those.
+
 endif
 
 source "init/Kconfig"

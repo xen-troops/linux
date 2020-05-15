@@ -265,6 +265,10 @@ static int gem_mmap_obj(struct xen_gem_object *xen_obj,
 	for (i = 0; i < xen_obj->num_pages; i++) {
 		int ret;
 
+#ifdef CONFIG_XENDRM_FLUSH_ON_MMAP
+		xendrm_cache_debug_flush(page_to_phys(xen_obj->pages[i]),
+					 PAGE_SIZE);
+#endif
 		ret = vm_insert_page(vma, addr, xen_obj->pages[i]);
 		if (ret < 0) {
 			DRM_ERROR("Failed to insert pages into vma: %d\n", ret);
