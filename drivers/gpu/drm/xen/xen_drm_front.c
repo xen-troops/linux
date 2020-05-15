@@ -11,6 +11,8 @@
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
+#include <linux/dma-map-ops.h>
+#include <linux/mm.h>
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
@@ -85,6 +87,47 @@ static void dbuf_free_all(struct list_head *dbuf_list)
 	}
 }
 
+static struct xen_drm_front_dbuf *dbuf_get_by_fb(struct list_head *dbuf_list,
+						 u64 fb_cookie)
+{
+	struct xen_drm_front_dbuf *buf, *q;
+
+	list_for_each_entry_safe(buf, q, dbuf_list, list)
+		if (buf->fb_cookie == fb_cookie)
+			return buf;
+
+	return NULL;
+}
+
+static void flush_fb(struct device *dev, struct list_head *dbuf_list, u64 fb_cookie)
+{
+	struct xen_drm_front_dbuf *buf;
+	int i;
+
+	if (!dev || !fb_cookie)
+		return;
+
+	buf = dbuf_get_by_fb(dbuf_list, fb_cookie);
+	if (!buf)
+		return;
+
+
+	for (i = 0; i < buf->shbuf.num_pages; i++) {
+		struct page *page = buf->shbuf.pages[i];
+
+		/*
+		 * CPU wrote framebuffer, Xen/backend/display will read it.
+		 * Clean CPU cache to PoC for this physical page.
+		 */
+		arch_sync_dma_for_device(page_to_phys(page),
+					 PAGE_SIZE,
+					 DMA_FROM_DEVICE);
+		arch_sync_dma_for_cpu(page_to_phys(page),
+					 PAGE_SIZE,
+					 DMA_FROM_DEVICE);
+	}
+}
+
 static struct xendispl_req *
 be_prepare_req(struct xen_drm_front_evtchnl *evtchnl, u8 operation)
 {
@@ -134,6 +177,8 @@ int xen_drm_front_mode_set(struct xen_drm_front_drm_pipeline *pipeline,
 		return -EIO;
 
 	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	flush_fb(&(front_info->xb_dev)->dev, &front_info->dbuf_list, fb_cookie);
 
 	spin_lock_irqsave(&front_info->io_lock, flags);
 	req = be_prepare_req(evtchnl, XENDISPL_OP_SET_CONFIG);
@@ -353,6 +398,8 @@ int xen_drm_front_page_flip(struct xen_drm_front_info *front_info,
 	evtchnl = &front_info->evt_pairs[conn_idx].req;
 
 	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	flush_fb(&(front_info->xb_dev)->dev, &front_info->dbuf_list, fb_cookie);
 
 	spin_lock_irqsave(&front_info->io_lock, flags);
 	req = be_prepare_req(evtchnl, XENDISPL_OP_PG_FLIP);
@@ -694,7 +741,7 @@ static int xen_drv_probe(struct xenbus_device *xb_dev,
 	struct device *dev = &xb_dev->dev;
 	int ret;
 
-	ret = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(64));
+	ret = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(64 - 1) | BIT_ULL(63));
 	if (ret < 0) {
 		DRM_ERROR("Cannot setup DMA mask, ret %d", ret);
 		return ret;
