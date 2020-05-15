@@ -295,6 +295,11 @@ config XENDRM_FLUSH_ON_FLIP
 	  While setting config and flipping pages also flush the
 	  relevant buffer.
 
+config XENDRM_USE_DMA_ALLOC_WC
+	bool "DOMU: use dma_alloc_wc instead of drm_gem_get_pages"
+	help
+	  Allocate buffer pages using DMA API and not DRM's.
+
 endif
 
 source "init/Kconfig"

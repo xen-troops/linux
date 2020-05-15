@@ -38,6 +38,10 @@ struct xen_gem_object {
 
 	/* this is for imported PRIME buffer */
 	struct sg_table *sgt_imported;
+#ifdef CONFIG_XENDRM_USE_DMA_ALLOC_WC
+	dma_addr_t dma_handle;
+	void *dma_vaddr;
+#endif
 };
 
 static inline struct xen_gem_object *
@@ -121,7 +125,33 @@ static struct xen_gem_object *gem_create(struct drm_device *dev, size_t size)
 	 * with the backend
 	 */
 	xen_obj->num_pages = DIV_ROUND_UP(size, PAGE_SIZE);
+#ifdef CONFIG_XENDRM_USE_DMA_ALLOC_WC
+	{
+		uint8_t *vaddr;
+		int i;
+
+		ret = gem_alloc_pages_array(xen_obj, size);
+		if (ret < 0)
+			goto fail;
+
+		xen_obj->dma_vaddr = dma_alloc_wc(dev->dev, size,
+						  &xen_obj->dma_handle,
+						  GFP_KERNEL);
+		if (!xen_obj->dma_vaddr) {
+			ret = -ENOMEM;
+			gem_free_pages_array(xen_obj);
+			goto fail;
+		}
+
+		vaddr = xen_obj->dma_vaddr;
+		for (i = 0; i < xen_obj->num_pages; i++) {
+			xen_obj->pages[i] = virt_to_page(vaddr);
+			vaddr += PAGE_SIZE;
+		}
+	}
+#else
 	xen_obj->pages = drm_gem_get_pages(&xen_obj->base);
+#endif
 	if (IS_ERR(xen_obj->pages)) {
 		ret = PTR_ERR(xen_obj->pages);
 		xen_obj->pages = NULL;
@@ -161,8 +191,16 @@ void xen_drm_front_gem_free_object_unlocked(struct drm_gem_object *gem_obj)
 							xen_obj->pages);
 				gem_free_pages_array(xen_obj);
 			} else {
+#ifdef CONFIG_XENDRM_USE_DMA_ALLOC_WC
+				dma_free_wc(gem_obj->dev->dev,
+					    xen_obj->num_pages * PAGE_SIZE,
+					    xen_obj->dma_vaddr,
+					    xen_obj->dma_handle);
+				gem_free_pages_array(xen_obj);
+#else
 				drm_gem_put_pages(&xen_obj->base,
 						  xen_obj->pages, true, false);
+#endif
 			}
 		}
 	}
