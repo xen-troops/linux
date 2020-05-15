@@ -10,6 +10,7 @@
 
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/dma-noncoherent.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
 
@@ -86,6 +87,34 @@ static void dbuf_free_all(struct list_head *dbuf_list)
 	}
 }
 
+static struct xen_drm_front_dbuf *dbuf_get_by_fb(struct list_head *dbuf_list,
+						 u64 fb_cookie)
+{
+	struct xen_drm_front_dbuf *buf, *q;
+
+	list_for_each_entry_safe(buf, q, dbuf_list, list)
+		if (buf->fb_cookie == fb_cookie)
+			return buf;
+
+	return NULL;
+}
+
+static void flush_fb(struct list_head *dbuf_list, u64 fb_cookie)
+{
+	struct xen_drm_front_dbuf *buf;
+	int i;
+
+	if (!fb_cookie)
+		return;
+
+	buf = dbuf_get_by_fb(dbuf_list, fb_cookie);
+	if (!buf)
+		return;
+
+	for (i = 0; i < buf->shbuf.num_pages; i++)
+		arch_dma_prep_coherent(buf->shbuf.pages[i], PAGE_SIZE);
+}
+
 static struct xendispl_req *
 be_prepare_req(struct xen_drm_front_evtchnl *evtchnl, u8 operation)
 {
@@ -135,6 +164,8 @@ int xen_drm_front_mode_set(struct xen_drm_front_drm_pipeline *pipeline,
 		return -EIO;
 
 	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	flush_fb(&front_info->dbuf_list, fb_cookie);
 
 	spin_lock_irqsave(&front_info->io_lock, flags);
 	req = be_prepare_req(evtchnl, XENDISPL_OP_SET_CONFIG);
@@ -354,6 +385,8 @@ int xen_drm_front_page_flip(struct xen_drm_front_info *front_info,
 	evtchnl = &front_info->evt_pairs[conn_idx].req;
 
 	mutex_lock(&evtchnl->u.req.req_io_lock);
+
+	flush_fb(&front_info->dbuf_list, fb_cookie);
 
 	spin_lock_irqsave(&front_info->io_lock, flags);
 	req = be_prepare_req(evtchnl, XENDISPL_OP_PG_FLIP);
