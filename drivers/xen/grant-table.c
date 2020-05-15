@@ -767,6 +767,9 @@ int gnttab_dma_alloc_pages(struct gnttab_dma_alloc_args *args)
 	int i, ret;
 
 	size = args->nr_pages << PAGE_SHIFT;
+#ifdef CONFIG_XENGNTDEV_ALLOC_PAGES_EXACT
+	args->vaddr = alloc_pages_exact(size, GFP_KERNEL | __GFP_NOWARN);
+#else
 #if defined(CONFIG_XT_CMA_HELPER)
 	if (args->coherent)
 		args->vaddr = xt_cma_dma_alloc_coherent(args->dev, size,
@@ -786,11 +789,21 @@ int gnttab_dma_alloc_pages(struct gnttab_dma_alloc_args *args)
 					   &args->dev_bus_addr,
 					   GFP_KERNEL | __GFP_NOWARN);
 #endif
+#endif
 	if (!args->vaddr) {
 		pr_debug("Failed to allocate DMA buffer of size %zu\n", size);
 		return -ENOMEM;
 	}
 
+#ifdef CONFIG_XENGNTDEV_ALLOC_PAGES_EXACT
+	for (i = 0; i < args->nr_pages; i++) {
+		struct page *page = virt_to_page(args->vaddr + i * PAGE_SIZE);
+
+		args->pages[i] = page;
+		args->frames[i] = xen_page_to_gfn(page);
+		xenmem_reservation_scrub_page(page);
+	}
+#else
 	start_pfn = __phys_to_pfn(args->dev_bus_addr);
 	for (pfn = start_pfn, i = 0; pfn < start_pfn + args->nr_pages;
 			pfn++, i++) {
@@ -800,6 +813,7 @@ int gnttab_dma_alloc_pages(struct gnttab_dma_alloc_args *args)
 		args->frames[i] = xen_page_to_gfn(page);
 		xenmem_reservation_scrub_page(page);
 	}
+#endif
 
 	xenmem_reservation_va_mapping_reset(args->nr_pages, args->pages);
 
@@ -848,6 +862,9 @@ int gnttab_dma_free_pages(struct gnttab_dma_alloc_args *args)
 					     args->frames);
 
 	size = args->nr_pages << PAGE_SHIFT;
+#ifdef CONFIG_XENGNTDEV_ALLOC_PAGES_EXACT
+	free_pages_exact(args->vaddr, size);
+#else
 #if defined(CONFIG_XT_CMA_HELPER)
 	if (args->coherent)
 		xt_cma_dma_free_coherent(args->dev, size,
@@ -862,6 +879,7 @@ int gnttab_dma_free_pages(struct gnttab_dma_alloc_args *args)
 	else
 		dma_free_wc(args->dev, size,
 			    args->vaddr, args->dev_bus_addr);
+#endif
 #endif
 	return ret;
 }

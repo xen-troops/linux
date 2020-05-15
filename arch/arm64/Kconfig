@@ -300,6 +300,13 @@ config XENDRM_USE_DMA_ALLOC_WC
 	help
 	  Allocate buffer pages using DMA API and not DRM's.
 
+config XENGNTDEV_ALLOC_PAGES_EXACT
+	bool "DOMD: use alloc_pages instead of dma_alloc_XXX"
+	help
+	  Allocate buffer pages using alloc_pages_exact and not DMA API.
+	  Note! This will ignore libxenbe provided GNTDEV_DMA_FLAG_WC and
+	  GNTDEV_DMA_FLAG_COHERENT flags during dma-buf export.
+
 endif
 
 source "init/Kconfig"
