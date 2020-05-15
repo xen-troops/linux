@@ -264,6 +264,26 @@ menuconfig XENDRM_CACHE_DEBUG
 	  buffers for CPU use.
 
 if XENDRM_CACHE_DEBUG
+
+choice
+	prompt "DOMU: PV DRM mmap mode (pgprot)"
+	default XENDRM_PGPROT_NORMAL
+	help
+	  Defines how buffer pages are mmaped in Xen PV DRM driver
+	  when those are allocated by the driver itself and are intended
+	  to be used by user space to draw into the buffer.
+
+config XENDRM_PGPROT_NORMAL
+	bool "vm_get_page_prot(vma->vm_flags)"
+
+config XENDRM_PGPROT_WRITECOMBINE
+	bool "pgprot_writecombine(vm_get_page_prot(vma->vm_flags))"
+
+config XENDRM_PGPROT_NONCACHED
+	bool "pgprot_noncached(vm_get_page_prot(vma->vm_flags))"
+
+endchoice
+
 endif
 
 source "init/Kconfig"

@@ -246,7 +246,13 @@ static int gem_mmap_obj(struct xen_gem_object *xen_obj,
 	 * which is mapped as Normal Inner Write-Back Outer Write-Back
 	 * Inner-Shareable.
 	 */
+#if defined(CONFIG_XENDRM_PGPROT_WRITECOMBINE)
+	vma->vm_page_prot = pgprot_writecombine(vm_get_page_prot(vma->vm_flags));
+#elif defined(CONFIG_XENDRM_PGPROT_NONCACHED)
+	vma->vm_page_prot = pgprot_noncached(vm_get_page_prot(vma->vm_flags));
+#else
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
+#endif
 
 	/*
 	 * vm_operations_struct.fault handler will be called if CPU access
