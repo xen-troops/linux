@@ -36,6 +36,14 @@ EXPORT_SYMBOL(__dma_map_area);
 EXPORT_SYMBOL(__dma_unmap_area);
 EXPORT_SYMBOL(__dma_flush_area);
 
+#ifdef CONFIG_XENDRM_CACHE_DEBUG
+void xendrm_cache_debug_flush(phys_addr_t paddr, size_t size)
+{
+       __dma_flush_area(phys_to_virt(paddr), size);
+}
+EXPORT_SYMBOL(xendrm_cache_debug_flush);
+#endif
+
 static int swiotlb __ro_after_init;
 
 static pgprot_t __get_dma_pgprot(unsigned long attrs, pgprot_t prot,

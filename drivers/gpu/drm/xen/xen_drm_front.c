@@ -28,6 +28,10 @@
 #include "xen_drm_front_gem.h"
 #include "xen_drm_front_kms.h"
 
+#ifdef CONFIG_XENDRM_CACHE_DEBUG
+#include <linux/xendrm-cache-debug.h>
+#endif
+
 struct xen_drm_front_dbuf {
 	struct list_head list;
 	u64 dbuf_cookie;

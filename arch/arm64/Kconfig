@@ -254,6 +254,18 @@ config ARCH_SUPPORTS_UPROBES
 config ARCH_PROC_KCORE_TEXT
 	def_bool y
 
+menuconfig XENDRM_CACHE_DEBUG
+	bool "Enable Xen DRM artifacts debugging support"
+	depends on XEN
+	default n
+	help
+	  This feature enables debugging of chache related artifacts
+	  while using Xen para-virtualized DRM driver and mmapping
+	  buffers for CPU use.
+
+if XENDRM_CACHE_DEBUG
+endif
+
 source "init/Kconfig"
 
 source "kernel/Kconfig.freezer"

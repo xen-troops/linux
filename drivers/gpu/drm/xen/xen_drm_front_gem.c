@@ -23,6 +23,10 @@
 
 #include "xen_drm_front.h"
 
+#ifdef CONFIG_XENDRM_CACHE_DEBUG
+#include <linux/xendrm-cache-debug.h>
+#endif
+
 struct xen_gem_object {
 	struct drm_gem_object base;
 
