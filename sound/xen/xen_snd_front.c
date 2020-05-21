@@ -11,7 +11,6 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 
-#include <xen/page.h>
 #include <xen/platform_pci.h>
 #include <xen/xen.h>
 #include <xen/xenbus.h>
@@ -184,13 +183,6 @@ static struct xenbus_driver xen_driver = {
 
 static int __init xen_drv_init(void)
 {
-	/* At the moment we only support case with XEN_PAGE_SIZE == PAGE_SIZE */
-	if (XEN_PAGE_SIZE != PAGE_SIZE) {
-		pr_err(XENSND_DRIVER_NAME ": different kernel and Xen page sizes are not supported: XEN_PAGE_SIZE (%lu) != PAGE_SIZE (%lu)\n",
-				XEN_PAGE_SIZE, PAGE_SIZE);
-		return -ENODEV;
-	}
-
 	if (!xen_domain())
 		return -ENODEV;
 
