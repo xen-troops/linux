@@ -21,6 +21,14 @@ static struct gen_pool *xt_cma_helper_bootmem_page_pool;
 static phys_addr_t xt_cma_helper_bootmem_cma_pool_phys;
 static struct gen_pool *xt_cma_helper_bootmem_cma_pool;
 
+/*
+ * Memory pools must be allocated below that address.
+ * When we assign more than 2GB memory to domain we may end up with
+ * memory pools to be located above 32-bit address space which is
+ * unacceptable for 32-bit devices such as VSP for example.
+ */
+#define XT_CMA_HELPER_MAX_ADDR (1ULL << 32)
+
 static int __init xt_cma_helper_bootmem_page_setup(char *p)
 {
 	xt_cma_helper_bootmem_page_pool_sz = memparse(p, &p);
@@ -42,11 +50,11 @@ void __init xt_cma_helper_init(void)
 
 	xt_cma_helper_bootmem_page_pool_phys =
 		memblock_alloc_base(xt_cma_helper_bootmem_page_pool_sz,
-				    SZ_2M, MEMBLOCK_ALLOC_ANYWHERE);
+				    SZ_2M, XT_CMA_HELPER_MAX_ADDR);
 
 	xt_cma_helper_bootmem_cma_pool_phys =
 		memblock_alloc_base(xt_cma_helper_bootmem_cma_pool_sz,
-				    SZ_2M, MEMBLOCK_ALLOC_ANYWHERE);
+				    SZ_2M, XT_CMA_HELPER_MAX_ADDR);
 
 	printk("Allocated %d bytes for Xen page allocator at 0x%llx",
 	       xt_cma_helper_bootmem_page_pool_sz,
