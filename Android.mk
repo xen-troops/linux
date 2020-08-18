@@ -34,12 +34,12 @@ KERNEL_DEFCONFIG := $(TARGET_KERNEL_CONFIG)
 KERNEL_CONFIG := $(KERNEL_OUT)/.config
 KERNEL_TARGET_BINARY := $(KERNEL_OUT)/arch/$(TARGET_ARCH)/boot/Image
 
-GCC_CROSS_COMPILE := $(abspath ./prebuilts/gcc/linux-x86/aarch64/aarch64-linux-gnu/bin/aarch64-linux-gnu-)
+GCC_CROSS_COMPILE := $(abspath ./prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-)
 ANDROID_CLANG_TOOLCHAIN := $(abspath ./prebuilts/clang/host/linux-x86/clang-r353983c/bin/clang)
 KERNEL_MAKE := $(abspath ./prebuilts/build-tools/linux-x86/bin/make)
 
 KERNEL_CFLAGS := HOSTCC=$(ANDROID_CLANG_TOOLCHAIN) HOSTCFLAGS="-fuse-ld=lld" HOSTLDFLAGS=-fuse-ld=lld ARCH=$(TARGET_ARCH)
-KERNEL_CFLAGS += CC=$(ANDROID_CLANG_TOOLCHAIN) CLANG_TRIPLE=$(GCC_CROSS_COMPILE) CROSS_COMPILE=$(GCC_CROSS_COMPILE)
+KERNEL_CFLAGS += CC=$(ANDROID_CLANG_TOOLCHAIN) CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$(GCC_CROSS_COMPILE)
 
 #    TARGET_KERNEL_EXT_MODULES := no-external-modules
 ifneq ($(TARGET_KERNEL_EXT_MODULES),)
