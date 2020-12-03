@@ -16,6 +16,7 @@
 #include <linux/atomic.h>
 #include <xen/events.h>
 #include <xen/interface/io/pciif.h>
+#include "../../pci/pci.h"
 
 #define DRV_NAME	"xen-pciback"
 
