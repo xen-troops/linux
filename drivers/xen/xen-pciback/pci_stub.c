@@ -1672,8 +1672,10 @@ static int __init xen_pcibk_init(void)
 {
 	int err;
 
+#if 0
 	if (!xen_initial_domain())
 		return -ENODEV;
+#endif
 
 	err = xen_pcibk_config_init();
 	if (err)
