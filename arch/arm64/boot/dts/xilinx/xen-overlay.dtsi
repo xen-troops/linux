@@ -4,7 +4,7 @@
 		#size-cells = <1>;
 
 		xen,xen-bootargs = "console=dtuart dtuart=serial0 dom0_mem=1256M bootscrub=0 maxcpus=1 timer_slop=0 pci=on";
-		xen,dom0-bootargs = "rdinit=/bin/sh console=hvc0 earlycon=xen earlyprintk=xen maxcpus=1 clk_ignore_unused";
+		xen,dom0-bootargs = "root=/dev/sda console=hvc0 earlycon=xen earlyprintk=xen maxcpus=1 clk_ignore_unused";
 
 		dom0 {
 			compatible = "xen,linux-zimage", "xen,multiboot-module";
