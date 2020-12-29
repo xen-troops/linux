@@ -28,11 +28,6 @@
 
 &smmu {
 	status = "okay";
-	mmu-masters = < &gem0 0x874
-			&gem1 0x875
-			&gem2 0x876
-			&gem3 0x877
-			&pcie 0x4d0>;
 };
 
 &gem0 {
