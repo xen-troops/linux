@@ -18,6 +18,7 @@
 
 bool __read_mostly xen_scrub_pages = IS_ENABLED(CONFIG_XEN_SCRUB_PAGES_DEFAULT);
 core_param(xen_scrub_pages, xen_scrub_pages, bool, 0);
+EXPORT_SYMBOL(xen_scrub_pages);
 
 /*
  * Use one extent per PAGE_SIZE to avoid to break down the page into
