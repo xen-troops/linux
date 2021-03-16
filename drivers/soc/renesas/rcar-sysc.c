@@ -69,6 +69,16 @@ static int rcar_sysc_pwr_on_off(const struct rcar_sysc_ch *sysc_ch, bool on)
 	unsigned int sr_bit, reg_offs;
 	int k;
 
+	/* Ensure we do *not* turn off the Cortex-R7 */
+	/* All R-Car SoCs have the Cortex-R7 PWRSR reg at a fixed address */
+	if (sysc_ch->chan_offs == 0x240)
+		return 0;
+
+	/* Ensure we do *not* turn off the IMR (A3VC) */
+	/* All R-Car SoCs have the IMR PWRSR reg at a fixed address PWRSR9 */
+	if (sysc_ch->chan_offs == 0x380)
+		return 0;
+
 	if (on) {
 		sr_bit = SYSCSR_PONENB;
 		reg_offs = PWRONCR_OFFS;
