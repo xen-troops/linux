@@ -279,6 +279,7 @@ MODULE_DEVICE_TABLE(rpmsg, taurus_driver_rvgc_id_table);
 
 static struct rpmsg_driver taurus_rvgc_client = {
 	.drv.name	= KBUILD_MODNAME,
+	.drv.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	.id_table	= taurus_driver_rvgc_id_table,
 	.probe		= rcar_rvgc_probe,
 	.callback	= rcar_rvgc_cb,
