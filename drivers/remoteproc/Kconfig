@@ -214,6 +214,13 @@ config STM32_RPROC
 
 	  This can be either built-in or a loadable module.
 
+config XEN_REMOTEPROC
+	tristate "XEN Remoteproc paravirtual driver"
+	select RPMSG_VIRTIO
+	help
+	  Say y here to enable Xen rproc paravirtual driver. Right now
+	  this driver is hardcoded to access RCAR Cortex-CR7 firmware.
+
 endif # REMOTEPROC
 
 endmenu
