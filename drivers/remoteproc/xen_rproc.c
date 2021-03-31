@@ -218,6 +218,9 @@ static int xen_rproc_probe(struct platform_device *pdev)
 		goto free_rproc;
 	}
 
+	if (of_reserved_mem_device_init(dev))
+		dev_warn(dev, "device does not have specific CMA pool\n");
+
 	data->rtable = kmemdup(&xen_rtable, sizeof(struct xen_rproc_rtable), GFP_KERNEL);
 	data->rproc = rproc;
 
