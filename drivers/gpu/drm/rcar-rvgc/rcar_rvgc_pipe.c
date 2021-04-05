@@ -1,6 +1,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_device.h>
 
+#include "rcar_rvgc_kms.h"
 #include "rcar_rvgc_drv.h"
 #include "rcar_rvgc_pipe.h"
 #include <drm/drm_simple_kms_helper.h>
@@ -245,11 +246,29 @@ static int rvgc_display_pipe_prepare_fb(struct drm_simple_display_pipe *pipe,
 	return drm_fb_cma_prepare_fb(&pipe->plane, plane_state);
 }
 
+static int rvgc_display_pipe_enable_vblank(struct drm_simple_display_pipe *pipe)
+{
+	struct rcar_rvgc_pipe *rvgc_pipe = container_of(pipe,
+							struct rcar_rvgc_pipe, drm_simple_pipe);
+
+	return rcar_rvgc_crtc_enable_vblank(pipe->crtc.dev, rvgc_pipe->idx);
+}
+
+static void rvgc_display_pipe_disable_vblank(struct drm_simple_display_pipe *pipe)
+{
+	struct rcar_rvgc_pipe *rvgc_pipe = container_of(pipe,
+							struct rcar_rvgc_pipe, drm_simple_pipe);
+
+	rcar_rvgc_crtc_disable_vblank(pipe->crtc.dev, rvgc_pipe->idx);
+}
+
 static const struct drm_simple_display_pipe_funcs rvgc_pipe_funcs = {
 	.enable = rvgc_pipe_enable,
 	.disable = rvgc_pipe_disable,
 	.update = rvgc_display_pipe_update,
 	.prepare_fb = rvgc_display_pipe_prepare_fb,
+	.enable_vblank = rvgc_display_pipe_enable_vblank,
+	.disable_vblank = rvgc_display_pipe_disable_vblank,
 };
 
 static const u32 rvgc_formats[] = {
