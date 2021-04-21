@@ -108,6 +108,9 @@ static int vsync_thread_fn(void *data)
 				drm_crtc_vblank_put(crtc);
 			}
 		}
+
+		/* Clean vblank event from pipes we are not interested in */
+		rcrvgc->vblank_pending = 0;
 	}
 
 	dev_dbg(rcrvgc->dev, "vsync thread exiting\n");
