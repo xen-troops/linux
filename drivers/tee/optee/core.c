@@ -654,7 +654,7 @@ static struct optee *optee_probe(struct device_node *np)
 
 	rc = optee_enumerate_devices();
 	if (rc)
-		goto err;
+		pr_warn("can't enumerate optee_devices: %d\n", rc);
 
 	pr_info("initialized driver\n");
 	return optee;
