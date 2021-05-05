@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2015, Linaro Limited
- * Copyright (c) 2017, Renesas Electronics Corporation
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -29,8 +28,6 @@
 #include <linux/uaccess.h>
 #include "optee_private.h"
 #include "optee_smc.h"
-
-#include "optee_rcar.h"
 
 #define DRIVER_NAME "optee"
 
@@ -528,10 +525,6 @@ static struct optee *optee_probe(struct device_node *np)
 
 	optee_enable_shm_cache(optee);
 
-	rc = optee_rcar_probe(optee);
-	if (rc)
-		goto err;
-
 	pr_info("initialized driver\n");
 	return optee;
 err:
@@ -554,8 +547,6 @@ err:
 
 static void optee_remove(struct optee *optee)
 {
-	optee_rcar_remove();
-
 	/*
 	 * Ask OP-TEE to free all cached shared memory objects to decrease
 	 * reference counters and also avoid wild pointers in secure world
@@ -627,5 +618,5 @@ module_exit(optee_driver_exit);
 MODULE_AUTHOR("Linaro");
 MODULE_DESCRIPTION("OP-TEE driver");
 MODULE_SUPPORTED_DEVICE("");
-MODULE_VERSION(VERSION_OF_RENESAS);
+MODULE_VERSION("1.0");
 MODULE_LICENSE("GPL v2");
