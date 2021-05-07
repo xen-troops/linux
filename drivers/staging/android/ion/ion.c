@@ -406,6 +406,7 @@ int ion_alloc(size_t len, unsigned int heap_id_mask, unsigned int flags)
 	DEFINE_DMA_BUF_EXPORT_INFO(exp_info);
 	int fd;
 	struct dma_buf *dmabuf;
+	bool ion_buffer_created = false;
 
 	pr_debug("%s: len %zu heap_id_mask %u flags %x\n", __func__,
 		 len, heap_id_mask, flags);
@@ -421,13 +422,28 @@ int ion_alloc(size_t len, unsigned int heap_id_mask, unsigned int flags)
 		return -EINVAL;
 
 	down_read(&dev->lock);
-	plist_for_each_entry(heap, &dev->heaps, node) {
-		/* if the caller didn't specify this heap id */
-		if (!((1 << heap->id) & heap_id_mask))
-			continue;
-		buffer = ion_buffer_create(heap, dev, len, flags);
-		if (!IS_ERR(buffer))
-			break;
+	/* In case caller didn't specify exact heap id(i.e. 0xFFFFFFFF == heap_id_mask)
+	 * search for ion_system_heap and try to create buffer.
+	 */
+	if (0xFFFFFFFF == heap_id_mask) {
+		plist_for_each_entry(heap, &dev->heaps, node) {
+			if (!strcmp(heap->name, "ion_system_heap")) {
+				buffer = ion_buffer_create(heap, dev, len, flags);
+				if (!IS_ERR(buffer))
+					ion_buffer_created = true;
+				break;
+			}
+		}
+	}
+	if (!ion_buffer_created) {
+		plist_for_each_entry(heap, &dev->heaps, node) {
+			/* if the caller didn't specify this heap id */
+			if (!((1 << heap->id) & heap_id_mask))
+				continue;
+			buffer = ion_buffer_create(heap, dev, len, flags);
+			if (!IS_ERR(buffer))
+				break;
+		}
 	}
 	up_read(&dev->lock);
 
