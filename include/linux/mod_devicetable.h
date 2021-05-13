@@ -688,4 +688,13 @@ struct fsl_mc_device_id {
 };
 
 
+/**
+ * struct tee_client_device_id - tee based device identifier
+ * @uuid: For TEE based client devices we use the device uuid as
+ *        the identifier.
+ */
+struct tee_client_device_id {
+	uuid_t uuid;
+};
+
 #endif /* LINUX_MOD_DEVICETABLE_H */
