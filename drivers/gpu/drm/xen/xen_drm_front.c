@@ -10,7 +10,7 @@
 
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
-#include <linux/dma-noncoherent.h>
+#include <linux/dma-map-ops.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
 
