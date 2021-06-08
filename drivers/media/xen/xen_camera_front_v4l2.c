@@ -1095,7 +1095,7 @@ int xen_camera_front_v4l2_init(struct xen_camera_front_info *front_info)
 	vdev->v4l2_dev = &v4l2_info->v4l2_dev;
 	video_set_drvdata(vdev, v4l2_info);
 
-	ret = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
 	if (ret < 0)
 		goto fail_register_video;
 
