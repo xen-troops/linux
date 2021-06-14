@@ -124,6 +124,12 @@ const struct soc_device_attribute rcar_sysc_quirks_match[] __initconst = {
 			| BIT(R8A7796_PD_A3IR)),
 	},
 	{
+		.soc_id = "r8a77961", .revision = "ES3.0",
+		.data = (void *)(BIT(R8A7796_PD_CR7) | BIT(R8A7796_PD_A3VC)
+			| BIT(R8A7796_PD_A2VC0) | BIT(R8A7796_PD_A2VC1)
+			| BIT(R8A7796_PD_A3IR)),
+	},
+	{
 		.soc_id = "r8a77965", .revision = "ES1.0",
 		.data = (void *)(BIT(R8A77965_PD_A3VP) | BIT(R8A77965_PD_CR7)
 			| BIT(R8A77965_PD_A3VC) | BIT(R8A77965_PD_A2VC1)),
