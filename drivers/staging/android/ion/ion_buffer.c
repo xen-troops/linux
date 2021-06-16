@@ -134,6 +134,7 @@ struct ion_buffer *ion_buffer_alloc(struct ion_device *dev, size_t len,
 {
 	struct ion_buffer *buffer = NULL;
 	struct ion_heap *heap;
+	bool ion_buffer_created = false;
 
 	if (!dev || !len) {
 		return ERR_PTR(-EINVAL);
@@ -150,13 +151,28 @@ struct ion_buffer *ion_buffer_alloc(struct ion_device *dev, size_t len,
 		return ERR_PTR(-EINVAL);
 
 	down_read(&dev->lock);
-	plist_for_each_entry(heap, &dev->heaps, node) {
-		/* if the caller didn't specify this heap id */
-		if (!((1 << heap->id) & heap_id_mask))
-			continue;
-		buffer = ion_buffer_create(heap, dev, len, flags);
-		if (!IS_ERR(buffer))
-			break;
+	/* In case caller didn't specify exact heap id(i.e. 0xFFFFFFFF == heap_id_mask)
+	 * search for ion_system_heap and try to create buffer.
+	 */
+	if (0xFFFFFFFF == heap_id_mask) {
+		plist_for_each_entry(heap, &dev->heaps, node) {
+			if (!strcmp(heap->name, "ion_system_heap")) {
+				buffer = ion_buffer_create(heap, dev, len, flags);
+				if (!IS_ERR(buffer))
+					ion_buffer_created = true;
+				break;
+			}
+		}
+	}
+	if (!ion_buffer_created) {
+		plist_for_each_entry(heap, &dev->heaps, node) {
+			/* if the caller didn't specify this heap id */
+			if (!((1 << heap->id) & heap_id_mask))
+				continue;
+			buffer = ion_buffer_create(heap, dev, len, flags);
+			if (!IS_ERR(buffer))
+				break;
+		}
 	}
 	up_read(&dev->lock);
 
