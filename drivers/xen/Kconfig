@@ -335,4 +335,13 @@ config XEN_UNPOPULATED_ALLOC
 	  having to balloon out RAM regions in order to obtain physical memory
 	  space to create such mappings.
 
+config XEN_XT_PASSTHROUGH
+	tristate "Xen-troops passthrough helper driver"
+	default m
+	help
+	  This driver allows simpler device passthrough in case their resources
+	  cannot be split between guests, e.g. they share some common resource(s)
+	  and para-virtualized drivers are not an option.Helper driver for easier
+	  passthrough.
+
 endmenu
