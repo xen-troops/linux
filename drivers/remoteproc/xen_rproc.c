@@ -61,6 +61,8 @@ static struct xen_rproc_rtable xen_rtable = {
 	.offset = offsetof(struct xen_rproc_rtable, r_hdr),
 	.r_hdr.type = RSC_VDEV,
 	.vdev.num_of_vrings = 2,
+	.vrings[0].da = FW_RSC_ADDR_ANY,
+	.vrings[1].da = FW_RSC_ADDR_ANY,
 };
 
 struct xen_rproc_data {
@@ -105,63 +107,26 @@ static void xen_rproc_kick(struct rproc *rproc, int vqid)
 		dev_dbg(dev, "%s failed: %lx\n", __FUNCTION__, res.a0);
 }
 
-static int xen_rproc_start(struct rproc *rproc)
+static void xen_rproc_set_das(struct xen_rproc_data *data)
 {
-	struct xen_rproc_data *data = rproc->priv;
 	struct arm_smccc_res res;
 
-	pr_info("boot: vring: %x %d", data->rtable->vrings[0].da,
-		data->rtable->vrings[0].notifyid);
-	pr_info("boot: vring: %x %d", data->rtable->vrings[1].da,
-		data->rtable->vrings[1].notifyid);
 	/* Set ring 1 first, because ring 2 will unlock remote end */
 	arm_smccc_1_1_hvc(RPMSG_SMC_SET_VRING_DATA, 1, data->rtable->vrings[1].da,
 			  data->rtable->vrings[1].notifyid, &res);
 	arm_smccc_1_1_hvc(RPMSG_SMC_SET_VRING_DATA, 0, data->rtable->vrings[0].da,
 			  data->rtable->vrings[0].notifyid, &res);
+}
+
+static int xen_rproc_attach(struct rproc *rproc)
+{
+	/* We are already attached */
 	return 0;
 }
 
-static int xen_rproc_stop(struct rproc *rproc)
-{
-	/* We can't stop it */
-
-	return 0;
-}
-
-static const struct rproc_ops xen_rproc_ops = {
-	.kick		= xen_rproc_kick,
-	.start		= xen_rproc_start,
-	.stop		= xen_rproc_stop,
-};
-
-struct resource_table *xen_rproc_find_rsc_table(struct rproc *rproc,
-						const struct firmware *fw,
-						int *tablesz)
-{
-	*tablesz = sizeof(xen_rtable);
-	return (void*)&xen_rtable;
-}
-
-static struct resource_table *
-xen_rproc_find_loaded_rsc_table(struct rproc *rproc, const struct firmware *fw)
-{
-	struct xen_rproc_data *data = rproc->priv;
-
-	return (void*)data->rtable;
-}
-
-static int xen_rproc_load_fw(struct rproc *rproc, const struct firmware *fw)
-{
-	/* It is already loaded by some other means */
-
-	return 0;
-}
-
-static const struct rproc_fw_ops xen_rproc_fw_ops = {
-	.load = xen_rproc_load_fw,
-	.find_rsc_table = xen_rproc_find_rsc_table,
-	.find_loaded_rsc_table = xen_rproc_find_loaded_rsc_table,
+static struct rproc_ops xen_rproc_ops = {
+	.kick = xen_rproc_kick,
+	.attach = xen_rproc_attach,
 };
 
 static int xen_rproc_probe(struct platform_device *pdev)
@@ -227,8 +192,11 @@ static int xen_rproc_probe(struct platform_device *pdev)
 	INIT_WORK(&data->workqueue, handle_event);
 
 	rproc->has_iommu = false;
-	rproc->fw_ops = &xen_rproc_fw_ops;
-	rproc->auto_boot = false;
+	rproc->ops = &xen_rproc_ops;
+	rproc->auto_boot = true;
+	rproc->table_sz = sizeof(xen_rtable);
+	rproc->table_ptr = (struct resource_table *)data->rtable;
+	rproc->state = RPROC_DETACHED;
 
 	platform_set_drvdata(pdev, rproc);
 
@@ -236,7 +204,12 @@ static int xen_rproc_probe(struct platform_device *pdev)
 	if (ret)
 		goto free_rproc;
 
-	rproc_fw_boot(rproc, NULL);
+	/*
+	 * This is a bit hacky, but should be fine. We need to inform remote end
+	 * about vring DAs. We know that at this moment DAs are already set by
+	 * remoteproc_virtio, so this is the right place to inform XEN.
+	 */
+	xen_rproc_set_das(data);
 
 	return 0;
 
