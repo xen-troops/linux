@@ -567,6 +567,8 @@ static int rproc_handle_vdev(struct rproc *rproc, struct fw_rsc_vdev *rsc,
 
 	ret = dma_coerce_mask_and_coherent(&rvdev->dev,
 					   dma_get_mask(rproc->dev.parent));
+
+	rvdev->dev.dma_coherent = rproc->dev.parent->dma_coherent;
 	if (ret) {
 		dev_warn(dev,
 			 "Failed to set DMA mask %llx. Trying to continue... %x\n",
