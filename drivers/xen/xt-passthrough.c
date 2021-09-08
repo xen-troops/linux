@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0
 
-/* Copyright 2021 EPAM Systems Inc. */
+/* Copyright 2021 EPAM Systems Inc.
+ *
+ * IMPORTANT: The following nuances should be considered when using the driver:
+ * - compatible = "xen-troops,passthrough" and xen,passthrough parameters
+ *   should not be defined in the device node at the same time.
+ *   When xen,passthrough is specified then the device node will be ommited when Domain-0
+ *   device tree is constructed, so it will not be processed by the
+ *   driver;
+ * - for xen,passthrough nodes the separate device node may be created:
+ *       passthrough_xen_helper {
+ *           compatible = "xen-troops,passthrough";
+ *           clocks = <list of clocks that should be enabled>;
+ *           resets = <list of resets>;
+ *           power-domains = <list of power domains>;
+ *      }
+ * - for the device nodes, which are not marked as xen,passthrough, compatible parameter
+ *   should be changed to "xen-troops,passthrough" so the passthrough driver can process
+ *   clocks, resets and power-domains.
+ *   In case if there is a requirement to add clocks, resets and power-domains from
+ *   non xen,passthrough node to passthrough_xen_helper - then clocks, power-domains
+ *   and resets parameter should be removed from the original node.
+ */
 
 #include <linux/clk.h>
 #include <linux/kernel.h>
