@@ -1339,7 +1339,7 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 	}
 
 	/* MSIOF module clock setup */
-	ref_clk = devm_clk_get(&pdev->dev, "msiof_ref_clk");
+	ref_clk = devm_clk_get(&pdev->dev, "mso");
 	if (!IS_ERR(ref_clk)) {
 		clksrc = clk_get_rate(ref_clk);
 		if (clksrc) {
