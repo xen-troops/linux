@@ -2018,6 +2018,105 @@ static const unsigned int scif_clk_pins[] = {
 static const unsigned int scif_clk_mux[] = {
 	SCIF_CLK_MARK,
 };
+/* - TAUD0 - PWM -------------------------------------------------------------*/
+static const unsigned int taud0_pwm0_pins[] = {
+	RCAR_GP_PIN(5, 1),
+};
+static const unsigned int taud0_pwm0_mux[] = {
+	TAUD0O1_MARK,
+};
+static const unsigned int taud0_pwm1_pins[] = {
+	RCAR_GP_PIN(4, 2),
+};
+static const unsigned int taud0_pwm1_mux[] = {
+	TAUD0O3_MARK,
+};
+static const unsigned int taud0_pwm2_pins[] = {
+	RCAR_GP_PIN(4, 4),
+};
+static const unsigned int taud0_pwm2_mux[] = {
+	TAUD0O5_MARK,
+};
+static const unsigned int taud0_pwm3_pins[] = {
+	RCAR_GP_PIN(4, 6),
+};
+static const unsigned int taud0_pwm3_mux[] = {
+	TAUD0O7_MARK,
+};
+static const unsigned int taud0_pwm4_pins[] = {
+	RCAR_GP_PIN(4, 8),
+};
+static const unsigned int taud0_pwm4_mux[] = {
+	TAUD0O9_MARK,
+};
+static const unsigned int taud0_pwm5_pins[] = {
+	RCAR_GP_PIN(4, 10),
+};
+static const unsigned int taud0_pwm5_mux[] = {
+	TAUD0O11_MARK,
+};
+static const unsigned int taud0_pwm6_pins[] = {
+	RCAR_GP_PIN(4, 12),
+};
+static const unsigned int taud0_pwm6_mux[] = {
+	TAUD0O13_MARK,
+};
+static const unsigned int taud0_pwm7_pins[] = {
+	RCAR_GP_PIN(4, 14),
+};
+static const unsigned int taud0_pwm7_mux[] = {
+	TAUD0O15_MARK,
+};
+
+/* - TAUD1 - PWM -------------------------------------------------------------*/
+static const unsigned int taud1_pwm0_pins[] = {
+	RCAR_GP_PIN(4, 15),
+};
+static const unsigned int taud1_pwm0_mux[] = {
+	TAUD1O1_MARK,
+};
+static const unsigned int taud1_pwm1_pins[] = {
+	RCAR_GP_PIN(4, 17),
+};
+static const unsigned int taud1_pwm1_mux[] = {
+	TAUD1O3_MARK,
+};
+static const unsigned int taud1_pwm2_pins[] = {
+	RCAR_GP_PIN(4, 19),
+};
+static const unsigned int taud1_pwm2_mux[] = {
+	TAUD1O5_MARK,
+};
+static const unsigned int taud1_pwm3_pins[] = {
+	RCAR_GP_PIN(4, 21),
+};
+static const unsigned int taud1_pwm3_mux[] = {
+	TAUD1O7_MARK,
+};
+static const unsigned int taud1_pwm4_pins[] = {
+	RCAR_GP_PIN(4, 23),
+};
+static const unsigned int taud1_pwm4_mux[] = {
+	TAUD1O9_MARK,
+};
+static const unsigned int taud1_pwm5_pins[] = {
+	RCAR_GP_PIN(4, 25),
+};
+static const unsigned int taud1_pwm5_mux[] = {
+	TAUD1O11_MARK,
+};
+static const unsigned int taud1_pwm6_pins[] = {
+	RCAR_GP_PIN(4, 27),
+};
+static const unsigned int taud1_pwm6_mux[] = {
+	TAUD1O13_MARK,
+};
+static const unsigned int taud1_pwm7_pins[] = {
+	RCAR_GP_PIN(4, 29),
+};
+static const unsigned int taud1_pwm7_mux[] = {
+	TAUD1O15_MARK,
+};
 
 static const struct sh_pfc_pin_group pinmux_groups[] = {
 	SH_PFC_PIN_GROUP(hscif0_data),
@@ -2163,6 +2262,24 @@ static const struct sh_pfc_pin_group pinmux_groups[] = {
 	SH_PFC_PIN_GROUP(msiof0_ss2),
 	SH_PFC_PIN_GROUP(msiof0_txd),
 	SH_PFC_PIN_GROUP(msiof0_rxd),
+
+	SH_PFC_PIN_GROUP(taud0_pwm0),
+	SH_PFC_PIN_GROUP(taud0_pwm1),
+	SH_PFC_PIN_GROUP(taud0_pwm2),
+	SH_PFC_PIN_GROUP(taud0_pwm3),
+	SH_PFC_PIN_GROUP(taud0_pwm4),
+	SH_PFC_PIN_GROUP(taud0_pwm5),
+	SH_PFC_PIN_GROUP(taud0_pwm6),
+	SH_PFC_PIN_GROUP(taud0_pwm7),
+
+	SH_PFC_PIN_GROUP(taud1_pwm0),
+	SH_PFC_PIN_GROUP(taud1_pwm1),
+	SH_PFC_PIN_GROUP(taud1_pwm2),
+	SH_PFC_PIN_GROUP(taud1_pwm3),
+	SH_PFC_PIN_GROUP(taud1_pwm4),
+	SH_PFC_PIN_GROUP(taud1_pwm5),
+	SH_PFC_PIN_GROUP(taud1_pwm6),
+	SH_PFC_PIN_GROUP(taud1_pwm7),
 };
 
 static const char * const hscif0_groups[] = {
@@ -2339,6 +2456,27 @@ static const char * const tsn2_groups[] = {
 	"tsn2_phy_int_b",
 	"tsn2_mdio_b",
 };
+static const char * const taud0_pwm_groups[] = {
+	"taud0_pwm0",
+	"taud0_pwm1",
+	"taud0_pwm2",
+	"taud0_pwm3",
+	"taud0_pwm4",
+	"taud0_pwm5",
+	"taud0_pwm6",
+	"taud0_pwm7",
+};
+
+static const char * const taud1_pwm_groups[] = {
+	"taud1_pwm0",
+	"taud1_pwm1",
+	"taud1_pwm2",
+	"taud1_pwm3",
+	"taud1_pwm4",
+	"taud1_pwm5",
+	"taud1_pwm6",
+	"taud1_pwm7",
+};
 
 static const char * const pcie_groups[] = {
 	"pcie0_clkreq_n",
@@ -2389,6 +2527,9 @@ static const struct sh_pfc_function pinmux_functions[] = {
 	SH_PFC_FUNCTION(pcie),
 
 	SH_PFC_FUNCTION(msiof0),
+
+	SH_PFC_FUNCTION(taud0_pwm),
+	SH_PFC_FUNCTION(taud1_pwm),
 };
 
 static const struct pinmux_cfg_reg pinmux_config_regs[] = {
