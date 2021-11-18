@@ -71,4 +71,16 @@ static inline void xen_free_unpopulated_pages(unsigned int nr_pages,
 }
 #endif
 
+/* HACK: only for v5.10 that doesn't have this support yet */
+#include <linux/range.h>
+static inline struct range mhp_get_pluggable_range(bool need_mapping)
+{
+	struct range mhp_range;
+
+	mhp_range.start = 0x40000000;
+	mhp_range.end = 0x80003fffffff;
+
+	return mhp_range;
+}
+
 #endif	/* _XEN_XEN_H */
