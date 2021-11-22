@@ -10,7 +10,6 @@
 
 #include <linux/delay.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
 
 #include <xen/platform_pci.h>
 #include <xen/xen.h>
@@ -720,17 +719,9 @@ static int xen_drv_probe(struct xenbus_device *xb_dev,
 	struct xen_camera_front_info *front_info;
 	int ret;
 
-	/*
-	 * The device is not spawn from a device tree, so arch_setup_dma_ops
-	 * is not called, thus leaving the device with dummy DMA ops.
-	 * This makes the device return error on PRIME buffer import, which
-	 * is not correct: to fix this call of_dma_configure() with a NULL
-	 * node to set default DMA ops.
-	 */
-	dev->coherent_dma_mask = DMA_BIT_MASK(64);
-	ret = of_dma_configure(dev, NULL, true);
+	ret = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	if (ret < 0) {
-		xenbus_dev_fatal(xb_dev, ret, "setting up DMA ops");
+		xenbus_dev_fatal(xb_dev, ret, "setting up DMA mask");
 		return ret;
 	}
 
