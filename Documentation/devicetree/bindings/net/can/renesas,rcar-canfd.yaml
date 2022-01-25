@@ -44,6 +44,9 @@ properties:
     maxItems: 1
 
   interrupts: true
+    items:
+      - description: Channel interrupt
+      - description: Global interrupt
 
   clocks:
     maxItems: 3
@@ -58,6 +61,7 @@ properties:
     maxItems: 1
 
   resets: true
+    maxItems: 1
 
   renesas,no-can-fd:
     $ref: /schemas/types.yaml#/definitions/flag
