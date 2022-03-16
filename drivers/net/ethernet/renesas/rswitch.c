@@ -2136,6 +2136,11 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		skb_tx_timestamp(skb);
 	}
 
+	/* Use direct descriptor if we know remote chain number */
+	/* HACK: GWCA0 Port number (8) is hardcoded */
+	if (rdev->remote_chain >= 0)
+		desc->info1 |= ((u64)rdev->remote_chain << 32) | (8UL << 48) |  BIT(2);
+
 	dma_wmb();
 
 	if (num_desc > 1) {
@@ -2810,6 +2815,7 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 		rdev->port = -1;
 		rdev->etha = NULL;
 	}
+	rdev->remote_chain = -1;
 	rdev->addr = priv->addr;
 
 	spin_lock_init(&rdev->lock);
@@ -3055,6 +3061,9 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	rs_write32(0, priv->addr + FWPBFC(priv->gwca.index));
 	rs_write32(GENMASK(num_etha_ports - 1, 0), priv->addr + FWPBFC(priv->gwca.index));
 
+
+	/* Enable Direct Descriptors for GWCA1 */
+	rs_write32(FWPC1_DDE, priv->addr + FWPC10 + (priv->gwca.index * 0x10));
 	/* TODO: add chrdev for fwd */
 	/* TODO: add proc for fwd */
 }
