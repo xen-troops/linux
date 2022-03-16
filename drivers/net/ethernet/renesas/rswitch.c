@@ -2696,6 +2696,10 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	rswitch_init(priv);
 
+	rswitch_xen_ndev_register(priv, 0);
+	rswitch_xen_ndev_register(priv, 1);
+	rswitch_xen_connect_devs(priv->rdev[3], priv->rdev[4]);
+
 	device_set_wakeup_capable(&pdev->dev, 1);
 
 	return 0;
