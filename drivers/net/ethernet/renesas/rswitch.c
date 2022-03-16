@@ -1752,7 +1752,8 @@ static int rswitch_open(struct net_device *ndev)
 	rswitch_ptp_init(rdev->priv->ptp_priv, RSWITCH_PTP_REG_LAYOUT_S4, RSWITCH_PTP_CLOCK_S4);
 
 out:
-	of_node_put(phy);
+	if (rdev->etha)
+		of_node_put(phy);
 	return err;
 
 error:
