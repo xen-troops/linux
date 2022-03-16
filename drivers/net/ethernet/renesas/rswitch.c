@@ -850,6 +850,10 @@ static int num_etha_ports = 3;
 module_param(num_etha_ports, int, 0644);
 MODULE_PARM_DESC(num_etha_ports, "Number of using ETHA ports");
 
+static int num_virt_devices = 6;
+module_param(num_virt_devices, int, 0644);
+MODULE_PARM_DESC(num_virt_devices, "Number of virtual interfaces");
+
 #define RSWITCH_TIMEOUT_MS	1000
 static int rswitch_reg_wait(void __iomem *addr, u32 offs, u32 mask, u32 expected)
 {
@@ -2678,7 +2682,8 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	/* Fixed to use GWCA0 */
 	priv->gwca.index = 3;
-	priv->gwca.num_chains = num_ndev * NUM_CHAINS_PER_NDEV;
+	priv->gwca.num_chains = num_ndev * NUM_CHAINS_PER_NDEV +
+		num_virt_devices * 2 * NUM_CHAINS_PER_NDEV;
 	priv->gwca.chains = devm_kcalloc(&pdev->dev, priv->gwca.num_chains,
 					 sizeof(*priv->gwca.chains), GFP_KERNEL);
 	if (!priv->gwca.chains)
