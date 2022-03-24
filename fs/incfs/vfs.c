@@ -457,8 +457,10 @@ static struct dentry *open_or_create_special_dir(struct dentry *backing_dir,
 	err = vfs_mkdir(backing_inode, index_dentry, 0777);
 	inode_unlock(backing_inode);
 
-	if (err)
+	if (err) {
+		dput(index_dentry);
 		return ERR_PTR(err);
+	}
 
 	if (!d_really_is_positive(index_dentry) ||
 		unlikely(d_unhashed(index_dentry))) {
@@ -1835,6 +1837,7 @@ struct dentry *incfs_mount_fs(struct file_system_type *type, int flags,
 	sb->s_flags |= SB_ACTIVE;
 
 	pr_debug("incfs: mount\n");
+	free_options(&options);
 	return dget(sb->s_root);
 err:
 	sb->s_fs_info = NULL;

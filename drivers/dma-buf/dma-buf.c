@@ -82,6 +82,7 @@ static void dma_buf_release(struct dentry *dentry)
 		dma_resv_fini(dmabuf->resv);
 
 	dma_buf_stats_teardown(dmabuf);
+	WARN_ON(!list_empty(&dmabuf->attachments));
 	module_put(dmabuf->owner);
 	kfree(dmabuf->name);
 	kfree(dmabuf);
@@ -698,7 +699,6 @@ struct dma_buf_attachment *dma_buf_attach(struct dma_buf *dmabuf,
 {
 	struct dma_buf_attachment *attach;
 	int ret;
-	unsigned int attach_uid;
 
 	if (WARN_ON(!dmabuf || !dev))
 		return ERR_PTR(-EINVAL);
@@ -719,12 +719,7 @@ struct dma_buf_attachment *dma_buf_attach(struct dma_buf *dmabuf,
 	}
 	list_add(&attach->node, &dmabuf->attachments);
 
-	attach_uid = dma_buf_update_attach_uid(dmabuf);
 	mutex_unlock(&dmabuf->lock);
-	ret = dma_buf_attach_stats_setup(attach, attach_uid);
-	if (ret)
-		goto err_sysfs;
-
 
 	return attach;
 
@@ -733,7 +728,6 @@ err_attach:
 	mutex_unlock(&dmabuf->lock);
 	return ERR_PTR(ret);
 
-err_sysfs:
 	dma_buf_detach(dmabuf, attach);
 	return ERR_PTR(ret);
 }
@@ -754,7 +748,6 @@ void dma_buf_detach(struct dma_buf *dmabuf, struct dma_buf_attachment *attach)
 
 	if (attach->sgt) {
 		dmabuf->ops->unmap_dma_buf(attach, attach->sgt, attach->dir);
-		dma_buf_update_attachment_map_count(attach, -1 /* delta */);
 	}
 
 	mutex_lock(&dmabuf->lock);
@@ -763,7 +756,6 @@ void dma_buf_detach(struct dma_buf *dmabuf, struct dma_buf_attachment *attach)
 		dmabuf->ops->detach(dmabuf, attach);
 
 	mutex_unlock(&dmabuf->lock);
-	dma_buf_attach_stats_teardown(attach);
 	kfree(attach);
 }
 EXPORT_SYMBOL_GPL(dma_buf_detach);
@@ -814,9 +806,6 @@ struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 		attach->dir = direction;
 	}
 
-	if (!IS_ERR(sg_table))
-		dma_buf_update_attachment_map_count(attach, 1 /* delta */);
-
 	return sg_table;
 }
 EXPORT_SYMBOL_GPL(dma_buf_map_attachment);
@@ -844,8 +833,6 @@ void dma_buf_unmap_attachment(struct dma_buf_attachment *attach,
 		return;
 
 	attach->dmabuf->ops->unmap_dma_buf(attach, sg_table, direction);
-
-	dma_buf_update_attachment_map_count(attach, -1 /* delta */);
 }
 EXPORT_SYMBOL_GPL(dma_buf_unmap_attachment);
 
