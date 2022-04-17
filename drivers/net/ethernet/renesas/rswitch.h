@@ -215,3 +215,5 @@ int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv);
 void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
 int rswitch_poll(struct napi_struct *napi, int budget);
+struct rswitch_private *rswitch_find_priv(void);
+
