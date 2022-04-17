@@ -860,6 +860,15 @@ module_param(parallel_mode, bool, 0644);
 MODULE_PARM_DESC(parallel_mode, "Operate simultaneously with Realtime core");
 
 #define RSWITCH_TIMEOUT_MS	1000
+
+/* HACK: store rswitch_priv globally so Xen backend can access it */
+/* TODO: Implement correct way of accessing private data */
+static struct rswitch_private *glob_priv;
+struct rswitch_private *rswitch_find_priv(void)
+{
+	return glob_priv;
+};
+
 static int rswitch_reg_wait(void __iomem *addr, u32 offs, u32 mask, u32 expected)
 {
 	int i;
@@ -2809,6 +2818,8 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	device_set_wakeup_capable(&pdev->dev, 1);
 
+	glob_priv = priv;
+
 	return 0;
 }
 
@@ -2829,6 +2840,8 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 	rswitch_desc_free(priv);
 
 	platform_set_drvdata(pdev, NULL);
+
+	glob_priv = NULL;
 
 	return 0;
 }
