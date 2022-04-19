@@ -437,6 +437,9 @@ static const struct of_device_id gpio_rcar_of_table[] = {
 		.compatible = "renesas,gpio-r8a779a0",
 		.data = &gpio_rcar_info_gen4,
 	}, {
+		.compatible = "renesas,gpio-r8a779f0",
+		.data = &gpio_rcar_info_gen4,
+	}, {
 		.compatible = "renesas,rcar-gen1-gpio",
 		.data = &gpio_rcar_info_gen1,
 	}, {
