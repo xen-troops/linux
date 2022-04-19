@@ -117,6 +117,7 @@ struct rswitch_gwca_chain {
 	u32 num_ring;
 	u32 cur;
 	u32 dirty;
+	u32 osid;
 	struct sk_buff **skb;
 
 	struct net_device *ndev;	/* chain to ndev for irq */
