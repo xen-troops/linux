@@ -209,11 +209,20 @@ struct rswitch_private {
 extern const struct net_device_ops rswitch_netdev_ops;
 
 int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv);
+struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv);
+void rswitch_gwca_put(struct rswitch_private *priv,
+		      struct rswitch_gwca_chain *c);
+
 void rswitch_txdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
 int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv);
 void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
+void rswitch_ndev_unregister(struct rswitch_private *priv, int index);
+
 int rswitch_poll(struct napi_struct *napi, int budget);
 struct rswitch_private *rswitch_find_priv(void);
 
+
+int rswitch_desc_alloc(struct rswitch_private *priv);
+void rswitch_desc_free(struct rswitch_private *priv);
