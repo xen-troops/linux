@@ -121,6 +121,7 @@ struct rswitch_gwca_chain {
 	struct sk_buff **skb;
 
 	struct net_device *ndev;	/* chain to ndev for irq */
+	struct rswitch_vmq_back_info *back_info;
 };
 
 #define RSWITCH_MAX_NUM_CHAINS	128
@@ -223,8 +224,13 @@ int rswitch_poll(struct napi_struct *napi, int budget);
 void rswitch_gwca_chain_register(struct rswitch_private *priv,
 				 struct rswitch_gwca_chain *c, bool ts);
 
+void rswitch_trigger_chain(struct rswitch_private *priv,
+			   struct rswitch_gwca_chain *chain);
+void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable);
+
 struct rswitch_private *rswitch_find_priv(void);
 
+void rswitch_vmq_back_data_irq(struct rswitch_gwca_chain *c);
 
 int rswitch_desc_alloc(struct rswitch_private *priv);
 void rswitch_desc_free(struct rswitch_private *priv);
