@@ -995,6 +995,15 @@ void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable)
 	}
 }
 
+void rswitch_trigger_chain(struct rswitch_private *priv,
+			   struct rswitch_gwca_chain *chain)
+{
+	if (!rswitch_is_front_priv(priv))
+		rswitch_modify(priv->addr, GWTRC0, 0, BIT(chain->index));
+	else
+		rswitch_vmq_front_trigger_tx(netdev_priv(chain->ndev));
+}
+
 static void rswitch_ack_data_irq(struct rswitch_private *priv, int index)
 {
 	u32 offs = GWDIS0 + (index / 32) * 0x10;
@@ -1101,7 +1110,8 @@ static bool rswitch_rx(struct net_device *ndev, int *quota)
 			skb_put(skb, pkt_len);
 		}
 
-		get_ts = rdev->priv->ptp_priv->tstamp_rx_ctrl & RTSN_RXTSTAMP_TYPE_V2_L2_EVENT;
+		if (!rswitch_is_front_dev(rdev))
+			get_ts = rdev->priv->ptp_priv->tstamp_rx_ctrl & RTSN_RXTSTAMP_TYPE_V2_L2_EVENT;
 		if (get_ts) {
 			struct skb_shared_hwtstamps *shhwtstamps;
 			struct timespec64 ts;
@@ -1153,7 +1163,7 @@ next:
 	return boguscnt <= 0;
 }
 
-static int rswitch_tx_free(struct net_device *ndev, bool free_txed_only)
+int rswitch_tx_free(struct net_device *ndev, bool free_txed_only)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	struct rswitch_ext_desc *desc;
@@ -2033,7 +2043,8 @@ static int rswitch_open(struct net_device *ndev)
 	netif_start_queue(ndev);
 
 	/* Enable RX */
-	rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_chain->index));
+	if (!rswitch_is_front_dev(rdev))
+		rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_chain->index));
 
 	/* Enable interrupt */
 	pr_debug("%s: tx = %d, rx = %d\n", __func__, rdev->tx_chain->index, rdev->rx_chain->index);
@@ -2185,7 +2196,7 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	}
 
 	c->cur += num_desc;
-	rswitch_modify(rdev->addr, GWTRC0, 0, BIT(c->index));
+	rswitch_trigger_chain(rdev->priv, c);
 
 out:
 	spin_unlock_irqrestore(&rdev->lock, flags);
