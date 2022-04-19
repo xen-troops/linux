@@ -184,6 +184,7 @@ struct rswitch_device {
 	int port;
 	struct rswitch_etha *etha;
 	int remote_chain;
+	struct rswitch_vmq_front_info *front_info;
 };
 
 struct rswitch_private {
@@ -224,6 +225,8 @@ void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 void rswitch_ndev_unregister(struct rswitch_private *priv, int index);
 
 int rswitch_poll(struct napi_struct *napi, int budget);
+int rswitch_tx_free(struct net_device *ndev, bool free_txed_only);
+
 void rswitch_gwca_chain_register(struct rswitch_private *priv,
 				 struct rswitch_gwca_chain *c, bool ts);
 
@@ -233,7 +236,19 @@ void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable);
 
 struct rswitch_private *rswitch_find_priv(void);
 
+void rswitch_vmq_front_trigger_tx(struct rswitch_device* rdev);
+void rswitch_vmq_front_rx_done(struct rswitch_device* rdev);
 void rswitch_vmq_back_data_irq(struct rswitch_gwca_chain *c);
 
 int rswitch_desc_alloc(struct rswitch_private *priv);
 void rswitch_desc_free(struct rswitch_private *priv);
+
+static inline bool rswitch_is_front_dev(struct rswitch_device *rdev)
+{
+	return rdev->front_info != NULL;
+}
+
+static inline bool rswitch_is_front_priv(struct rswitch_private *priv)
+{
+	return priv->addr == NULL;
+}
