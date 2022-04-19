@@ -2606,7 +2606,7 @@ static irqreturn_t __maybe_unused rswitch_data_irq(struct rswitch_private *priv,
 		c = &priv->gwca.chains[i];
 		index = c->index / 32;
 		bit = BIT(c->index % 32);
-		if (!(dis[index] & bit))
+		if (!(dis[index] & bit) || !(test_bit(i , priv->gwca.used)))
 			continue;
 
 		rswitch_ack_data_irq(priv, c->index);
