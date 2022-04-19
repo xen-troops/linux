@@ -61,6 +61,14 @@ config RENESAS_ETHER_SWITCH_XENBACK
 	  Enable this if you want to share switch with
 	  other Xen-based virtual machines.
 
+config RENESAS_ETHER_SWITCH_XENFRONT
+	tristate "Xen PV frontend for Renesas Ethernet Switch"
+	depends on RENESAS_ETHER_SWITCH || COMPILE_TEST
+	help
+	  Xen PV front for Renesas Ethernet Switch.
+	  Enable this if you want to access R-Switch from
+	  your virtual machine.
+
 config RTSN
         tristate "Renesas Ethernet-TSN support"
         depends on ARCH_RENESAS || COMPILE_TEST
