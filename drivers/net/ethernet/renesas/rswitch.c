@@ -982,6 +982,19 @@ static void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, boo
 	rs_write32(BIT(index % 32) | tmp, priv->addr + offs);
 }
 
+void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable)
+{
+	if (!rswitch_is_front_dev(rdev)) {
+		rswitch_enadis_data_irq(rdev->priv, rdev->rx_chain->index,
+					enable);
+		rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index,
+					enable);
+	} else {
+		if (enable)
+			rswitch_vmq_front_rx_done(rdev);
+	}
+}
+
 static void rswitch_ack_data_irq(struct rswitch_private *priv, int index)
 {
 	u32 offs = GWDIS0 + (index / 32) * 0x10;
@@ -1197,8 +1210,7 @@ retry:
 	if (napi_complete_done(napi, budget - quota)) {
 		spin_lock_irqsave(&priv->lock, flags);
 		/* Re-enable RX/TX interrupts */
-		rswitch_enadis_data_irq(priv, rdev->tx_chain->index, true);
-		rswitch_enadis_data_irq(priv, rdev->rx_chain->index, true);
+		rswitch_enadis_rdev_irqs(rdev, true);
 		spin_unlock_irqrestore(&priv->lock, flags);
 	}
 
@@ -2027,8 +2039,7 @@ static int rswitch_open(struct net_device *ndev)
 	pr_debug("%s: tx = %d, rx = %d\n", __func__, rdev->tx_chain->index, rdev->rx_chain->index);
 
 	spin_lock_irqsave(&rdev->priv->lock, flags);
-	rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index, true);
-	rswitch_enadis_data_irq(rdev->priv, rdev->rx_chain->index, true);
+	rswitch_enadis_rdev_irqs(rdev, true);
 	spin_unlock_irqrestore(&rdev->priv->lock, flags);
 
 	iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDIE);
@@ -2976,7 +2987,10 @@ static irqreturn_t __maybe_unused rswitch_data_irq(struct rswitch_private *priv,
 			continue;
 
 		rswitch_ack_data_irq(priv, c->index);
-		rswitch_queue_interrupt(c->ndev);
+		if (!c->back_info)
+			rswitch_queue_interrupt(c->ndev);
+		else
+			rswitch_vmq_back_data_irq(c);
 	}
 
 	return IRQ_HANDLED;
