@@ -13,3 +13,4 @@ rswitch_drv-objs += rswitch.o rswitch_ptp.o
 
 obj-$(CONFIG_RENESAS_ETHER_SWITCH) += rswitch_drv.o
 obj-$(CONFIG_RENESAS_ETHER_SWITCH_XENBACK) += rswitch_xenback.o
+obj-$(CONFIG_RENESAS_ETHER_SWITCH_XENFRONT) += rswitch_xenfront.o

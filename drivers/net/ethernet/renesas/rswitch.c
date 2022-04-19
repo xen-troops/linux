@@ -955,6 +955,15 @@ void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable)
 	}
 }
 
+void rswitch_trigger_chain(struct rswitch_private *priv,
+			   struct rswitch_gwca_chain *chain)
+{
+	if (!rswitch_is_front_priv(priv))
+		rswitch_modify(priv->addr, GWTRC0, 0, BIT(chain->index));
+	else
+		rswitch_vmq_front_trigger_tx(netdev_priv(chain->ndev));
+}
+
 static void rswitch_ack_data_irq(struct rswitch_private *priv, int index)
 {
 	u32 offs = GWDIS0 + (index / 32) * 0x10;
@@ -1001,7 +1010,8 @@ static bool rswitch_rx(struct net_device *ndev, int *quota)
 		c->skb[entry] = NULL;
 		dma_addr = le32_to_cpu(desc->dptrl) | ((__le64)le32_to_cpu(desc->dptrh) << 32);
 		dma_unmap_single(ndev->dev.parent, dma_addr, PKT_BUF_SZ, DMA_FROM_DEVICE);
-		get_ts = rdev->priv->ptp_priv->tstamp_rx_ctrl & RSWITCH_RXTSTAMP_TYPE_V2_L2_EVENT;
+		if (!rswitch_is_front_dev(rdev))
+			get_ts = rdev->priv->ptp_priv->tstamp_rx_ctrl & RSWITCH_RXTSTAMP_TYPE_V2_L2_EVENT;
 		if (get_ts) {
 			struct skb_shared_hwtstamps *shhwtstamps;
 			struct timespec64 ts;
@@ -1060,7 +1070,7 @@ static void rswitch_get_timestamp(struct rswitch_private *priv,
 	ptp_priv->info.gettime64(&ptp_priv->info, ts);
 }
 
-static int rswitch_tx_free(struct net_device *ndev, bool free_txed_only)
+int rswitch_tx_free(struct net_device *ndev, bool free_txed_only)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	struct rswitch_ext_desc *desc;
@@ -1080,7 +1090,8 @@ static int rswitch_tx_free(struct net_device *ndev, bool free_txed_only)
 		size = le16_to_cpu(desc->info_ds) & TX_DS;
 		skb = c->skb[entry];
 		if (skb) {
-			if (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP) {
+			if (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP &&
+			    !rswitch_is_front_dev(rdev)) {
 				struct skb_shared_hwtstamps shhwtstamps;
 				struct timespec64 ts;
 
@@ -1771,13 +1782,17 @@ static int rswitch_open(struct net_device *ndev)
 	netif_start_queue(ndev);
 
 	/* Enable RX */
-	rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_chain->index));
+	if (!rswitch_is_front_dev(rdev))
+		rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_chain->index));
 
 	/* Enable interrupt */
 	pr_debug("%s: tx = %d, rx = %d\n", __func__, rdev->tx_chain->index, rdev->rx_chain->index);
 	rswitch_enadis_rdev_irqs(rdev, true);
 
-	rswitch_ptp_init(rdev->priv->ptp_priv, RSWITCH_PTP_REG_LAYOUT_S4, RSWITCH_PTP_CLOCK_S4);
+	if (!rswitch_is_front_dev(rdev))
+		rswitch_ptp_init(rdev->priv->ptp_priv,
+				 RSWITCH_PTP_REG_LAYOUT_S4,
+				 RSWITCH_PTP_CLOCK_S4);
 
 out:
 	if (rdev->etha)
@@ -1854,7 +1869,7 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	desc->die_dt = DT_FSINGLE | DIE;
 
 	c->cur++;
-	rswitch_modify(rdev->addr, GWTRC0, 0, BIT(c->index));
+	rswitch_trigger_chain(rdev->priv, c);
 
 out:
 	spin_unlock_irqrestore(&rdev->lock, flags);
