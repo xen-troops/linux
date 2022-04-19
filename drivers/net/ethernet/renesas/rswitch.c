@@ -2233,7 +2233,7 @@ static int rswitch_gwca_chain_ts_format(struct net_device *ndev,
 	return 0;
 }
 
-static int rswitch_desc_alloc(struct rswitch_private *priv)
+int rswitch_desc_alloc(struct rswitch_private *priv)
 {
 	struct device *dev = &priv->pdev->dev;
 	int i, num_chains = priv->gwca.num_chains;
@@ -2249,7 +2249,7 @@ static int rswitch_desc_alloc(struct rswitch_private *priv)
 	return 0;
 }
 
-static void rswitch_desc_free(struct rswitch_private *priv)
+void rswitch_desc_free(struct rswitch_private *priv)
 {
 	if (priv->desc_bat)
 		dma_free_coherent(&priv->pdev->dev, priv->desc_bat_size,
@@ -2257,7 +2257,7 @@ static void rswitch_desc_free(struct rswitch_private *priv)
 	priv->desc_bat = NULL;
 }
 
-static struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
+struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
 {
 	int index;
 
@@ -2270,8 +2270,8 @@ static struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
 	return &priv->gwca.chains[index];
 }
 
-static void rswitch_gwca_put(struct rswitch_private *priv,
-			     struct rswitch_gwca_chain *c)
+void rswitch_gwca_put(struct rswitch_private *priv,
+		      struct rswitch_gwca_chain *c)
 {
 	clear_bit(c->index, priv->gwca.used);
 }
@@ -2437,7 +2437,7 @@ out_reg_netdev:
 	return err;
 }
 
-static void rswitch_ndev_unregister(struct rswitch_private *priv, int index)
+void rswitch_ndev_unregister(struct rswitch_private *priv, int index)
 {
 	struct rswitch_device *rdev = priv->rdev[index];
 	struct net_device *ndev = rdev->ndev;
@@ -2447,6 +2447,8 @@ static void rswitch_ndev_unregister(struct rswitch_private *priv, int index)
 	unregister_netdev(ndev);
 	netif_napi_del(&rdev->napi);
 	free_netdev(ndev);
+
+	priv->rdev[index] = NULL;
 }
 
 static int rswitch_bpool_config(struct rswitch_private *priv)
