@@ -750,6 +750,7 @@ enum rswitch_etha_mode {
 #define GWDCC_DQT		BIT(11)
 #define GWDCC_ETS		BIT(9)
 #define GWDCC_EDE		BIT(8)
+#define GWDCC_OSID(val)		((val & 0x7) << 28)
 
 #define GWMDNC_TXDMN(val)	((val & 0x1f) << 8)
 
