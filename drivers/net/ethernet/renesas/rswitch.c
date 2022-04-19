@@ -2441,14 +2441,23 @@ void rswitch_gwca_put(struct rswitch_private *priv,
 	clear_bit(c->index, priv->gwca.used);
 }
 
-int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv)
+int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv,
+			int chain_num)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	int err;
 
-	rdev->tx_chain = rswitch_gwca_get(priv);
-	if (!rdev->tx_chain)
-		return -EBUSY;
+	if (chain_num < 0) {
+		rdev->tx_chain = rswitch_gwca_get(priv);
+		if (!rdev->tx_chain)
+			return -EBUSY;
+	} else {
+		rdev->tx_chain = devm_kzalloc(&ndev->dev, sizeof(*rdev->rx_chain),
+					      GFP_KERNEL);
+		if (!rdev->tx_chain)
+			return -ENOMEM;
+		rdev->tx_chain->index = chain_num;
+	}
 
 	err = rswitch_gwca_chain_init(ndev, priv, rdev->tx_chain, true, TX_RING_SIZE);
 	if (err < 0)
@@ -2464,7 +2473,8 @@ out_format:
 	rswitch_gwca_chain_free(ndev, priv, rdev->tx_chain);
 
 out_init:
-	rswitch_gwca_put(priv, rdev->tx_chain);
+	if (priv)
+		rswitch_gwca_put(priv, rdev->tx_chain);
 
 	return err;
 }
@@ -2478,14 +2488,23 @@ void rswitch_txdmac_free(struct net_device *ndev,
 	rswitch_gwca_put(priv, rdev->tx_chain);
 }
 
-int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv)
+int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv,
+			int chain_num)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	int err;
 
-	rdev->rx_chain = rswitch_gwca_get(priv);
-	if (!rdev->rx_chain)
-		return -EBUSY;
+	if (chain_num < 0) {
+		rdev->rx_chain = rswitch_gwca_get(priv);
+		if (!rdev->rx_chain)
+			return -EBUSY;
+	} else {
+		rdev->rx_chain = devm_kzalloc(&ndev->dev, sizeof(*rdev->rx_chain),
+					      GFP_KERNEL);
+		if (!rdev->rx_chain)
+			return -ENOMEM;
+		rdev->rx_chain->index = chain_num;
+	}
 
 	err = rswitch_gwca_chain_init(ndev, priv, rdev->rx_chain, false, RX_RING_SIZE);
 	if (err < 0)
@@ -2501,7 +2520,8 @@ out_format:
 	rswitch_gwca_chain_free(ndev, priv, rdev->rx_chain);
 
 out_init:
-	rswitch_gwca_put(priv, rdev->rx_chain);
+	if (priv)
+		rswitch_gwca_put(priv, rdev->rx_chain);
 
 	return err;
 }
@@ -2588,11 +2608,11 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 	 * CSD = 1 (rx_chain->index = 1) for FWPBFCS03. So, use index = 0
 	 * for the RX.
 	 */
-	err = rswitch_rxdmac_init(ndev, priv);
+	err = rswitch_rxdmac_init(ndev, priv, -1);
 	if (err < 0)
 		goto out_rxdmac;
 
-	err = rswitch_txdmac_init(ndev, priv);
+	err = rswitch_txdmac_init(ndev, priv, -1);
 	if (err < 0)
 		goto out_txdmac;
 
@@ -3066,11 +3086,11 @@ static int rswitch_resume_chan(struct net_device *ndev)
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	int ret;
 
-	ret = rswitch_rxdmac_init(ndev, rdev->priv);
+	ret = rswitch_rxdmac_init(ndev, rdev->priv, -1);
 	if (ret)
 		goto out_dmac;
 
-	ret = rswitch_txdmac_init(ndev, rdev->priv);
+	ret = rswitch_txdmac_init(ndev, rdev->priv, -1);
 	if (ret) {
 		rswitch_rxdmac_free(ndev, rdev->priv);
 		goto out_dmac;
