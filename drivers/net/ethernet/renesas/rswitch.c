@@ -17,6 +17,7 @@
 #include <linux/of_irq.h>
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
+#include <linux/of_address.h>
 #include <linux/clk.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
@@ -2322,10 +2323,27 @@ int rswitch_desc_alloc(struct rswitch_private *priv)
 {
 	struct device *dev = &priv->pdev->dev;
 	int i, num_chains = priv->gwca.num_chains;
+	struct resource r;
+	struct device_node *node;
+	int ret;
+
+	node = of_parse_phandle(dev->of_node, "memory-region", 0);
+	if (!node) {
+		dev_err(dev, "no memory-region specified\n");
+		return -EINVAL;
+	}
+
+	ret = of_address_to_resource(node, 0, &r);
+
+	of_node_put(node);
+
+	if (ret)
+		return ret;
 
 	priv->desc_bat_size = sizeof(struct rswitch_desc) * num_chains;
-	priv->desc_bat = dma_alloc_coherent(dev, priv->desc_bat_size,
-					    &priv->desc_bat_dma, GFP_KERNEL);
+	priv->desc_bat_dma = r.start;
+	priv->desc_bat = memremap(r.start, resource_size(&r), MEMREMAP_WB);
+
 	if (!priv->desc_bat)
 		return -ENOMEM;
 	for (i = 0; i < num_chains; i++)
@@ -2337,8 +2355,7 @@ int rswitch_desc_alloc(struct rswitch_private *priv)
 void rswitch_desc_free(struct rswitch_private *priv)
 {
 	if (priv->desc_bat)
-		dma_free_coherent(&priv->pdev->dev, priv->desc_bat_size,
-				  priv->desc_bat, priv->desc_bat_dma);
+		memunmap(priv->desc_bat);
 	priv->desc_bat = NULL;
 }
 
