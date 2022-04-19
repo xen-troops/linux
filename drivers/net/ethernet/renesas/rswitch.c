@@ -2176,7 +2176,7 @@ static int rswitch_gwca_chain_init(struct net_device *ndev,
 				struct rswitch_gwca_chain *c,
 				bool dir_tx, bool gptp, int num_ring)
 {
-	int i, bit;
+	int i;
 	int index = c->index;	/* Keep the index before memset() */
 	struct sk_buff *skb;
 
@@ -2212,13 +2212,6 @@ static int rswitch_gwca_chain_init(struct net_device *ndev,
 	if (!c->ts_ring && !c->ring)
 		goto out;
 
-	index = c->index / 32;
-	bit = BIT(c->index % 32);
-	if (dir_tx)
-		priv->gwca.tx_irq_bits[index] |= bit;
-	else
-		priv->gwca.rx_irq_bits[index] |= bit;
-
 	return 0;
 
 out:
@@ -2227,12 +2220,42 @@ out:
 	return -ENOMEM;
 }
 
+void rswitch_gwca_chain_register(struct rswitch_private *priv,
+				 struct rswitch_gwca_chain *c, bool ts)
+{
+	struct rswitch_desc *desc;
+	int bit;
+	int index;
+
+	desc = &priv->desc_bat[c->index];
+	desc->die_dt = DT_LINKFIX;
+	desc->dptrl = cpu_to_le32(lower_32_bits(c->ring_dma));
+	desc->dptrh = cpu_to_le32(upper_32_bits(c->ring_dma));
+
+	index = c->index / 32;
+	bit = BIT(c->index % 32);
+
+	if (!priv->addr)
+		return;
+
+	if (c->dir_tx)
+		priv->gwca.tx_irq_bits[index] |= bit;
+	else
+		priv->gwca.rx_irq_bits[index] |= bit;
+
+	/* FIXME: GWDCC_DCP */
+	rs_write32(GWDCC_BALR | (c->dir_tx ? GWDCC_DQT : 0) |
+		   (ts ? GWDCC_ETS : 0) |
+		   GWDCC_EDE |
+		   GWDCC_OSID(c->osid),
+		   priv->addr + GWDCC_OFFS(c->index));
+}
+
 static int rswitch_gwca_chain_format(struct net_device *ndev,
 				struct rswitch_private *priv,
 				struct rswitch_gwca_chain *c)
 {
 	struct rswitch_ext_desc *ring;
-	struct rswitch_desc *desc;
 	int tx_ring_size = sizeof(*ring) * c->num_ring;
 	int i;
 	dma_addr_t dma_addr;
@@ -2256,14 +2279,7 @@ static int rswitch_gwca_chain_format(struct net_device *ndev,
 	ring->dptrh = cpu_to_le32(upper_32_bits(c->ring_dma));
 	ring->die_dt = DT_LINKFIX;
 
-	desc = &priv->desc_bat[c->index];
-	desc->die_dt = DT_LINKFIX;
-	desc->dptrl = cpu_to_le32(lower_32_bits(c->ring_dma));
-	desc->dptrh = cpu_to_le32(upper_32_bits(c->ring_dma));
-
-	/* FIXME: GWDCC_DCP */
-	rs_write32(GWDCC_BALR | (c->dir_tx ? GWDCC_DQT : 0) | GWDCC_EDE,
-		   priv->addr + GWDCC_OFFS(c->index));
+	rswitch_gwca_chain_register(priv, c, false);
 
 	return 0;
 }
@@ -2273,7 +2289,6 @@ static int rswitch_gwca_chain_ts_format(struct net_device *ndev,
 					struct rswitch_gwca_chain *c)
 {
 	struct rswitch_ext_ts_desc *ring;
-	struct rswitch_desc *desc;
 	int tx_ts_ring_size = sizeof(*ring) * c->num_ring;
 	int i;
 	dma_addr_t dma_addr;
@@ -2297,14 +2312,7 @@ static int rswitch_gwca_chain_ts_format(struct net_device *ndev,
 	ring->dptrh = cpu_to_le32(upper_32_bits(c->ring_dma));
 	ring->die_dt = DT_LINKFIX;
 
-	desc = &priv->desc_bat[c->index];
-	desc->die_dt = DT_LINKFIX;
-	desc->dptrl = cpu_to_le32(lower_32_bits(c->ring_dma));
-	desc->dptrh = cpu_to_le32(upper_32_bits(c->ring_dma));
-
-	/* FIXME: GWDCC_DCP */
-	rs_write32(GWDCC_BALR | (c->dir_tx ? GWDCC_DQT : 0) | GWDCC_ETS | GWDCC_EDE,
-		  priv->addr + GWDCC_OFFS(c->index));
+	rswitch_gwca_chain_register(priv, c, true);
 
 	return 0;
 }
