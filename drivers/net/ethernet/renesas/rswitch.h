@@ -223,6 +223,9 @@ void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 void rswitch_ndev_unregister(struct rswitch_private *priv, int index);
 
 int rswitch_poll(struct napi_struct *napi, int budget);
+void rswitch_gwca_chain_register(struct rswitch_private *priv,
+				 struct rswitch_gwca_chain *c, bool ts);
+
 struct rswitch_private *rswitch_find_priv(void);
 
 
