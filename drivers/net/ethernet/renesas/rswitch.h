@@ -112,6 +112,7 @@ struct rswitch_gwca_chain {
 	u32 num_ring;
 	u32 cur;
 	u32 dirty;
+	u32 osid;
 
 	/* For [rt]x_ring */
 	int index;
