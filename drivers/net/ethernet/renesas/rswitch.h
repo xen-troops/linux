@@ -208,14 +208,16 @@ struct rswitch_private {
 
 extern const struct net_device_ops rswitch_netdev_ops;
 
-int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv);
 struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv);
 void rswitch_gwca_put(struct rswitch_private *priv,
 		      struct rswitch_gwca_chain *c);
 
+int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv,
+			int chain_num);
 void rswitch_txdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
-int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv);
+int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv,
+			int chain_num);
 void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
 void rswitch_ndev_unregister(struct rswitch_private *priv, int index);
