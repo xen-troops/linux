@@ -244,8 +244,8 @@ void rswitch_vmq_back_data_irq(struct rswitch_gwca_chain *c)
 {
 	struct rswitch_vmq_back_info *be = c->back_info;
 
-	notify_remote_via_evtchn(be->rx_evtchn);
-	notify_remote_via_evtchn(be->tx_evtchn);
+	notify_remote_via_irq(be->rx_irq);
+	notify_remote_via_irq(be->tx_irq);
 }
 
 static irqreturn_t rswitch_vmq_back_rx_interrupt(int irq, void *dev_id)
