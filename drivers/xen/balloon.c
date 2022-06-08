@@ -247,6 +247,7 @@ static void release_memory_resource(struct resource *resource)
 static struct resource *additional_memory_resource(phys_addr_t size)
 {
 	struct resource *res;
+	struct range mhp_range;
 	int ret;
 
 	res = kzalloc(sizeof(*res), GFP_KERNEL);
@@ -256,8 +257,9 @@ static struct resource *additional_memory_resource(phys_addr_t size)
 	res->name = "System RAM";
 	res->flags = IORESOURCE_SYSTEM_RAM | IORESOURCE_BUSY;
 
+	mhp_range = mhp_get_pluggable_range(true);
 	ret = allocate_resource(&iomem_resource, res,
-				size, 0, -1,
+				size, mhp_range.start, mhp_range.end,
 				PAGES_PER_SECTION * PAGE_SIZE, NULL, NULL);
 	if (ret < 0) {
 		pr_err("Cannot allocate new System RAM resource\n");
