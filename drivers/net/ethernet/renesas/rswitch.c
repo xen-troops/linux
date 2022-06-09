@@ -1904,6 +1904,10 @@ static int rswitch_open(struct net_device *ndev)
 			phy = rswitch_get_phy_node(rdev);
 			if (!phy)
 				goto error;
+			err = rswitch_serdes_init(rdev->etha);
+			if (err < 0)
+				printk("H2P %s %d", __func__, __LINE__);
+
 			err = rswitch_etha_hw_init(rdev->etha, ndev->dev_addr);
 			if (err < 0)
 				goto error;
