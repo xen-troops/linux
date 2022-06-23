@@ -1862,10 +1862,7 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		desc->info1 = (rdev->ts_tag << 8) | BIT(3);
 	}
 
-	/* Use direct descriptor if we know remote chain number */
-	/* HACK: GWCA0 Port number (8) is hardcoded */
-	if (rdev->remote_chain >= 0)
-		desc->info1 |= ((u64)rdev->remote_chain << 32) | (8UL << 48) |  BIT(2);
+	desc->info1 |= ((u64)rdev->remote_chain << 32) | ((BIT(rdev->port)) << 48) |  BIT(2);
 
 	skb_tx_timestamp(skb);
 	dma_wmb();
@@ -2462,7 +2459,7 @@ static int rswitch_ndev_register(struct rswitch_private *priv, int index)
 		rdev->port = -1;
 		rdev->etha = NULL;
 	}
-	rdev->remote_chain = -1;
+	rdev->remote_chain = 0;
 	rdev->addr = priv->addr;
 
 	spin_lock_init(&rdev->lock);
@@ -2626,6 +2623,13 @@ static int rswitch_free_irqs(struct rswitch_private *priv)
 	return 0;
 }
 
+void rswitch_mfwd_set_port_based(struct rswitch_private *priv, u8 port,
+				 struct rswitch_gwca_chain *rx_chain)
+{
+	rs_write32(rx_chain->index, priv->addr + FWPBFCSDC(0, port));
+	rs_write32(BIT(3), priv->addr + FWPBFC(port));
+}
+
 static void rswitch_fwd_init(struct rswitch_private *priv)
 {
 	int i;
@@ -2639,12 +2643,8 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	 * ETHA0 = forward to GWCA0, GWCA0 = forward to ETHA0,...
 	 * Currently, always forward to GWCA0.
 	 */
-	for (i = 0; i < num_ndev; i++) {
-		rs_write32(priv->rdev[i]->rx_chain->index, priv->addr + FWPBFCSDC(0, i));
-		rs_write32(8, priv->addr + FWPBFC(i));
-	}
-	rs_write32(0x07, priv->addr + FWPBFC(3));
-
+	for (i = 0; i < num_ndev; i++)
+		rswitch_mfwd_set_port_based(priv, i, priv->rdev[i]->rx_chain);
 
 	/* Enable Direct Descriptors for GWCA0 */
 	rs_write32(FWPC1_DDE, priv->addr + FWPC10 + (3 * 0x10));
