@@ -2486,11 +2486,6 @@ static int rswitch_ndev_register(struct rswitch_private *priv, int index)
 	if (!is_valid_ether_addr(ndev->dev_addr))
 		eth_hw_addr_random(ndev);
 
-	/* Network device register */
-	err = register_netdev(ndev);
-	if (err)
-		goto out_reg_netdev;
-
 	/* FIXME: it seems S4 VPF has FWPBFCSDC0/1 only so that we cannot set
 	 * CSD = 1 (rx_chain->index = 1) for FWPBFCS03. So, use index = 0
 	 * for the RX.
@@ -2503,18 +2498,23 @@ static int rswitch_ndev_register(struct rswitch_private *priv, int index)
 	if (err < 0)
 		goto out_txdmac;
 
+	/* Network device register */
+	err = register_netdev(ndev);
+	if (err)
+		goto out_reg_netdev;
+
 	/* Print device information */
 	netdev_info(ndev, "MAC address %pMn", ndev->dev_addr);
 
 	return 0;
 
+out_reg_netdev:
+	rswitch_txdmac_free(ndev, priv);
+
 out_txdmac:
 	rswitch_rxdmac_free(ndev, priv);
 
 out_rxdmac:
-	unregister_netdev(ndev);
-
-out_reg_netdev:
 	netif_napi_del(&rdev->napi);
 	free_netdev(ndev);
 
