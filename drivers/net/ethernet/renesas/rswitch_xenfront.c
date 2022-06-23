@@ -82,7 +82,7 @@ static struct net_device*
 	rdev->priv = get_priv();
 	rdev->port = 3;
 	rdev->etha = NULL;
-	rdev->remote_chain = -1;
+	rdev->remote_chain = 0;
 	rdev->addr = NULL;
 
 	spin_lock_init(&rdev->lock);
