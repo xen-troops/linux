@@ -2398,7 +2398,7 @@ int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv,
 	}
 	else
 	{
-		rdev->tx_chain = devm_kzalloc(&ndev->dev, sizeof(*rdev->rx_chain),
+		rdev->tx_chain = devm_kzalloc(ndev->dev.parent, sizeof(*rdev->rx_chain),
 					      GFP_KERNEL);
 		if (!rdev->tx_chain)
 			return -ENOMEM;
@@ -2449,7 +2449,7 @@ int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv,
 	}
 	else
 	{
-		rdev->rx_chain = devm_kzalloc(&ndev->dev, sizeof(*rdev->rx_chain),
+		rdev->rx_chain = devm_kzalloc(ndev->dev.parent, sizeof(*rdev->rx_chain),
 					      GFP_KERNEL);
 		if (!rdev->rx_chain)
 			return -ENOMEM;
