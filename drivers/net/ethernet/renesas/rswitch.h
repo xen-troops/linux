@@ -183,7 +183,7 @@ struct rswitch_device {
 
 	int port;
 	struct rswitch_etha *etha;
-	int remote_chain;
+	u8 remote_chain;
 	struct rswitch_vmq_front_info *front_info;
 };
 
@@ -242,6 +242,9 @@ void rswitch_vmq_back_data_irq(struct rswitch_gwca_chain *c);
 
 int rswitch_desc_alloc(struct rswitch_private *priv);
 void rswitch_desc_free(struct rswitch_private *priv);
+
+void rswitch_mfwd_set_port_based(struct rswitch_private *priv, u8 port,
+				 struct rswitch_gwca_chain *rx_chain);
 
 static inline bool rswitch_is_front_dev(struct rswitch_device *rdev)
 {
