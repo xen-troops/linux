@@ -101,22 +101,26 @@ out_free_netdev:
 }
 
 static int rswitch_vmq_front_ndev_register(struct rswitch_device *rdev,
+					   const char *type,
 					   int index,
 					   int tx_chain_num,
-					   int rx_chain_num)
+					   int rx_chain_num,
+					   u8* mac)
 {
 	struct net_device *ndev = rdev->ndev;
 	int err;
 
-	snprintf(ndev->name, IFNAMSIZ, "vmq%d", index);
+	snprintf(ndev->name, IFNAMSIZ, "%s%d", type, index);
+
+	if (strcmp(type, "tsn") == 0)
+		rdev->port = index;
+
 	netif_napi_add(ndev, &rdev->napi, rswitch_poll, 64);
 
-	eth_hw_addr_random(ndev);
-
-	/* Network device register */
-	err = register_netdev(ndev);
-	if (err)
-		goto out_reg_netdev;
+	if (!mac)
+		eth_hw_addr_random(ndev);
+	else
+		ether_addr_copy(ndev->dev_addr, mac);
 
 	err = rswitch_rxdmac_init(ndev, rdev->priv, rx_chain_num);
 	if (err < 0)
@@ -126,18 +130,23 @@ static int rswitch_vmq_front_ndev_register(struct rswitch_device *rdev,
 	if (err < 0)
 		goto out_txdmac;
 
+	/* Network device register */
+	err = register_netdev(ndev);
+	if (err)
+		goto out_reg_netdev;
+
 	/* Print device information */
 	netdev_info(ndev, "MAC address %pMn", ndev->dev_addr);
 
 	return 0;
 
+out_reg_netdev:
+	rswitch_txdmac_free(ndev, NULL);
+
 out_txdmac:
 	rswitch_rxdmac_free(ndev, NULL);
 
 out_rxdmac:
-	unregister_netdev(ndev);
-
-out_reg_netdev:
 	netif_napi_del(&rdev->napi);
 
 	return err;
@@ -185,6 +194,9 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 	unsigned int tx_chain_id, rx_chain_id, index;
 	unsigned int remote_chain_id;
 	int err;
+	char *type;
+	char *mac_str;
+	u8 mac[ETH_ALEN];
 
 	tx_chain_id = xenbus_read_unsigned(np->xbdev->otherend,
 					   "tx-chain-id", 0);
@@ -194,12 +206,36 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 					   "remote-chain-id", 0);
 	index = xenbus_read_unsigned(np->xbdev->nodename, "if-num", ~0U);
 
+	type = xenbus_read(XBT_NIL, np->xbdev->nodename, "type", NULL);
+	mac_str = xenbus_read(XBT_NIL, np->xbdev->otherend, "mac", NULL);
+	if (!IS_ERR_OR_NULL( mac_str))
+		if (!mac_pton(mac_str, mac)) {
+			dev_info(&np->xbdev->dev, "Failed to parse MAC %s\n", mac_str);
+			kfree(type);
+			return -ENODEV;
+		};
+
 	if (!tx_chain_id || !rx_chain_id) {
 		dev_info(&np->xbdev->dev, "backend did not supplied chain id\n");
+		kfree(type);
+		kfree(mac_str);
 		return -ENODEV;
 	}
 
-	err = rswitch_vmq_front_ndev_register(rdev, index, tx_chain_id, rx_chain_id);
+	if (!type) {
+		dev_info(&np->xbdev->dev, "toolstack did not supplied type\n");
+		kfree(type);
+		kfree(mac_str);
+		return -ENODEV;
+	}
+
+	err = rswitch_vmq_front_ndev_register(rdev, type, index, tx_chain_id,
+					      rx_chain_id, mac_str ? mac : NULL);
+	kfree(type);
+
+	if (!IS_ERR_OR_NULL(mac_str))
+		kfree(mac_str);
+
 	if (err)
 		return err;
 

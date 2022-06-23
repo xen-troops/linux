@@ -17,6 +17,11 @@
 /* TODO: get this from rswitch.c */
 #define RSWITCH_BACK_BASE_INDEX		3
 
+enum rswtich_pv_type {
+	RSWITCH_PV_VMQ,
+	RSWITCH_PV_TSN,
+};
+
 struct rswitch_vmq_back_info {
 	char name[32];
 	struct xenbus_device *dev;
@@ -37,6 +42,7 @@ struct rswitch_vmq_back_info {
 
 	uint32_t osid;
 	uint32_t if_num;
+	enum rswtich_pv_type type;
 };
 
 static struct rswitch_device*
@@ -77,10 +83,6 @@ rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
 	eth_hw_addr_random(ndev);
 
 	/* Network device register */
-	err = register_netdev(ndev);
-	if (err)
-		goto out_reg_netdev;
-
 	err = rswitch_rxdmac_init(ndev, priv, -1);
 	if (err < 0)
 		goto out_rxdmac;
@@ -98,9 +100,6 @@ out_txdmac:
 	rswitch_rxdmac_free(ndev, priv);
 
 out_rxdmac:
-	unregister_netdev(ndev);
-
-out_reg_netdev:
 	netif_napi_del(&rdev->napi);
 	free_netdev(ndev);
 
@@ -135,6 +134,13 @@ static int rswitch_vmq_back_remove(struct xenbus_device *dev)
 	if (be->tx_chain)
 		rswitch_gwca_put(be->rswitch_priv, be->tx_chain);
 
+	if (be->type == RSWITCH_PV_TSN) {
+		struct rswitch_device *rdev = be->rswitch_priv->rdev[be->if_num];
+		rswitch_mfwd_set_port_based(be->rswitch_priv, be->if_num,
+					    rdev->rx_chain);
+		netif_dormant_off(rdev->ndev);
+	}
+
 	kfree(be);
 
 	dev_set_drvdata(&dev->dev, NULL);
@@ -151,6 +157,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 {
 	int err = 0;
 	struct xenbus_transaction xbt;
+	char *type_str;
 
 	struct rswitch_vmq_back_info *be = kzalloc(sizeof(*be), GFP_KERNEL);
 
@@ -189,13 +196,40 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 
 	be->if_num = xenbus_read_unsigned(dev->otherend, "if-num", 255);
 
-	be->rdev = rswitch_vmq_back_ndev_register(be->rswitch_priv, be->if_num);
-	if (IS_ERR(be->rdev))
-	{
-		err = PTR_ERR(be->rdev);
-		xenbus_dev_fatal(dev, err, "Failed to allocate local rdev: %d ", err);
-		return err;
+	type_str = xenbus_read(XBT_NIL, dev->otherend, "type", NULL);
+	if (strcmp(type_str, "vmq") == 0) {
+		be->type = RSWITCH_PV_VMQ;
+
+		be->rdev = rswitch_vmq_back_ndev_register(be->rswitch_priv, be->if_num);
+
+		if (IS_ERR(be->rdev))
+		{
+			err = PTR_ERR(be->rdev);
+			xenbus_dev_fatal(dev, err,
+					 "Failed to allocate local rdev: %d ",
+					 err);
+			kfree(type_str);
+			return err;
+		}
 	}
+	else if (strcmp(type_str, "tsn") == 0) {
+		struct rswitch_device *rdev = be->rswitch_priv->rdev[be->if_num];
+
+		if (be->if_num > RSWITCH_MAX_NUM_ETHA) {
+			xenbus_dev_fatal(dev, err, "Invalid device tsn%d ", be->if_num);
+			kfree(type_str);
+			return -ENODEV;
+		}
+
+		be->type = RSWITCH_PV_TSN;
+		netif_dormant_on(rdev->ndev);
+		rswitch_mfwd_set_port_based(be->rswitch_priv, be->if_num, be->rx_chain);
+	} else {
+		xenbus_dev_fatal(dev, err, "Unknown device type: %s ", type_str);
+		kfree(type_str);
+		return -ENODEV;
+	}
+	kfree(type_str);
 
 	do {
 		err = xenbus_transaction_start(&xbt);
@@ -211,10 +245,23 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 		if (err)
 			goto abort_transaction;
 
-		err = xenbus_printf(xbt, dev->nodename, "remote-chain-id", "%d",
-				    be->rdev->rx_chain->index);
-		if (err)
-			goto abort_transaction;
+		switch (be->type) {
+		case RSWITCH_PV_VMQ:
+			err = xenbus_printf(xbt, dev->nodename,
+					    "remote-chain-id", "%d",
+					    be->rdev->rx_chain->index);
+			if (err)
+				goto abort_transaction;
+			break;
+		case RSWITCH_PV_TSN: {
+			struct rswitch_device *rdev = be->rswitch_priv->rdev[be->if_num];
+
+			err = xenbus_printf(xbt, dev->nodename,
+					    "mac", "%pMn",
+					    rdev->ndev->dev_addr);
+			break;
+		}
+		}
 
 		err = xenbus_transaction_end(xbt, 0);
 	} while (err == -EAGAIN);
@@ -318,9 +365,15 @@ static int rswitch_vmq_back_connect(struct xenbus_device *dev)
 	notify_remote_via_evtchn(tx_evt);
 	notify_remote_via_evtchn(rx_evt);
 
-	be->rdev->remote_chain = be->rx_chain->index;
+	if (be->type == RSWITCH_PV_VMQ)
+	{
+		be->rdev->remote_chain = be->rx_chain->index;
+		err = register_netdev(be->rdev->ndev);
+	}
+	else
+		err = 0;
 
-	return 0;
+	return err;
 }
 
 static void set_backend_state(struct xenbus_device *dev,
