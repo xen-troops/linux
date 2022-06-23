@@ -954,7 +954,7 @@ static void rswitch_get_data_irq_status(struct rswitch_private *priv, u32 *dis)
 		dis[i] = rs_read32(priv->addr + GWDIS0 + i * 0x10);
 }
 
-static void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, bool enable)
+void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, bool enable)
 {
 	u32 offs = (enable ? GWDIE0 : GWDID0) + (index / 32) * 0x10;
 	u32 tmp = 0;
