@@ -252,7 +252,8 @@ static irqreturn_t rswitch_vmq_back_rx_interrupt(int irq, void *dev_id)
 {
 	struct rswitch_vmq_back_info *be = dev_id;
 
-	rswitch_enadis_rdev_irqs(be->rdev, true);
+	rswitch_enadis_data_irq(be->rswitch_priv, be->rx_chain->index, true);
+	rswitch_enadis_data_irq(be->rswitch_priv, be->tx_chain->index, true);
 
 	xen_irq_lateeoi(irq, 0);
 
