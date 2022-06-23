@@ -246,6 +246,9 @@ void rswitch_desc_free(struct rswitch_private *priv);
 void rswitch_mfwd_set_port_based(struct rswitch_private *priv, u8 port,
 				 struct rswitch_gwca_chain *rx_chain);
 
+void rswitch_enadis_data_irq(struct rswitch_private *priv, int index,
+			     bool enable);
+
 static inline bool rswitch_is_front_dev(struct rswitch_device *rdev)
 {
 	return rdev->front_info != NULL;
