@@ -32,6 +32,64 @@
 #define MV_PHY_ALASKA_NBT_QUIRK_MASK	0xfffffffe
 #define MV_PHY_ALASKA_NBT_QUIRK_REV	(MARVELL_PHY_ID_88X3310 | 0xa)
 
+/* 88E2110 PHY defines */
+/* Copper Line-Side PHY */
+#define MDIO_DEVAD_C			31 /* Control Unit Device */
+#define MDIO_DEVAD_PMA			1  /* T-Unit PMA Control Device */
+#define MDIO_DEVAD_PCS			3  /* T-Unit PCS Control Device */
+#define MDIO_DEVAD_AN			7  /* Auto-Neg Control Device */
+
+/* Host Side PHY */
+#define MDIO_DEVAD_HI			4  /* Host Interface Control Device */
+
+/* C-Unit Control Register */
+#define MIIM_88E2110_PHY_MOD_CONF		0xF000
+#define MV_SPEED_MASK				(0x3 << 6)
+#define MV_SPEED_100				BIT(6)
+#define MV_SPEED_1000				BIT(7)
+#define MIIM_88E2110_PHY_PORT_RS		0xF001
+#define MIIM_88E2110_PHY_PORT_CTRL		0xC04A
+#define PORT_RS					BIT(15)
+#define MAC_TYPE_MASK				0x7
+#define SXGMII					0x0
+#define SGMII_AN_ON				0x4
+#define SGMII_AN_OFF				0x5
+
+/* PMA Register */
+#define MIIM_88E2110_PHY_PMAPMD_CTRL		0x0000
+#define MIIM_88E2110_PHY_NGBASE_EXCTRL		0xC000
+#define MIIM_88E2110_PHY_BOOTSTAT		0xC050
+#define BOOT_FATAL				BIT(0)
+
+/* PCS Register */
+#define MIIM_88E2110_PHY_PCS_CTRL1		0x0000
+#define MIIM_88E2110_PHY_AVPCS_CTRL		0x8000
+#define MIIM_88E2110_PHY_STATUS			0x8008
+#define PHY_LINK				BIT(10)
+#define PHY_DUPLEX				BIT(13)
+#define PHY_LINK_SPEED				(0x3 << 14)
+#define PHY_LINK_100				(0x1 << 14)
+#define PHY_LINK_1000				(0x2 << 14)
+
+/* Host Interface Register */
+#define MIIM_88E2110_PHY_1000BASEX		0xA003
+#define MIIM_88E2110_PHY_SD_CTRL1		0xF003
+#define MIIM_88E2110_PHY_SD_CTRL2		0x800F
+#define SD_INIT					BIT(15)
+#define DIS_AUTO_INIT				BIT(13)
+
+/* Auto-Neg Register */
+#define MIIM_88E2110_PHY_AN_CTRL		0x0000
+#define AN_ENABLE				BIT(12)
+#define MIIM_88E2110_PHY_AN_STAT		0x0001
+#define AN_COMPLETE				BIT(5)
+#define AN_CAPABLE				BIT(3)
+#define AN_LINK_STAT				BIT(2)
+
+#define PHY_TIMEOUT				10000
+#define LINK_UP					1
+#define LINK_DOWN				0
+
 enum {
 	MV_PMA_FW_VER0		= 0xc011,
 	MV_PMA_FW_VER1		= 0xc012,
@@ -214,6 +272,7 @@ static int mv3310_hwmon_probe(struct phy_device *phydev)
 	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
 	int i, j, ret;
 
+	printk("H2P %s %d", __func__, __LINE__);
 	priv->hwmon_name = devm_kstrdup(dev, dev_name(dev), GFP_KERNEL);
 	if (!priv->hwmon_name)
 		return -ENODEV;
@@ -455,33 +514,55 @@ static bool mv3310_has_pma_ngbaset_quirk(struct phy_device *phydev)
 
 static int mv3310_config_init(struct phy_device *phydev)
 {
-	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
-	int err;
-	int val;
+	u16 reg;
+	int timeout = 0;
 
-	/* Check that the PHY interface type is compatible */
-	if (phydev->interface != PHY_INTERFACE_MODE_SGMII &&
-	    phydev->interface != PHY_INTERFACE_MODE_2500BASEX &&
-	    phydev->interface != PHY_INTERFACE_MODE_XAUI &&
-	    phydev->interface != PHY_INTERFACE_MODE_RXAUI &&
-	    phydev->interface != PHY_INTERFACE_MODE_10GBASER)
-		return -ENODEV;
+	printk("H2P %s %d", __func__, __LINE__);
+	reg = phy_read_mmd(phydev, MDIO_DEVAD_C, MIIM_88E2110_PHY_PORT_RS);
+	if (!reg) {
+		printk("H2P %s %d", __func__, __LINE__);
+		return -EINVAL;
+	}
 
-	phydev->mdix_ctrl = ETH_TP_MDI_AUTO;
+	reg = phy_read_mmd(phydev, MDIO_DEVAD_C, MIIM_88E2110_PHY_MOD_CONF);
+	reg &= ~MV_SPEED_MASK;
+	reg |= MV_SPEED_1000;
 
-	/* Power up so reset works */
-	err = mv3310_power_up(phydev);
-	if (err)
-		return err;
+	phy_write_mmd(phydev, MDIO_DEVAD_C, MIIM_88E2110_PHY_MOD_CONF, reg);
 
-	val = phy_read_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL);
-	if (val < 0)
-		return val;
-	priv->rate_match = ((val & MV_V2_PORT_MAC_TYPE_MASK) ==
-			MV_V2_PORT_MAC_TYPE_RATE_MATCH);
+	/* Port reset */
+	reg = phy_read_mmd(phydev, MDIO_DEVAD_PMA, MIIM_88E2110_PHY_PORT_CTRL);
+	reg |= PORT_RS;
 
-	/* Enable EDPD mode - saving 600mW */
-	return mv3310_set_edpd(phydev, ETHTOOL_PHY_EDPD_DFLT_TX_MSECS);
+	phy_write_mmd(phydev, MDIO_DEVAD_PMA, MIIM_88E2110_PHY_PORT_CTRL, reg);
+	phy_write_mmd(phydev, MDIO_DEVAD_PMA, MIIM_88E2110_PHY_PORT_CTRL, reg);
+	reg = phy_read_mmd(phydev, MDIO_DEVAD_PMA, MIIM_88E2110_PHY_PORT_CTRL);
+
+	if ((reg & MAC_TYPE_MASK) != SGMII_AN_ON) {
+		reg &= ~MAC_TYPE_MASK;
+		reg |= PORT_RS | SGMII_AN_ON;
+		phy_write_mmd(phydev, MDIO_DEVAD_PMA, MIIM_88E2110_PHY_PORT_CTRL, reg);
+
+		reg = phy_read_mmd(phydev, MDIO_DEVAD_AN, MIIM_88E2110_PHY_SD_CTRL2);
+		reg |= SD_INIT | DIS_AUTO_INIT;
+		phy_write_mmd(phydev, MDIO_DEVAD_AN, MIIM_88E2110_PHY_SD_CTRL2, reg);
+
+		do {
+			reg = phy_read_mmd(phydev, MDIO_DEVAD_AN, MIIM_88E2110_PHY_SD_CTRL2);
+
+			if (timeout > PHY_TIMEOUT)
+				return -ETIMEDOUT;
+
+			timeout++;
+			mdelay(1);
+		} while (reg & SD_INIT);
+
+		reg &= ~DIS_AUTO_INIT;
+		phy_write_mmd(phydev, MDIO_DEVAD_AN, MIIM_88E2110_PHY_SD_CTRL2, reg);
+	}
+
+	return 0;
+
 }
 
 static int mv3310_get_features(struct phy_device *phydev)
@@ -716,29 +797,18 @@ static int mv3310_read_status_copper(struct phy_device *phydev)
 
 static int mv3310_read_status(struct phy_device *phydev)
 {
-	int err, val;
+	u16 h_status, t_status;
 
-	phydev->speed = SPEED_UNKNOWN;
-	phydev->duplex = DUPLEX_UNKNOWN;
-	linkmode_zero(phydev->lp_advertising);
-	phydev->link = 0;
-	phydev->pause = 0;
-	phydev->asym_pause = 0;
-	phydev->mdix = ETH_TP_MDI_INVALID;
+	phydev->duplex = DUPLEX_FULL;
+	phydev->speed = SPEED_1000;
 
-	val = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_BASE_R + MDIO_STAT1);
-	if (val < 0)
-		return val;
+	h_status = phy_read_mmd(phydev, MDIO_DEVAD_HI, MIIM_88E2110_PHY_1000BASEX) & PHY_LINK;
+	t_status = phy_read_mmd(phydev, MDIO_DEVAD_PCS, MIIM_88E2110_PHY_STATUS) & PHY_LINK;
 
-	if (val & MDIO_STAT1_LSTATUS)
-		err = mv3310_read_status_10gbaser(phydev);
+	if (h_status && t_status)
+		phydev->link = 1;
 	else
-		err = mv3310_read_status_copper(phydev);
-	if (err < 0)
-		return err;
-
-	if (phydev->link)
-		mv3310_update_interface(phydev);
+		phydev->link = 0;
 
 	return 0;
 }
@@ -787,14 +857,14 @@ static struct phy_driver mv3310_drivers[] = {
 		.phy_id_mask	= MARVELL_PHY_ID_MASK,
 		.name		= "mv88x2110",
 		.probe		= mv3310_probe,
-		.suspend	= mv3310_suspend,
-		.resume		= mv3310_resume,
+		//.suspend	= mv3310_suspend,
+		//.resume		= mv3310_resume,
 		.config_init	= mv3310_config_init,
-		.config_aneg	= mv3310_config_aneg,
-		.aneg_done	= mv3310_aneg_done,
+		//.config_aneg	= mv3310_config_aneg,
+		//.aneg_done	= mv3310_aneg_done,
 		.read_status	= mv3310_read_status,
-		.get_tunable	= mv3310_get_tunable,
-		.set_tunable	= mv3310_set_tunable,
+		//.get_tunable	= mv3310_get_tunable,
+		//.set_tunable	= mv3310_set_tunable,
 		.remove		= mv3310_remove,
 	},
 };
