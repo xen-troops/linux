@@ -215,18 +215,19 @@ struct rswitch_ipv4_route {
 };
 
 enum rswitch_tc_u32_action {
-	FILTER_PASS = 0,
-	FILTER_DROP,
-	FILTER_SWITCH
+	ACTION_SKBMOD = 1,
+	ACTION_MIRRED_REDIRECT = 2,
+	ACTION_DROP = 4,
 };
 
 struct rswitch_tc_u32_filter {
-	u32 ip;
-	u32 subnet;
+	u32 value;
 	u32 mask;
 	u32 offset;
+	u8 dmac[ETH_ALEN];
 	enum rswitch_tc_u32_action action;
-	struct rswitch_device *dev;
+	struct rswitch_device *rdev;
+	struct rswitch_device *target_rdev;
 	struct list_head list;
 	struct l3_ipv4_fwd_param param;
 };
