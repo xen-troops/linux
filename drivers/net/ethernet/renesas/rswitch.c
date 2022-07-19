@@ -33,6 +33,8 @@
 #include <net/fib_notifier.h>
 #include <net/pkt_cls.h>
 #include <net/tc_act/tc_gact.h>
+#include <net/tc_act/tc_mirred.h>
+#include <net/tc_act/tc_skbmod.h>
 
 #include "rtsn_ptp.h"
 #include "rswitch.h"
@@ -2124,9 +2126,9 @@ static int rswitch_add_drop_action_knode(struct rswitch_device *rdev, struct tc_
 	if (!tc_u32_cfg)
 		return -ENOMEM;
 
-	tc_u32_cfg->action = FILTER_DROP;
-	tc_u32_cfg->dev = rdev;
-	tc_u32_cfg->ip = be32_to_cpu(cls->knode.sel->keys[0].val);
+	tc_u32_cfg->action = ACTION_DROP;
+	tc_u32_cfg->rdev = rdev;
+	tc_u32_cfg->value = be32_to_cpu(cls->knode.sel->keys[0].val);
 	tc_u32_cfg->mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
 	tc_u32_cfg->offset = cls->knode.sel->keys[0].off;
 	/* Leave other paramters as zero */
@@ -2141,7 +2143,7 @@ static int rswitch_add_drop_action_knode(struct rswitch_device *rdev, struct tc_
 	tc_u32_cfg->param.pf_cascade_index = cascade_idx;
 
 	rs_write32(DISABLE_CASCADE_FILTER, priv->addr + FWCFCi(cascade_idx));
-	rs_write32(tc_u32_cfg->ip, priv->addr + FWFOBFV0Ci(four_byte_idx));
+	rs_write32(tc_u32_cfg->value, priv->addr + FWFOBFV0Ci(four_byte_idx));
 	rs_write32(reverse_mask, priv->addr + FWFOBFV1Ci(four_byte_idx));
 	rs_write32(MASK_MODE | SNOOPING_BUS_OFFSET(cls->knode.sel->keys[0].off + IPV4_HEADER_OFFSET), priv->addr + FWFOBFCi(four_byte_idx));
 	rs_write32(FBFILTER_NUM(four_byte_idx) | ENABLE_FILTER, priv->addr + FWCFMCij(cascade_idx, 0));
@@ -2149,6 +2151,7 @@ static int rswitch_add_drop_action_knode(struct rswitch_device *rdev, struct tc_
 
 	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
 		kfree(tc_u32_cfg);
+		rs_write32(DISABLE_CASCADE_FILTER, priv->addr + FWCFCi(cascade_idx));
 		return -EOPNOTSUPP;
 	}
 
@@ -2160,11 +2163,110 @@ static int rswitch_add_drop_action_knode(struct rswitch_device *rdev, struct tc_
 	return 0;
 }
 
-static int rswitch_new_knode(struct net_device *ndev, struct tc_cls_u32_offload *cls)
+static int rswitch_rn_get(struct rswitch_private *priv)
+{
+	int index;
+
+	index = find_first_zero_bit(priv->l23_routing_number, RSWITCH_MAX_NUM_L23);
+	set_bit(index, priv->l23_routing_number);
+
+	return index;
+}
+
+static int rswitch_add_redirect_action_knode(struct rswitch_tc_u32_filter *filter, struct tc_cls_u32_offload *cls)
+{
+	struct rswitch_device *rdev = filter->rdev;
+	struct rswitch_private *priv = rdev->priv;
+	int cascade_idx, four_byte_idx;
+	u32 reverse_mask = ~be32_to_cpu(cls->knode.sel->keys[0].mask);
+	struct rswitch_tc_u32_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
+	if (!tc_u32_cfg)
+		return -ENOMEM;
+
+	tc_u32_cfg->action = filter->action;
+	tc_u32_cfg->rdev = rdev;
+	tc_u32_cfg->value = be32_to_cpu(cls->knode.sel->keys[0].val);
+	tc_u32_cfg->mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
+	tc_u32_cfg->offset = cls->knode.sel->keys[0].off;
+
+	tc_u32_cfg->param.priv = priv;
+	tc_u32_cfg->param.slv = BIT(rdev->port);
+	tc_u32_cfg->param.dv = BIT(filter->target_rdev->port);
+	if (filter->action & ACTION_SKBMOD) {
+		tc_u32_cfg->param.l23_info.priv = priv;
+		ether_addr_copy(tc_u32_cfg->param.l23_info.dst_mac, filter->dmac);
+		ether_addr_copy(tc_u32_cfg->dmac, filter->dmac);
+		tc_u32_cfg->param.l23_info.update_dst_mac = true;
+		tc_u32_cfg->param.l23_info.routing_number = rswitch_rn_get(priv);
+		tc_u32_cfg->param.l23_info.routing_port_valid = BIT(rdev->port) | BIT(filter->target_rdev->port);
+	}
+
+	cascade_idx = find_first_zero_bit(priv->filters.cascade, PFL_CADF_N);
+	four_byte_idx = find_first_zero_bit(priv->filters.four_bytes, PFL_FOBF_N);
+	if (cascade_idx == PFL_CADF_N || four_byte_idx == PFL_FOBF_N)
+		return -EOPNOTSUPP;
+
+	tc_u32_cfg->param.pf_cascade_index = cascade_idx;
+
+	rs_write32(DISABLE_CASCADE_FILTER, priv->addr + FWCFCi(cascade_idx));
+	rs_write32(tc_u32_cfg->value, priv->addr + FWFOBFV0Ci(four_byte_idx));
+	rs_write32(reverse_mask, priv->addr + FWFOBFV1Ci(four_byte_idx));
+	rs_write32(MASK_MODE | SNOOPING_BUS_OFFSET(cls->knode.sel->keys[0].off + IPV4_HEADER_OFFSET), priv->addr + FWFOBFCi(four_byte_idx));
+	rs_write32(FBFILTER_NUM(four_byte_idx) | ENABLE_FILTER, priv->addr + FWCFMCij(cascade_idx, 0));
+	rs_write32(0x000f0000 | BIT(rdev->port), priv->addr + FWCFCi(cascade_idx));
+
+	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
+		kfree(tc_u32_cfg);
+		rs_write32(DISABLE_CASCADE_FILTER, priv->addr + FWCFCi(cascade_idx));
+		return -EOPNOTSUPP;
+	}
+
+	set_bit(four_byte_idx, priv->filters.four_bytes);
+	set_bit(cascade_idx, priv->filters.cascade);
+
+	list_add(&tc_u32_cfg->list, &rdev->tc_u32_list);
+
+	return 0;
+}
+
+static bool is_tcf_act_skbmod(const struct tc_action *a)
+{
+	if (a->ops && a->ops->id == TCA_ACT_SKBMOD)
+		return true;
+
+	return false;
+}
+
+static bool rswitch_skbmod_can_offload(const struct tc_action *a)
+{
+	struct tcf_skbmod *skmod = to_skbmod(a);
+	struct tcf_skbmod_params *p = rcu_dereference_bh(skmod->skbmod_p);
+
+	/* Only updating MAC destination can be offloaded */
+	if ((p->flags & SKBMOD_F_SMAC || p->flags & SKBMOD_F_ETYPE ||
+		p->flags & SKBMOD_F_SWAPMAC) && (!(p->flags & SKBMOD_F_DMAC))) {
+		return false;
+	}
+
+	return true;
+}
+
+static void rswitch_tc_skbmod_get_dmac(const struct tc_action *a, u8 *dmac)
+{
+	struct tcf_skbmod *skmod = to_skbmod(a);
+	struct tcf_skbmod_params *p = rcu_dereference_bh(skmod->skbmod_p);
+
+	ether_addr_copy(dmac, p->eth_dst);
+}
+
+static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload *cls)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	const struct tc_action *a;
 	struct tcf_exts *exts;
+	struct rswitch_tc_u32_filter filter = {
+		.action = 0,
+	};
 	int i;
 
 	exts = cls->knode.exts;
@@ -2172,11 +2274,40 @@ static int rswitch_new_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 		return -EINVAL;
 
 	tcf_exts_for_each_action(i, a, exts) {
-		/* Drop in hardware. */
-		if (is_tcf_gact_shot(a)) {
-			return rswitch_add_drop_action_knode(rdev, cls);
+		/* Several actions with drop cannot be offloaded */
+		if (filter.action != 0 && filter.action & ACTION_DROP)
+			return -EOPNOTSUPP;
+
+		if (is_tcf_act_skbmod(a)) {
+			/* skbmod dmac action can be offloaded only if placed before redirrect */
+			if (!rswitch_skbmod_can_offload(a) || filter.action != 0)
+				return -EOPNOTSUPP;
+			filter.action |= ACTION_SKBMOD;
+			rswitch_tc_skbmod_get_dmac(a, filter.dmac);
+			continue;
 		}
+
+		if (is_tcf_mirred_egress_redirect(a)) {
+			struct net_device *target_dev;
+
+			target_dev = tcf_mirred_dev(a);
+			filter.action |= ACTION_MIRRED_REDIRECT;
+			filter.target_rdev = netdev_priv(target_dev);
+			continue;
+		}
+
+		/* Drop in hardware */
+		if (is_tcf_gact_shot(a))
+			filter.action |= ACTION_DROP;
 	}
+
+	if (filter.action & ACTION_DROP)
+		return rswitch_add_drop_action_knode(rdev, cls);
+	/* skbmod cannot be offloaded without redirect */
+	if ((filter.action & (ACTION_SKBMOD | ACTION_MIRRED_REDIRECT)) == ACTION_SKBMOD)
+		return -EOPNOTSUPP;
+	if (filter.action & (ACTION_SKBMOD | ACTION_MIRRED_REDIRECT))
+		return rswitch_add_redirect_action_knode(&filter, cls);
 
 	return -EOPNOTSUPP;
 }
@@ -2198,7 +2329,7 @@ static int rswitch_setup_tc_cls_u32(struct net_device *dev,
 	switch (cls_u32->command) {
 		case TC_CLSU32_NEW_KNODE:
 		case TC_CLSU32_REPLACE_KNODE:
-			return rswitch_new_knode(dev, cls_u32);
+			return rswitch_add_knode(dev, cls_u32);
 		case TC_CLSU32_DELETE_KNODE:
 			return rswitch_delete_knode(dev, cls_u32);
 		default:
@@ -2392,16 +2523,6 @@ static int rswitch_setup_l23_update(struct l23_update_info *l23_info)
 	rs_write32(0, l23_info->priv->addr + FWL23URL3);
 
 	return rs_read32(l23_info->priv->addr + FWL23URLR);
-}
-
-static int rswitch_rn_get(struct rswitch_private *priv)
-{
-	int index;
-
-	index = find_first_zero_bit(priv->l23_routing_number, RSWITCH_MAX_NUM_L23);
-	set_bit(index, priv->l23_routing_number);
-
-	return index;
 }
 
 static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
