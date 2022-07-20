@@ -208,7 +208,11 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 
 	type = xenbus_read(XBT_NIL, np->xbdev->nodename, "type", NULL);
 	mac_str = xenbus_read(XBT_NIL, np->xbdev->otherend, "mac", NULL);
-	if (!IS_ERR_OR_NULL( mac_str))
+
+	if (IS_ERR(mac_str))
+		mac_str = NULL;
+
+	if (mac_str)
 		if (!mac_pton(mac_str, mac)) {
 			dev_info(&np->xbdev->dev, "Failed to parse MAC %s\n", mac_str);
 			kfree(type);
@@ -233,7 +237,7 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 					      rx_chain_id, mac_str ? mac : NULL);
 	kfree(type);
 
-	if (!IS_ERR_OR_NULL(mac_str))
+	if (mac_str)
 		kfree(mac_str);
 
 	if (err)
