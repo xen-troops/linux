@@ -137,7 +137,8 @@
 #define RPCIF_PHYCNT_DDRCAL	BIT(19)
 #define RPCIF_PHYCNT_HS		BIT(18)
 #define RPCIF_PHYCNT_CKSEL(v)	(((v) & 0x3) << 16) /* valid only for RZ/G2L */
-#define RPCIF_PHYCNT_STRTIM(v)	(((v) & 0x7) << 15) /* valid for R-Car and RZ/G2{E,H,M,N} */
+#define RPCIF_PHYCNT_STRTIM(v)	(((v) & 0x7) << 15 | \
+								 ((v) & 0x8) << 24) /* valid for R-Car and RZ/G2{E,H,M,N} */
 #define RPCIF_PHYCNT_WBUF2	BIT(4)
 #define RPCIF_PHYCNT_WBUF	BIT(2)
 #define RPCIF_PHYCNT_PHYMEM(v)	(((v) & 0x3) << 0)
@@ -292,6 +293,10 @@ static const struct rpcif_info rpcif_info_gen3 = {
 	.strtim = 7,
 };
 
+static const struct rpcif_info rpcif_info_gen4 = {
+	.strtim = 15,
+};
+
 static const struct soc_device_attribute rpcif_quirks_match[]  = {
 	{ .soc_id = "r8a7795", .revision = "ES1.*", .data = &rpcif_info_r8a7795_es1 },
 	{ .soc_id = "r8a7796", .revision = "ES1.*", .data = &rpcif_info_r8a7796_es1 },
@@ -349,6 +354,9 @@ int rpcif_hw_init(struct rpcif *rpcif, bool hyperflash)
 	if (rpc->type == RPCIF_RCAR_GEN3)
 		regmap_update_bits(rpc->regmap, RPCIF_PHYCNT,
 				   RPCIF_PHYCNT_STRTIM(7), RPCIF_PHYCNT_STRTIM(rpc->strtim));
+	else if (rpc->type == RPCIF_RCAR_GEN4)
+		regmap_update_bits(rpc->regmap, RPCIF_PHYCNT,
+				   RPCIF_PHYCNT_STRTIM(15), RPCIF_PHYCNT_STRTIM(rpc->strtim));
 
 	regmap_update_bits(rpc->regmap, RPCIF_PHYOFFSET1, RPCIF_PHYOFFSET1_DDRTMG(3),
 			   RPCIF_PHYOFFSET1_DDRTMG(3));
@@ -763,7 +771,10 @@ static int rpcif_probe(struct platform_device *pdev)
 	rpc->vdev = vdev;
 
 	/* Set strtim for appropriate SoCs */
-	info = &rpcif_info_gen3;
+	if (rpc->type == RPCIF_RCAR_GEN4)
+		info = &rpcif_info_gen4;
+	else
+		info = &rpcif_info_gen3;
 	attr = soc_device_match(rpcif_quirks_match);
 	if (attr)
 		info = attr->data;
@@ -791,6 +802,7 @@ static int rpcif_remove(struct platform_device *pdev)
 
 static const struct of_device_id rpcif_of_match[] = {
 	{ .compatible = "renesas,rcar-gen3-rpc-if", .data = (void *)RPCIF_RCAR_GEN3 },
+	{ .compatible = "renesas,rcar-gen4-rpc-if", .data = (void *)RPCIF_RCAR_GEN4 },
 	{ .compatible = "renesas,rzg2l-rpc-if", .data = (void *)RPCIF_RZ_G2L },
 	{},
 };
