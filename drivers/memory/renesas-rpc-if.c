@@ -15,6 +15,7 @@
 #include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
+#include <linux/sys_soc.h>
 
 #include <memory/renesas-rpc-if.h>
 
@@ -162,6 +163,10 @@ static const struct regmap_access_table rpcif_volatile_table = {
 	.n_yes_ranges	= ARRAY_SIZE(rpcif_volatile_ranges),
 };
 
+struct rpcif_info {
+	u8 strtim;
+};
+
 struct rpcif_priv {
 	struct device *dev;
 	void __iomem *base;
@@ -174,6 +179,7 @@ struct rpcif_priv {
 	enum rpcif_data_dir dir;
 	u8 bus_size;
 	u8 xfer_size;
+	u8 strtim;
 	void *buffer;
 	u32 xferlen;
 	u32 smcr;
@@ -274,6 +280,24 @@ static const struct regmap_config rpcif_regmap_config = {
 	.volatile_table	= &rpcif_volatile_table,
 };
 
+static const struct rpcif_info rpcif_info_r8a7795_es1 = {
+	.strtim = 0,
+};
+
+static const struct rpcif_info rpcif_info_r8a7796_es1 = {
+	.strtim = 6,
+};
+
+static const struct rpcif_info rpcif_info_gen3 = {
+	.strtim = 7,
+};
+
+static const struct soc_device_attribute rpcif_quirks_match[]  = {
+	{ .soc_id = "r8a7795", .revision = "ES1.*", .data = &rpcif_info_r8a7795_es1 },
+	{ .soc_id = "r8a7796", .revision = "ES1.*", .data = &rpcif_info_r8a7796_es1 },
+	{ /* Sentinel. */ }
+};
+
 int rpcif_sw_init(struct rpcif *rpcif, struct device *dev)
 {
 	struct rpcif_priv *rpc = dev_get_drvdata(dev);
@@ -324,7 +348,7 @@ int rpcif_hw_init(struct rpcif *rpcif, bool hyperflash)
 
 	if (rpc->type == RPCIF_RCAR_GEN3)
 		regmap_update_bits(rpc->regmap, RPCIF_PHYCNT,
-				   RPCIF_PHYCNT_STRTIM(7), RPCIF_PHYCNT_STRTIM(7));
+				   RPCIF_PHYCNT_STRTIM(7), RPCIF_PHYCNT_STRTIM(rpc->strtim));
 
 	regmap_update_bits(rpc->regmap, RPCIF_PHYOFFSET1, RPCIF_PHYOFFSET1_DDRTMG(3),
 			   RPCIF_PHYOFFSET1_DDRTMG(3));
@@ -684,6 +708,8 @@ static int rpcif_probe(struct platform_device *pdev)
 	struct resource *res;
 	const char *name;
 	int ret;
+	const struct soc_device_attribute *attr;
+	const struct rpcif_info *info;
 
 	flash = of_get_next_child(pdev->dev.of_node, NULL);
 	if (!flash) {
@@ -735,6 +761,14 @@ static int rpcif_probe(struct platform_device *pdev)
 
 	rpc->dev = &pdev->dev;
 	rpc->vdev = vdev;
+
+	/* Set strtim for appropriate SoCs */
+	info = &rpcif_info_gen3;
+	attr = soc_device_match(rpcif_quirks_match);
+	if (attr)
+		info = attr->data;
+	rpc->strtim = info->strtim;
+
 	platform_set_drvdata(pdev, rpc);
 
 	ret = platform_device_add(vdev);
