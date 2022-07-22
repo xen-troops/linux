@@ -221,6 +221,7 @@ enum rswitch_tc_u32_action {
 };
 
 struct rswitch_tc_u32_filter {
+	u32 handle;
 	u32 value;
 	u32 mask;
 	u32 offset;
