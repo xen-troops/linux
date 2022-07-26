@@ -220,6 +220,7 @@ enum rswitch_tc_u32_action {
 	ACTION_DROP = 4,
 };
 
+/* TODO: make common struct for filters */
 struct rswitch_tc_u32_filter {
 	u32 handle;
 	u32 value;
@@ -231,6 +232,13 @@ struct rswitch_tc_u32_filter {
 	struct rswitch_device *target_rdev;
 	struct list_head list;
 	struct l3_ipv4_fwd_param param;
+};
+
+struct rswitch_tc_flower_filter {
+	struct rswitch_device *rdev;
+	unsigned long cookie;
+	struct l3_ipv4_fwd_param param;
+	struct list_head lh;
 };
 
 struct rswitch_device {
@@ -250,7 +258,9 @@ struct rswitch_device {
 	u8 remote_chain;
 	struct rswitch_vmq_front_info *front_info;
 	struct list_head routing_list;
+
 	struct list_head tc_u32_list;
+	struct list_head tc_flower_list;
 };
 
 /* Two-byte filter number */
