@@ -9,6 +9,8 @@
 #include <linux/phy.h>
 #include <linux/netdevice.h>
 #include <linux/io.h>
+#include <net/flow_offload.h>
+#include <net/fib_notifier.h>
 #include <net/ip_fib.h>
 
 static inline u32 rs_read32(void *addr)
@@ -67,6 +69,31 @@ enum DIE_DT {
 	DIE		= 0x08,	/* Descriptor Interrupt Enable */
 };
 
+#define RSWITCH_MAX_NUM_ETHA	3
+#define RSWITCH_MAX_NUM_NDEV	8
+#define RSWITCH_MAX_NUM_CHAINS	128
+#define RSWITCH_NUM_IRQ_REGS	(RSWITCH_MAX_NUM_CHAINS / BITS_PER_TYPE(u32))
+#define MAX_PF_ENTRIES (8)
+#define RSWITCH_MAX_NUM_L23 256
+
+/* Two-byte filter number */
+#define PFL_TWBF_N (48)
+/* Three-byte filter number */
+#define PFL_THBF_N (16)
+/* Four-byte filter number */
+#define PFL_FOBF_N (48)
+/* Range-byte filter number */
+#define PFL_RAGF_N (16)
+/* Cascade filter number */
+#define PFL_CADF_N (64)
+
+#define MAC_DST_OFFSET (0)
+#define MAC_SRC_OFFSET (6)
+#define IP_VERSION_OFFSET (12)
+#define IPV4_HEADER_OFFSET (14)
+#define IPV4_SRC_OFFSET (26)
+#define IPV4_DST_OFFSET (30)
+
 struct rswitch_desc {
 	__le16 info_ds;	/* Descriptor size */
 	u8 die_dt;	/* Descriptor interrupt enable and type */
@@ -100,6 +127,20 @@ struct rswitch_ext_ts_desc {
 	__le32 ts_nsec;
 	__le32 ts_sec;
 } __packed;
+
+struct rswitch_etha {
+	int index;
+	void __iomem *addr;
+	void __iomem *serdes_addr;
+	bool external_phy;
+	struct mii_bus *mii;
+	phy_interface_t phy_interface;
+	u32 psmcs;
+	u8 mac_addr[MAX_ADDR_LEN];
+	int link;
+	int speed;
+	bool operated;
+};
 
 struct rswitch_gwca_chain {
 	union {
@@ -168,20 +209,6 @@ struct rswitch_gwca {
 	int speed;
 };
 
-struct rswitch_etha {
-	int index;
-	void __iomem *addr;
-	void __iomem *serdes_addr;
-	bool external_phy;
-	struct mii_bus *mii;
-	phy_interface_t phy_interface;
-	u32 psmcs;
-	u8 mac_addr[MAX_ADDR_LEN];
-	int link;
-	int speed;
-	bool operated;
-};
-
 struct rswitch_mfwd_mac_table_entry {
 	int chain_index;
 	unsigned char addr[MAX_ADDR_LEN];
@@ -192,73 +219,12 @@ struct rswitch_mfwd {
 	int num_mac_table_entries;
 };
 
-struct l23_update_info {
-	struct rswitch_private *priv;
-	u8 dst_mac[ETH_ALEN];
-	u32 routing_port_valid;
-	u32 routing_number;
-	bool update_ttl;
-	bool update_dst_mac;
-	bool update_src_mac;
-};
-
-struct l3_ipv4_fwd_param {
-	struct rswitch_private *priv;
-	struct l23_update_info l23_info;
-	u32 src_ip;
-	union {
-		u32 dst_ip;
-		u32 pf_cascade_index;
-	};
-	/* CPU sub destination */
-	u32 csd;
-	/* Destination vector */
-	u32 dv;
-	/* Source lock vector */
-	u32 slv;
-	u8 frame_type;
-	bool enable_sub_dst;
-};
-
-struct l3_ipv4_fwd_param_list {
-	struct l3_ipv4_fwd_param *param;
-	struct list_head list;
-};
-
-struct rswitch_ipv4_route {
-	u32 ip;
-	u32 subnet;
-	u32 mask;
-	struct rswitch_device *dev;
-	struct list_head param_list;
-	struct list_head list;
-};
-
-enum rswitch_tc_u32_action {
-	ACTION_SKBMOD = 1,
-	ACTION_MIRRED_REDIRECT = 2,
-	ACTION_DROP = 4,
-};
-
-/* TODO: make common struct for filters */
-struct rswitch_tc_u32_filter {
-	u32 handle;
-	u32 value;
-	u32 mask;
-	u32 offset;
-	u8 dmac[ETH_ALEN];
-	enum rswitch_tc_u32_action action;
-	struct rswitch_device *rdev;
-	struct rswitch_device *target_rdev;
-	struct list_head list;
-	struct l3_ipv4_fwd_param param;
-};
-
-struct rswitch_tc_flower_filter {
-	struct rswitch_device *rdev;
-	unsigned long cookie;
-	struct l3_ipv4_fwd_param param;
-	struct list_head lh;
+struct rswitch_filters {
+	DECLARE_BITMAP(two_bytes, PFL_TWBF_N);
+	DECLARE_BITMAP(three_bytes, PFL_THBF_N);
+	DECLARE_BITMAP(four_bytes, PFL_FOBF_N);
+	DECLARE_BITMAP(range_byte, PFL_RAGF_N);
+	DECLARE_BITMAP(cascade, PFL_CADF_N);
 };
 
 struct rswitch_device {
@@ -280,25 +246,6 @@ struct rswitch_device {
 
 	struct list_head tc_u32_list;
 	struct list_head tc_flower_list;
-};
-
-/* Two-byte filter number */
-#define PFL_TWBF_N (48)
-/* Three-byte filter number */
-#define PFL_THBF_N (16)
-/* Four-byte filter number */
-#define PFL_FOBF_N (48)
-/* Range-byte filter number */
-#define PFL_RAGF_N (16)
-/* Cascade filter number */
-#define PFL_CADF_N (64)
-
-struct rswitch_filters {
-	DECLARE_BITMAP(two_bytes, PFL_TWBF_N);
-	DECLARE_BITMAP(three_bytes, PFL_THBF_N);
-	DECLARE_BITMAP(four_bytes, PFL_FOBF_N);
-	DECLARE_BITMAP(range_byte, PFL_RAGF_N);
-	DECLARE_BITMAP(cascade, PFL_CADF_N);
 };
 
 struct rswitch_private {
@@ -333,15 +280,66 @@ struct rswitch_private {
 	struct clk *clk;
 };
 
-struct rswitch_fib_event_work {
-	struct work_struct work;
-	union {
-		struct fib_entry_notifier_info fen_info;
-		struct fib_rule_notifier_info fr_info;
-	};
-	struct rswitch_private *priv;
-	unsigned long event;
+enum pf_type {
+	PF_TWO_BYTE,
+	PF_THREE_BYTE,
+	PF_FOUR_BYTE,
 };
+
+struct rswitch_pf_entry {
+	u32 val;
+	u32 mask;
+	u32 off;
+	enum pf_type type;
+
+	void *cfg0_addr;
+	void *cfg1_addr;
+	void *offs_addr;
+	u32 pf_idx;
+	/* Used for cascade filter config */
+	u32 pf_num;
+};
+
+struct rswitch_pf_param {
+	struct rswitch_device *rdev;
+	struct rswitch_pf_entry entries[MAX_PF_ENTRIES];
+	int used_entries;
+	bool all_sources;
+};
+
+struct l23_update_info {
+	struct rswitch_private *priv;
+	u8 dst_mac[ETH_ALEN];
+	u32 routing_port_valid;
+	u32 routing_number;
+	bool update_ttl;
+	bool update_dst_mac;
+	bool update_src_mac;
+};
+
+struct l3_ipv4_fwd_param {
+	struct rswitch_private *priv;
+	struct l23_update_info l23_info;
+	u32 src_ip;
+ 	union {
+		u32 dst_ip;
+		u32 pf_cascade_index;
+ 	};
+	/* CPU sub destination */
+	u32 csd;
+	/* Destination vector */
+	u32 dv;
+	/* Source lock vector */
+	u32 slv;
+	u8 frame_type;
+	bool enable_sub_dst;
+};
+
+int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param);
+int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param);
+void rswitch_put_pf(struct l3_ipv4_fwd_param *param);
+int rswitch_setup_pf(struct rswitch_pf_param *pf_param);
+int rswitch_rn_get(struct rswitch_private *priv);
 
 extern const struct net_device_ops rswitch_netdev_ops;
 
