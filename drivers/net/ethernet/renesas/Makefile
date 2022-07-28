@@ -9,7 +9,7 @@ ravb-objs := ravb_main.o ravb_ptp.o
 
 obj-$(CONFIG_RAVB) += ravb.o
 
-obj-$(CONFIG_RENESAS_ETHER_SWITCH) += rswitch.o
+obj-$(CONFIG_RENESAS_ETHER_SWITCH) += rswitch.o rswitch_tc_u32.o rswitch_tc_flower.o
 obj-$(CONFIG_RENESAS_ETHER_SWITCH_XENBACK) += rswitch_xenback.o
 obj-$(CONFIG_RENESAS_ETHER_SWITCH_XENFRONT) += rswitch_xenfront.o
 

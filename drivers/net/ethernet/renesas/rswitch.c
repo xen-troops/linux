@@ -29,17 +29,15 @@
 #include <net/nexthop.h>
 #include <net/netns/generic.h>
 #include <net/arp.h>
-#include <net/flow_offload.h>
-#include <net/fib_notifier.h>
-#include <net/pkt_cls.h>
-#include <net/tc_act/tc_gact.h>
-#include <net/tc_act/tc_mirred.h>
-#include <net/tc_act/tc_skbmod.h>
 
 #include "rtsn_ptp.h"
 #include "rswitch.h"
+#include "rswitch_tc_filters.h"
 
 static void *debug_addr;
+
+#define RSWITCH_NUM_HW		5
+
 #define RSWITCH_GWCA_IDX_TO_HW_NUM(i)	((i) + RSWITCH_MAX_NUM_ETHA)
 #define RSWITCH_HW_NUM_TO_GWCA_IDX(i)	((i) - RSWITCH_MAX_NUM_ETHA)
 
@@ -805,13 +803,6 @@ enum rswitch_etha_mode {
 /* L3 Entry Delete */
 #define LTHED (BIT(16))
 
-#define MAC_DST_OFFSET (0)
-#define MAC_SRC_OFFSET (6)
-#define IP_VERSION_OFFSET (12)
-#define IPV4_HEADER_OFFSET (14)
-#define IPV4_SRC_OFFSET (26)
-#define IPV4_DST_OFFSET (30)
-
 /* Update TTL */
 #define L23UTTLUL (BIT(16))
 /* Update destination MAC */
@@ -838,8 +829,6 @@ enum rswitch_etha_mode {
 #define TBWFILTER_IDX(i) ((i / 2))
 #define THBFILTER_IDX(i) ((i / 2) - PFL_TWBF_N)
 #define FBFILTER_IDX(i) ((i / 2) - PFL_TWBF_N - PFL_THBF_N)
-
-#define MAX_PF_ENTRIES (8)
 
 #define filter_index_check(idx, idx_max) \
 	(idx < idx_max) ? idx : -1;
@@ -929,31 +918,28 @@ enum rswitch_serdes_mode {
 
 #define NUM_CHAINS_PER_NDEV	3
 
-enum pf_type {
-	PF_TWO_BYTE,
-	PF_THREE_BYTE,
-	PF_FOUR_BYTE,
+struct rswitch_fib_event_work {
+	struct work_struct work;
+	union {
+		struct fib_entry_notifier_info fen_info;
+		struct fib_rule_notifier_info fr_info;
+	};
+	struct rswitch_private *priv;
+	unsigned long event;
 };
 
-struct rswitch_pf_entry {
-	u32 val;
+struct l3_ipv4_fwd_param_list {
+	struct l3_ipv4_fwd_param *param;
+	struct list_head list;
+};
+
+struct rswitch_ipv4_route {
+	u32 ip;
+	u32 subnet;
 	u32 mask;
-	u32 off;
-	enum pf_type type;
-
-	void *cfg0_addr;
-	void *cfg1_addr;
-	void *offs_addr;
-	u32 pf_idx;
-	/* Used for cascade filter config */
-	u32 pf_num;
-};
-
-struct rswitch_pf_param {
-	struct rswitch_device *rdev;
-	struct rswitch_pf_entry entries[MAX_PF_ENTRIES];
-	int used_entries;
-	bool all_sources;
+	struct rswitch_device *dev;
+	struct list_head param_list;
+	struct list_head list;
 };
 
 static int num_ndev = 3;
@@ -2218,7 +2204,7 @@ static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
 	return rswitch_reg_wait(priv->addr, FWLTHTLR, LTHTL, 0);
 }
 
-static int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param)
+int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param)
 {
 	return rswitch_modify_l3fwd(param, false);
 }
@@ -2232,7 +2218,7 @@ static enum pf_type rswitch_get_pf_type_by_num(int num)
 	return PF_TWO_BYTE;
 }
 
-static void rswitch_put_pf(struct l3_ipv4_fwd_param *param)
+void rswitch_put_pf(struct l3_ipv4_fwd_param *param)
 {
 	int i, idx, pf_num;
 	enum pf_type type;
@@ -2269,7 +2255,7 @@ static void rswitch_put_pf(struct l3_ipv4_fwd_param *param)
 	clear_bit(param->pf_cascade_index, param->priv->filters.cascade);
 }
 
-static int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param)
+int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param)
 {
 	clear_bit(param->l23_info.routing_number, param->priv->l23_routing_number);
 
@@ -2321,7 +2307,7 @@ static int rswitch_get_pf_config(struct rswitch_private *priv, struct rswitch_pf
 	}
 }
 
-static int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
+int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 {
 	int cascade_idx, i;
 	struct rswitch_device *rdev = pf_param->rdev;
@@ -2366,7 +2352,7 @@ static int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 	return cascade_idx;
 }
 
-static int rswitch_rn_get(struct rswitch_private *priv)
+int rswitch_rn_get(struct rswitch_private *priv)
 {
 	int index;
 
@@ -2376,388 +2362,10 @@ static int rswitch_rn_get(struct rswitch_private *priv)
 	return index;
 }
 
-static int rswitch_add_drop_action_knode(struct rswitch_tc_u32_filter *filter, struct tc_cls_u32_offload *cls)
-{
-	struct rswitch_device *rdev = filter->rdev;
-	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param;
-	struct rswitch_tc_u32_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
-	if (!tc_u32_cfg)
-		return -ENOMEM;
-
-	tc_u32_cfg->handle = cls->knode.handle;
-	tc_u32_cfg->action = ACTION_DROP;
-	tc_u32_cfg->rdev = rdev;
-	tc_u32_cfg->value = be32_to_cpu(cls->knode.sel->keys[0].val);
-	tc_u32_cfg->mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
-	tc_u32_cfg->offset = cls->knode.sel->keys[0].off;
-	/* Leave other paramters as zero */
-	tc_u32_cfg->param.priv = priv;
-	tc_u32_cfg->param.slv = 0x3F;
-
-	pf_param.rdev = rdev;
-	pf_param.all_sources = false;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = tc_u32_cfg->value;
-	pf_param.entries[0].mask = tc_u32_cfg->mask;
-	pf_param.entries[0].off = cls->knode.sel->keys[0].off + IPV4_HEADER_OFFSET;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-
-	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
-	if (tc_u32_cfg->param.pf_cascade_index < 0) {
-		kfree(tc_u32_cfg);
-		return -E2BIG;
-	}
-
-	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
-		rswitch_put_pf(&tc_u32_cfg->param);
-		kfree(tc_u32_cfg);
-		return -EBUSY;
-	}
-
-	list_add(&tc_u32_cfg->list, &rdev->tc_u32_list);
-
-	return 0;
-}
-
-static int rswitch_add_redirect_action_knode(struct rswitch_tc_u32_filter *filter, struct tc_cls_u32_offload *cls)
-{
-	struct rswitch_device *rdev = filter->rdev;
-	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param;
-	struct rswitch_tc_u32_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
-	if (!tc_u32_cfg)
-		return -ENOMEM;
-
-	tc_u32_cfg->handle = cls->knode.handle;
-	tc_u32_cfg->action = filter->action;
-	tc_u32_cfg->rdev = rdev;
-	tc_u32_cfg->value = be32_to_cpu(cls->knode.sel->keys[0].val);
-	tc_u32_cfg->mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
-	tc_u32_cfg->offset = cls->knode.sel->keys[0].off;
-
-	tc_u32_cfg->param.priv = priv;
-	tc_u32_cfg->param.slv = BIT(rdev->port);
-	tc_u32_cfg->param.dv = BIT(filter->target_rdev->port);
-	if (filter->action & ACTION_SKBMOD) {
-		tc_u32_cfg->param.l23_info.priv = priv;
-		ether_addr_copy(tc_u32_cfg->param.l23_info.dst_mac, filter->dmac);
-		ether_addr_copy(tc_u32_cfg->dmac, filter->dmac);
-		tc_u32_cfg->param.l23_info.update_dst_mac = true;
-		tc_u32_cfg->param.l23_info.routing_number = rswitch_rn_get(priv);
-		tc_u32_cfg->param.l23_info.routing_port_valid = BIT(rdev->port) | BIT(filter->target_rdev->port);
-	}
-
-	pf_param.rdev = rdev;
-	pf_param.all_sources = false;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = tc_u32_cfg->value;
-	pf_param.entries[0].mask = tc_u32_cfg->mask;
-	pf_param.entries[0].off = cls->knode.sel->keys[0].off + IPV4_HEADER_OFFSET;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-
-	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
-	if (tc_u32_cfg->param.pf_cascade_index < 0) {
-		kfree(tc_u32_cfg);
-		return -E2BIG;
-	}
-
-	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
-		rswitch_put_pf(&tc_u32_cfg->param);
-		kfree(tc_u32_cfg);
-		return -EBUSY;
-	}
-
-	list_add(&tc_u32_cfg->list, &rdev->tc_u32_list);
-
-	return 0;
-}
-
-static bool is_tcf_act_skbmod(const struct tc_action *a)
-{
-	if (a->ops && a->ops->id == TCA_ACT_SKBMOD)
-		return true;
-
-	return false;
-}
-
-static bool rswitch_skbmod_can_offload(const struct tc_action *a)
-{
-	struct tcf_skbmod *skmod = to_skbmod(a);
-	struct tcf_skbmod_params *p = rcu_dereference_bh(skmod->skbmod_p);
-
-	/* Only updating MAC destination can be offloaded */
-	if ((p->flags & SKBMOD_F_SMAC || p->flags & SKBMOD_F_ETYPE ||
-		p->flags & SKBMOD_F_SWAPMAC) && (!(p->flags & SKBMOD_F_DMAC))) {
-		return false;
-	}
-
-	return true;
-}
-
-static void rswitch_tc_skbmod_get_dmac(const struct tc_action *a, u8 *dmac)
-{
-	struct tcf_skbmod *skmod = to_skbmod(a);
-	struct tcf_skbmod_params *p = rcu_dereference_bh(skmod->skbmod_p);
-
-	ether_addr_copy(dmac, p->eth_dst);
-}
-
-static int rswitch_del_knode(struct net_device *ndev, struct tc_cls_u32_offload *cls)
-{
-	struct rswitch_device *rdev = netdev_priv(ndev);
-	struct list_head *cur, *tmp;
-	bool removed = false;
-
-	list_for_each_safe(cur, tmp, &rdev->tc_u32_list) {
-		struct rswitch_tc_u32_filter *tc_u32_cfg = list_entry(cur, struct rswitch_tc_u32_filter, list);
-
-		if (cls->knode.handle == tc_u32_cfg->handle) {
-			removed = true;
-			rswitch_remove_l3fwd(&tc_u32_cfg->param);
-			list_del(&tc_u32_cfg->list);
-			kfree(tc_u32_cfg);
-		}
-	}
-
-	if (removed)
-		return 0;
-
-	return -ENOENT;
-}
-
-static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload *cls)
-{
-	struct rswitch_device *rdev = netdev_priv(ndev);
-	const struct tc_action *a;
-	struct tcf_exts *exts;
-	struct rswitch_tc_u32_filter filter = {
-		.action = 0,
-	};
-	int i;
-
-	exts = cls->knode.exts;
-	if (!tcf_exts_has_actions(exts))
-		return -EINVAL;
-
-	filter.rdev = rdev;
-
-	tcf_exts_for_each_action(i, a, exts) {
-		/* Several actions with drop cannot be offloaded */
-		if (filter.action != 0 && filter.action & ACTION_DROP)
-			return -EOPNOTSUPP;
-
-		if (is_tcf_act_skbmod(a)) {
-			/* skbmod dmac action can be offloaded only if placed before redirrect */
-			if (!rswitch_skbmod_can_offload(a) || filter.action != 0)
-				return -EOPNOTSUPP;
-			filter.action |= ACTION_SKBMOD;
-			rswitch_tc_skbmod_get_dmac(a, filter.dmac);
-			continue;
-		}
-
-		if (is_tcf_mirred_egress_redirect(a)) {
-			struct net_device *target_dev;
-
-			target_dev = tcf_mirred_dev(a);
-			filter.action |= ACTION_MIRRED_REDIRECT;
-			filter.target_rdev = netdev_priv(target_dev);
-			continue;
-		}
-
-		/* Drop in hardware */
-		if (is_tcf_gact_shot(a))
-			filter.action |= ACTION_DROP;
-	}
-
-	/* skbmod cannot be offloaded without redirect */
-	if ((filter.action & (ACTION_SKBMOD | ACTION_MIRRED_REDIRECT)) == ACTION_SKBMOD)
-		return -EOPNOTSUPP;
-	if (filter.action & ACTION_DROP)
-		return rswitch_add_drop_action_knode(&filter, cls);
-	if (filter.action & ACTION_MIRRED_REDIRECT)
-		return rswitch_add_redirect_action_knode(&filter, cls);
-
-	return -EOPNOTSUPP;
-}
-
-static int rswitch_setup_tc_cls_u32(struct net_device *dev,
-		struct tc_cls_u32_offload *cls_u32)
-{
-	switch (cls_u32->command) {
-		case TC_CLSU32_NEW_KNODE:
-		case TC_CLSU32_REPLACE_KNODE:
-			return rswitch_add_knode(dev, cls_u32);
-		case TC_CLSU32_DELETE_KNODE:
-			return rswitch_del_knode(dev, cls_u32);
-		default:
-			return -EOPNOTSUPP;
-	}
-
-	return -EOPNOTSUPP;
-}
-
 static int rswitch_setup_tc_matchall(struct net_device *dev,
 		struct tc_cls_matchall_offload *cls_matchall)
 {
 	return -EOPNOTSUPP;
-}
-
-static int rswitch_tc_flower_validate_match(struct net_device *dev,
-				struct flow_rule *rule)
-{
-	struct flow_dissector *dissector = rule->match.dissector;
-
-	/*
-	 * Note: IPV6 dissector is always set for IPV4 rules for some reason,
-	 * but true IPV6 rules are not currently supported for offload.
-	 */
-	if (dissector->used_keys &
-		~(BIT(FLOW_DISSECTOR_KEY_CONTROL) |
-		  BIT(FLOW_DISSECTOR_KEY_BASIC) |
-		  BIT(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
-		  BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS))) {
-		return -EOPNOTSUPP;
-	}
-
-	return 0;
-}
-
-static int rswitch_tc_flower_validate_action(struct net_device *dev,
-				struct flow_rule *rule)
-{
-	/* TODO: only drop is currently supported */
-	if (flow_action_first_entry_get(&rule->action)->id == FLOW_ACTION_DROP
-		&& flow_offload_has_one_action(&rule->action)) {
-		return 0;
-	}
-
-	return -EOPNOTSUPP;
-}
-
-static int rswitch_tc_flower_replace(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
-{
-	struct rswitch_device *rdev = netdev_priv(dev);
-	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_tc_flower_filter *f;
-	struct rswitch_pf_param pf_param = {0};
-	struct flow_rule *rule = flow_cls_offload_flow_rule(cls_flower);
-
-	u16 addr_type = 0;
-
-	if (    rswitch_tc_flower_validate_match(dev, rule) ||
-		rswitch_tc_flower_validate_action(dev, rule)) {
-		return -EOPNOTSUPP;
-	}
-
-	f = kzalloc(sizeof(*f), GFP_KERNEL);
-	if (!f) {
-		pr_err("Failed to allocate memory for tc flower filter\n");
-		return -ENOMEM;
-	}
-
-	f->cookie = cls_flower->cookie;
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL)) {
-		struct flow_match_control match;
-
-		flow_rule_match_control(rule, &match);
-		addr_type = match.key->addr_type;
-	} else if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV4_ADDRS)) {
-		addr_type = FLOW_DISSECTOR_KEY_IPV4_ADDRS;
-	} else if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV6_ADDRS)) {
-		addr_type = FLOW_DISSECTOR_KEY_IPV6_ADDRS;
-	}
-
-	if (addr_type == FLOW_DISSECTOR_KEY_IPV4_ADDRS) {
-		struct flow_match_ipv4_addrs match;
-
-		flow_rule_match_ipv4_addrs(rule, &match);
-
-		f->param.priv = priv;
-		f->param.slv = 0x3F;
-
-		/* Explicitly zeroing parameters for drop */
-		f->param.dv = 0;
-		f->param.csd = 0;
-
-		/* Using cascade filter, src_ip field is not used */
-		f->param.src_ip = 0;
-
-		pf_param.rdev = rdev;
-		pf_param.all_sources = false;
-		pf_param.used_entries = 2;
-
-		pf_param.entries[0].val = be32_to_cpu(match.key->src);
-		pf_param.entries[0].mask = be32_to_cpu(match.mask->src);
-		pf_param.entries[0].off = IPV4_SRC_OFFSET;
-		pf_param.entries[0].type = PF_FOUR_BYTE;
-
-		pf_param.entries[1].val = be32_to_cpu(match.key->dst);
-		pf_param.entries[1].mask = be32_to_cpu(match.mask->dst);
-		pf_param.entries[1].off = IPV4_DST_OFFSET;
-		pf_param.entries[1].type = PF_FOUR_BYTE;
-
-		f->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
-		if (f->param.pf_cascade_index < 0) {
-			kfree(f);
-			return -EOPNOTSUPP;
-		}
-
-		if (rswitch_add_l3fwd(&f->param)) {
-			rswitch_put_pf(&f->param);
-			kfree(f);
-			return -EOPNOTSUPP;
-		}
-
-		list_add(&f->lh, &rdev->tc_flower_list);
-
-		return 0;
-	}
-
-	kfree(f);
-	return -EOPNOTSUPP;
-
-}
-
-static int rswitch_tc_flower_destroy(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
-{
-	struct rswitch_device *rdev = netdev_priv(dev);
-	struct rswitch_tc_flower_filter *f = NULL;
-
-	list_for_each_entry(f, &rdev->tc_flower_list, lh) {
-		if (f->cookie == cls_flower->cookie) {
-			rswitch_remove_l3fwd(&f->param);
-			list_del(&f->lh);
-			kfree(f);
-
-			return 0;
-		}
-	}
-
-	return -ENOENT;
-}
-
-static int rswitch_tc_flower_stats(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
-{
-	return -EOPNOTSUPP;
-}
-
-static int rswitch_setup_tc_flower(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
-{
-	switch (cls_flower->command) {
-	case FLOW_CLS_REPLACE:
-		return rswitch_tc_flower_replace(dev, cls_flower);
-	case FLOW_CLS_DESTROY:
-		return rswitch_tc_flower_destroy(dev, cls_flower);
-	case FLOW_CLS_STATS:
-		return rswitch_tc_flower_stats(dev, cls_flower);
-	default:
-		return -EOPNOTSUPP;
-	}
 }
 
 static int rswitch_setup_tc_block_cb(enum tc_setup_type type,
