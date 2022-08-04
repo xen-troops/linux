@@ -80,7 +80,6 @@ static struct net_device*
 	rdev->front_info->xbdev = xbd;
 	rdev->ndev = ndev;
 	rdev->priv = get_priv();
-	rdev->port = 3;
 	rdev->etha = NULL;
 	rdev->remote_chain = 0;
 	rdev->addr = NULL;
@@ -114,6 +113,8 @@ static int rswitch_vmq_front_ndev_register(struct rswitch_device *rdev,
 
 	if (strcmp(type, "tsn") == 0)
 		rdev->port = index;
+	else
+		rdev->port = rdev->priv->gwca.index;
 
 	netif_napi_add(ndev, &rdev->napi, rswitch_poll, 64);
 
@@ -469,6 +470,7 @@ static int renesas_vmq_of_dev_probe(struct platform_device *pdev)
 
 	priv->pdev = pdev;
 	priv->gwca.num_chains = 32;
+	priv->gwca.index = 4;
 
 	err = rswitch_desc_alloc(priv);
 	if (err < 0)
