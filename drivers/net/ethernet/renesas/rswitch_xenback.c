@@ -64,7 +64,7 @@ rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
 	rdev->ndev = ndev;
 	rdev->priv = priv;
 	priv->rdev[RSWITCH_BACK_BASE_INDEX + index] = rdev;
-	rdev->port = 3;
+	rdev->port = priv->gwca.index;
 	rdev->etha = NULL;
 	rdev->remote_chain = -1;
 
