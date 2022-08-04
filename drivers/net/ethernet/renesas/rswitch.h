@@ -130,6 +130,8 @@ struct rswitch_gwca_chain {
 
 #define INFO1_FMT		BIT(2)
 #define INFO1_TXC		BIT(3)
+#define INFO1_CSD1_SHIFT	40
+#define INFO1_DV_SHIFT		48
 #define RSWITCH_MAX_NUM_CHAINS	128
 #define RSWITCH_NUM_IRQ_REGS	(RSWITCH_MAX_NUM_CHAINS / BITS_PER_TYPE(u32))
 #define RSWITCH_NUM_HW		5

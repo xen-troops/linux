@@ -2173,7 +2173,8 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		skb_tx_timestamp(skb);
 	}
 
-	desc->info1 |= ((u64)rdev->remote_chain << 32) | ((BIT(rdev->port)) << 48) |  BIT(2);
+	desc->info1 |= ((u64)rdev->remote_chain << INFO1_CSD1_SHIFT) |
+		((BIT(rdev->port)) << INFO1_DV_SHIFT) | INFO1_FMT;
 
 	dma_wmb();
 
