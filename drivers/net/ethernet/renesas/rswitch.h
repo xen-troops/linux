@@ -12,6 +12,9 @@
 #include <net/flow_offload.h>
 #include <net/fib_notifier.h>
 #include <net/ip_fib.h>
+#include <net/tc_act/tc_mirred.h>
+#include <net/tc_act/tc_skbmod.h>
+#include <net/tc_act/tc_gact.h>
 
 static inline u32 rs_read32(void *addr)
 {
@@ -246,6 +249,7 @@ struct rswitch_device {
 
 	struct list_head tc_u32_list;
 	struct list_head tc_flower_list;
+	struct list_head tc_matchall_list;
 };
 
 struct rswitch_private {
