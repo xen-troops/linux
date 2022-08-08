@@ -2362,12 +2362,6 @@ int rswitch_rn_get(struct rswitch_private *priv)
 	return index;
 }
 
-static int rswitch_setup_tc_matchall(struct net_device *dev,
-		struct tc_cls_matchall_offload *cls_matchall)
-{
-	return -EOPNOTSUPP;
-}
-
 static int rswitch_setup_tc_block_cb(enum tc_setup_type type,
 		void *type_data,
 		void *cb_priv)
@@ -3312,6 +3306,7 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 	rdev->priv = priv;
 	INIT_LIST_HEAD(&rdev->routing_list);
 	INIT_LIST_HEAD(&rdev->tc_u32_list);
+	INIT_LIST_HEAD(&rdev->tc_matchall_list);
 	INIT_LIST_HEAD(&rdev->tc_flower_list);
 	priv->rdev[index] = rdev;
 	/* TODO: netdev instance : ETHA port is 1:1 mapping */

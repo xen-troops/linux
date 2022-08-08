@@ -12,6 +12,9 @@
 #include <net/flow_offload.h>
 #include <net/fib_notifier.h>
 #include <net/ip_fib.h>
+#include <net/tc_act/tc_mirred.h>
+#include <net/tc_act/tc_skbmod.h>
+#include <net/tc_act/tc_gact.h>
 
 static inline u32 rs_read32(void *addr)
 {
@@ -248,29 +251,6 @@ struct rswitch_filters {
 	DECLARE_BITMAP(cascade, PFL_CADF_N);
 };
 
-struct rswitch_device {
-	struct rswitch_private *priv;
-	struct net_device *ndev;
-	struct napi_struct napi;
-	void __iomem *addr;
-	bool gptp_master;
-	struct rswitch_gwca_chain *tx_chain;
-	struct rswitch_gwca_chain *rx_default_chain;
-	struct rswitch_gwca_chain *rx_learning_chain;
-	spinlock_t lock;
-	u8 ts_tag;
-
-	int port;
-	struct rswitch_etha *etha;
-	u8 remote_chain;
-	struct rswitch_vmq_front_info *front_info;
-
-	struct list_head routing_list;
-
-	struct list_head tc_u32_list;
-	struct list_head tc_flower_list;
-};
-
 struct rswitch_private {
 	struct platform_device *pdev;
 	void __iomem *addr;
@@ -295,6 +275,30 @@ struct rswitch_private {
 	struct workqueue_struct *rswitch_fib_wq;
 	DECLARE_BITMAP(l23_routing_number, RSWITCH_MAX_NUM_L23);
 	struct reset_control *sd_rst;
+};
+
+struct rswitch_device {
+	struct rswitch_private *priv;
+	struct net_device *ndev;
+	struct napi_struct napi;
+	void __iomem *addr;
+	bool gptp_master;
+	struct rswitch_gwca_chain *tx_chain;
+	struct rswitch_gwca_chain *rx_default_chain;
+	struct rswitch_gwca_chain *rx_learning_chain;
+	spinlock_t lock;
+	u8 ts_tag;
+
+	int port;
+	struct rswitch_etha *etha;
+	u8 remote_chain;
+	struct rswitch_vmq_front_info *front_info;
+
+	struct list_head routing_list;
+
+	struct list_head tc_u32_list;
+	struct list_head tc_flower_list;
+	struct list_head tc_matchall_list;
 };
 
 enum pf_type {
