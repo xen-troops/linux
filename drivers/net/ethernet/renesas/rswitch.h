@@ -12,6 +12,9 @@
 #include <net/flow_offload.h>
 #include <net/fib_notifier.h>
 #include <net/ip_fib.h>
+#include <net/tc_act/tc_mirred.h>
+#include <net/tc_act/tc_skbmod.h>
+#include <net/tc_act/tc_gact.h>
 
 #define RSWITCH_MAX_NUM_ETHA	3
 #define RSWITCH_MAX_NUM_NDEV	8
@@ -173,6 +176,7 @@ struct rswitch_device {
 
 	struct list_head tc_u32_list;
 	struct list_head tc_flower_list;
+	struct list_head tc_matchall_list;
 };
 
 enum pf_type {
