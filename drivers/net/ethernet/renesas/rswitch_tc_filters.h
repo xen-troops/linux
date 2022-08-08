@@ -25,8 +25,24 @@ struct rswitch_tc_filter {
 	enum rswitch_tc_action action;
 };
 
+static inline void rswitch_parse_pedit(struct rswitch_tc_filter *f, struct flow_action_entry *a)
+{
+	/*
+	  MAC comes to pedit action as 2 parts of u32 with offsets,
+	  so we have to concatenate it in 2 steps
+	*/
+	if (!a->mangle.offset) {
+		memcpy(f->dmac, &(a->mangle.val), 4);
+	} else {
+		memcpy(f->dmac + 4, &(a->mangle.val), 2);
+	}
+}
+
 int rswitch_setup_tc_flower(struct net_device *dev,
 				struct flow_cls_offload *cls_flower);
 
 int rswitch_setup_tc_cls_u32(struct net_device *dev,
 				 struct tc_cls_u32_offload *cls_u32);
+
+int rswitch_setup_tc_matchall(struct net_device *dev,
+				  struct tc_cls_matchall_offload *cls_matchall);
