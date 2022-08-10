@@ -90,15 +90,15 @@ enum DIE_DT {
 /* Cascade filter number */
 #define PFL_CADF_N (64)
 
-#define MAC_DST_OFFSET (0)
-#define MAC_SRC_OFFSET (6)
-#define IP_VERSION_OFFSET (12)
-#define IPV4_HEADER_OFFSET (14)
-#define IPV4_TOS_OFFSET (15)
-#define IPV4_TTL_OFFSET (22)
-#define IPV4_PROTO_OFFSET (23)
-#define IPV4_SRC_OFFSET (26)
-#define IPV4_DST_OFFSET (30)
+#define RSWITCH_MAC_DST_OFFSET (0)
+#define RSWITCH_MAC_SRC_OFFSET (6)
+#define RSWITCH_IP_VERSION_OFFSET (12)
+#define RSWITCH_IPV4_HEADER_OFFSET (14)
+#define RSWITCH_IPV4_TOS_OFFSET (15)
+#define RSWITCH_IPV4_TTL_OFFSET (22)
+#define RSWITCH_IPV4_PROTO_OFFSET (23)
+#define RSWITCH_IPV4_SRC_OFFSET (26)
+#define RSWITCH_IPV4_DST_OFFSET (30)
 
 struct rswitch_desc {
 	__le16 info_ds;	/* Descriptor size */
