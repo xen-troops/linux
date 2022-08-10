@@ -2544,7 +2544,7 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 	pf_param.used_entries = 1;
 	pf_param.entries[0].val = ip;
 	pf_param.entries[0].mask = 0xffffffff;
-	pf_param.entries[0].off = IPV4_DST_OFFSET;
+	pf_param.entries[0].off = RSWITCH_IPV4_DST_OFFSET;
 	pf_param.entries[0].type = PF_FOUR_BYTE;
 
 	param_list->param->pf_cascade_index = rswitch_setup_pf(&pf_param);
