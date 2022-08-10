@@ -110,7 +110,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 		if (match.mask->n_proto) {
 			pf_param.entries[pf_index].val = ntohs(match.key->n_proto);
 			pf_param.entries[pf_index].mask = ntohs(match.mask->n_proto);
-			pf_param.entries[pf_index].off = IP_VERSION_OFFSET;
+			pf_param.entries[pf_index].off = RSWITCH_IP_VERSION_OFFSET;
 			pf_param.entries[pf_index].type = PF_TWO_BYTE;
 			pf_index++;
 		}
@@ -119,7 +119,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 			pf_param.entries[pf_index].val = match.key->ip_proto;
 			pf_param.entries[pf_index].mask = match.mask->ip_proto;
 			/* Using one byte in two-byte filter, make offset correction */
-			pf_param.entries[pf_index].off = IPV4_PROTO_OFFSET - 1;
+			pf_param.entries[pf_index].off = RSWITCH_IPV4_PROTO_OFFSET - 1;
 			pf_param.entries[pf_index].type = PF_TWO_BYTE;
 			pf_index++;
 		}
@@ -140,7 +140,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 		if (match.mask->src) {
 			pf_param.entries[pf_index].val = be32_to_cpu(match.key->src);
 			pf_param.entries[pf_index].mask = be32_to_cpu(match.mask->src);
-			pf_param.entries[pf_index].off = IPV4_SRC_OFFSET;
+			pf_param.entries[pf_index].off = RSWITCH_IPV4_SRC_OFFSET;
 			pf_param.entries[pf_index].type = PF_FOUR_BYTE;
 			pf_index++;
 		}
@@ -148,7 +148,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 		if (match.mask->dst) {
 			pf_param.entries[pf_index].val = be32_to_cpu(match.key->dst);
 			pf_param.entries[pf_index].mask = be32_to_cpu(match.mask->dst);
-			pf_param.entries[pf_index].off = IPV4_DST_OFFSET;
+			pf_param.entries[pf_index].off = RSWITCH_IPV4_DST_OFFSET;
 			pf_param.entries[pf_index].type = PF_FOUR_BYTE;
 			pf_index++;
 		}
@@ -173,7 +173,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 			pf_param.entries[pf_index].val = match.key->tos;
 			pf_param.entries[pf_index].mask = match.mask->tos;
 			/* Using one byte in two-byte filter, make offset correction */
-			pf_param.entries[pf_index].off = IPV4_TOS_OFFSET - 1;
+			pf_param.entries[pf_index].off = RSWITCH_IPV4_TOS_OFFSET - 1;
 			pf_param.entries[pf_index].type = PF_TWO_BYTE;
 			pf_index++;
 		}
@@ -182,7 +182,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 			pf_param.entries[pf_index].val = match.key->ttl;
 			pf_param.entries[pf_index].mask = match.mask->ttl;
 			/* Using one byte in two-byte filter, make offset correction */
-			pf_param.entries[pf_index].off = IPV4_TTL_OFFSET - 1;
+			pf_param.entries[pf_index].off = RSWITCH_IPV4_TTL_OFFSET - 1;
 			pf_param.entries[pf_index].type = PF_TWO_BYTE;
 			pf_index++;
 		}
