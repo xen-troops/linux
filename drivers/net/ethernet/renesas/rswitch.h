@@ -94,6 +94,9 @@ enum DIE_DT {
 #define MAC_SRC_OFFSET (6)
 #define IP_VERSION_OFFSET (12)
 #define IPV4_HEADER_OFFSET (14)
+#define IPV4_TOS_OFFSET (15)
+#define IPV4_TTL_OFFSET (22)
+#define IPV4_PROTO_OFFSET (23)
 #define IPV4_SRC_OFFSET (26)
 #define IPV4_DST_OFFSET (30)
 
