@@ -811,7 +811,6 @@ enum rswitch_etha_mode {
 #define L23UMSAUL (BIT(18))
 
 #define FWTWBFVCi(i) (FWTWBFVC0 + ((i) * 0x10))
-#define FWTWBFVCVALMASK(val, mask) ((val) | (~mask) << 16)
 #define FWTHBFV0Ci(i) (FWTHBFV0C0 + ((i) * 0x10))
 #define FWTHBFV1Ci(i) (FWTHBFV1C0 + ((i) * 0x10))
 #define FWFOBFV0Ci(i) (FWFOBFV0C0 + ((i) * 0x10))
@@ -839,14 +838,6 @@ enum rswitch_etha_mode {
 	filter_index_check(find_first_zero_bit(priv->filters.three_bytes, PFL_THBF_N), PFL_THBF_N)
 #define get_four_byte_filter(priv) \
 	filter_index_check(find_first_zero_bit(priv->filters.four_bytes, PFL_FOBF_N), PFL_FOBF_N)
-
-
-#define MASK_MODE (0)
-#define EXPAND_MODE (BIT(0))
-#define PRECISE_MODE (BIT(1))
-
-#define DISABLE_FILTER (0)
-#define ENABLE_FILTER (BIT(15))
 
 #define FWPC0_DEFAULT	(FWPC0_LTHTA | FWPC0_IP4UE | FWPC0_IP4TE | \
 			 FWPC0_IP4OE | FWPC0_L2SE | FWPC0_IP4EA | \
@@ -2223,33 +2214,34 @@ void rswitch_put_pf(struct l3_ipv4_fwd_param *param)
 	int i, idx, pf_num;
 	enum pf_type type;
 
-	rs_write32(DISABLE_FILTER, param->priv->addr + FWCFCi(param->pf_cascade_index));
+	rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWCFCi(param->pf_cascade_index));
 
 	for (i = 0; i < MAX_PF_ENTRIES; i++) {
 		pf_num = rs_read32(param->priv->addr + FWCFMCij(param->pf_cascade_index, i)) & 0xff;
-		if (!(rs_read32(param->priv->addr + FWCFMCij(param->pf_cascade_index, i)) & ENABLE_FILTER))
+		if (!(rs_read32(param->priv->addr + FWCFMCij(param->pf_cascade_index, i)) & RSWITCH_PF_ENABLE_FILTER))
 			break;
 
 		type = rswitch_get_pf_type_by_num(pf_num);
 		if (type == PF_TWO_BYTE) {
 			idx = TBWFILTER_IDX(pf_num);
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWTWBFVCi(idx));
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWTWBFCi(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTWBFVCi(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTWBFCi(idx));
 			clear_bit(idx, param->priv->filters.two_bytes);
 		} else if (type == PF_THREE_BYTE) {
 			idx = THBFILTER_IDX(pf_num);
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWTHBFV0Ci(idx));
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWTHBFV1Ci(idx));
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWTHBFCi(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTHBFV0Ci(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTHBFV1Ci(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTHBFCi(idx));
 			clear_bit(idx, param->priv->filters.three_bytes);
 		} else if (type == PF_FOUR_BYTE) {
 			idx = FBFILTER_IDX(pf_num);
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWFOBFV0Ci(idx));
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWFOBFV1Ci(idx));
-			rs_write32(DISABLE_FILTER, param->priv->addr + FWFOBFCi(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWFOBFV0Ci(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWFOBFV1Ci(idx));
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWFOBFCi(idx));
 			clear_bit(idx, param->priv->filters.four_bytes);
 		}
-		rs_write32(DISABLE_FILTER, param->priv->addr + FWCFMCij(param->pf_cascade_index, i));
+		rs_write32(RSWITCH_PF_DISABLE_FILTER,
+			param->priv->addr + FWCFMCij(param->pf_cascade_index, i));
 	}
 
 	clear_bit(param->pf_cascade_index, param->priv->filters.cascade);
@@ -2321,24 +2313,40 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 	if (pf_param->used_entries > MAX_PF_ENTRIES)
 		return -1;
 
-	rs_write32(DISABLE_FILTER, priv->addr + FWCFCi(cascade_idx));
+	rs_write32(RSWITCH_PF_DISABLE_FILTER, priv->addr + FWCFCi(cascade_idx));
 
 	for (i = 0; i < pf_param->used_entries; i++) {
+		u32 val0, val1;
+
+		/*
+		 * Perfect filter uses two values for configuration:
+		 * - in mask mode: val0 - compared value, val1 - reversed mask
+		 * - in expand and precise modes: val0, val1 - compared values
+		 */
+		val0 = pf_param->entries[i].val;
+		if (pf_param->entries[i].mode == RSWITCH_PF_MASK_MODE) {
+			val1 = ~(pf_param->entries[i].mask);
+		} else {
+			val1 = pf_param->entries[i].ext_val;
+		}
+
 		/* TODO: Free allocated resources */
 		if (rswitch_get_pf_config(priv, &pf_param->entries[i]) < 0)
 			return -1;
 
 		/* There is no second config register for Two-Byte filter */
 		if (pf_param->entries[i].type == PF_TWO_BYTE) {
-			rs_write32(FWTWBFVCVALMASK(pf_param->entries[i].val, pf_param->entries[i].mask),
+			rs_write32(((u16) val0) | (((u16) val1) << 16),
 				pf_param->entries[i].cfg0_addr);
 		} else {
-			rs_write32(pf_param->entries[i].val, pf_param->entries[i].cfg0_addr);
-			rs_write32(~pf_param->entries[i].mask, pf_param->entries[i].cfg1_addr);
+			rs_write32(val0, pf_param->entries[i].cfg0_addr);
+			rs_write32(val1, pf_param->entries[i].cfg1_addr);
 		}
 
-		rs_write32(MASK_MODE | SNOOPING_BUS_OFFSET(pf_param->entries[i].off), pf_param->entries[i].offs_addr);
-		rs_write32(pf_param->entries[i].pf_num | ENABLE_FILTER, priv->addr + FWCFMCij(cascade_idx, i));
+		rs_write32(pf_param->entries[i].mode | SNOOPING_BUS_OFFSET(pf_param->entries[i].off),
+			pf_param->entries[i].offs_addr);
+		rs_write32(pf_param->entries[i].pf_num | RSWITCH_PF_ENABLE_FILTER,
+			priv->addr + FWCFMCij(cascade_idx, i));
 	}
 
 	if (pf_param->all_sources) {
@@ -2526,7 +2534,7 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 {
 	struct rswitch_private *priv = dev->priv;
 	struct l3_ipv4_fwd_param_list *param_list;
-	struct rswitch_pf_param pf_param;
+	struct rswitch_pf_param pf_param = {0};
 	int ret = 0;
 
 	param_list = kzalloc(sizeof(*param_list), GFP_KERNEL);
@@ -2546,6 +2554,7 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 	pf_param.entries[0].mask = 0xffffffff;
 	pf_param.entries[0].off = RSWITCH_IPV4_DST_OFFSET;
 	pf_param.entries[0].type = PF_FOUR_BYTE;
+	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
 
 	param_list->param->pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (param_list->param->pf_cascade_index < 0)

@@ -90,6 +90,13 @@ enum DIE_DT {
 /* Cascade filter number */
 #define PFL_CADF_N (64)
 
+#define RSWITCH_PF_MASK_MODE (0)
+#define RSWITCH_PF_EXPAND_MODE (BIT(0))
+#define RSWITCH_PF_PRECISE_MODE (BIT(1))
+
+#define RSWITCH_PF_DISABLE_FILTER (0)
+#define RSWITCH_PF_ENABLE_FILTER (BIT(15))
+
 #define RSWITCH_MAC_DST_OFFSET (0)
 #define RSWITCH_MAC_SRC_OFFSET (6)
 #define RSWITCH_IP_VERSION_OFFSET (12)
@@ -314,9 +321,15 @@ enum pf_type {
 
 struct rswitch_pf_entry {
 	u32 val;
-	u32 mask;
+	union {
+		/* Used in mask mode */
+		u32 mask;
+		/* Used in expand mode */
+		u32 ext_val;
+	};
 	u32 off;
 	enum pf_type type;
+	u8 mode;
 
 	void *cfg0_addr;
 	void *cfg1_addr;
