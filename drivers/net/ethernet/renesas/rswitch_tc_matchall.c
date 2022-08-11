@@ -32,6 +32,7 @@ static int rswitch_add_drop_action(struct rswitch_tc_filter *filter, struct tc_c
 	pf_param.entries[0].mask = 0;
 	pf_param.entries[0].off = 0;
 	pf_param.entries[0].type = PF_FOUR_BYTE;
+	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
 
 	cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (cfg->param.pf_cascade_index < 0) {
@@ -83,6 +84,7 @@ static int rswitch_add_redirect_action(struct rswitch_tc_filter *filter, struct 
 	pf_param.entries[0].mask = 0;
 	pf_param.entries[0].off = 0;
 	pf_param.entries[0].type = PF_FOUR_BYTE;
+	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
 
 	cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (cfg->param.pf_cascade_index < 0) {
