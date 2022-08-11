@@ -35,6 +35,7 @@ static int rswitch_add_drop_action_knode(struct rswitch_tc_filter *filter, struc
 	pf_param.entries[0].mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
 	pf_param.entries[0].off = cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET;
 	pf_param.entries[0].type = PF_FOUR_BYTE;
+	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
 
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
@@ -85,6 +86,7 @@ static int rswitch_add_redirect_action_knode(struct rswitch_tc_filter *filter, s
 	pf_param.entries[0].mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
 	pf_param.entries[0].off = cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET;
 	pf_param.entries[0].type = PF_FOUR_BYTE;
+	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
 
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
