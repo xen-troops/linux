@@ -22,8 +22,9 @@ static int rswitch_tc_flower_validate_match(struct net_device *dev,
 		  BIT(FLOW_DISSECTOR_KEY_BASIC) |
 		  BIT(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
 		  BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
-		  BIT(FLOW_DISSECTOR_KEY_IP)
-	    )
+		  BIT(FLOW_DISSECTOR_KEY_IP) |
+		  BIT(FLOW_DISSECTOR_KEY_PORTS)
+		  )
 	    ) {
 		return -EOPNOTSUPP;
 	}
@@ -183,6 +184,37 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 			pf_param.entries[pf_index].mask = match.mask->ttl;
 			/* Using one byte in two-byte filter, make offset correction */
 			pf_param.entries[pf_index].off = RSWITCH_IPV4_TTL_OFFSET - 1;
+			pf_param.entries[pf_index].type = PF_TWO_BYTE;
+			pf_index++;
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS)) {
+		struct flow_match_ports match;
+		int filters_needed;
+
+		flow_rule_match_ports(rule, &match);
+
+		filters_needed = !!(match.mask->src) + !!(match.mask->dst);
+		if ((MAX_PF_ENTRIES - pf_index) < filters_needed) {
+			/* Not enough perfect filters left for matching */
+			goto err;
+		}
+		pr_err("FLOW_DISSECTOR_KEY_PORTS: src = 0x%x, dst = 0x%x\n",
+			be16_to_cpu(match.key->src), be16_to_cpu(match.key->dst));
+
+		if (match.mask->src) {
+			pf_param.entries[pf_index].val = be16_to_cpu(match.key->src);
+			pf_param.entries[pf_index].mask = be16_to_cpu(match.mask->src);
+			pf_param.entries[pf_index].off = RSWITCH_L4_SRC_PORT_OFFSET;
+			pf_param.entries[pf_index].type = PF_TWO_BYTE;
+			pf_index++;
+		}
+
+		if (match.mask->dst) {
+			pf_param.entries[pf_index].val = be16_to_cpu(match.key->dst);
+			pf_param.entries[pf_index].mask = be16_to_cpu(match.mask->dst);
+			pf_param.entries[pf_index].off = RSWITCH_L4_DST_PORT_OFFSET;
 			pf_param.entries[pf_index].type = PF_TWO_BYTE;
 			pf_index++;
 		}
