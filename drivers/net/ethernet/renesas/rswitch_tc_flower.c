@@ -23,7 +23,8 @@ static int rswitch_tc_flower_validate_match(struct net_device *dev,
 		  BIT(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
 		  BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
 		  BIT(FLOW_DISSECTOR_KEY_IP) |
-		  BIT(FLOW_DISSECTOR_KEY_PORTS)
+		  BIT(FLOW_DISSECTOR_KEY_PORTS) |
+		  BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS)
 		  )
 	    ) {
 		return -EOPNOTSUPP;
@@ -125,6 +126,93 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 			pf_param.entries[pf_index].type = PF_TWO_BYTE;
 			pf_param.entries[pf_index].mode = RSWITCH_PF_MASK_MODE;
 			pf_index++;
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
+		struct flow_match_eth_addrs match;
+		int filters_needed = 0;
+
+		flow_rule_match_eth_addrs(rule, &match);
+
+		if (!is_zero_ether_addr(match.mask->src)) {
+			/*
+			 * There two possible scenarios for both src and dst MAC
+			 * matching (when mask is non-zero):
+			 * - MAC is not masked (mask is ff:...:ff) and we can use
+			 *   1 three-byte filter in expand mode
+			 * - MAC is masked and we need to use 2 three-byte filters.
+			 *   Both MAC and mask will be divided into 2 parts and will
+			 *   be placed to separate filters.
+			 */
+			if (is_broadcast_ether_addr(match.mask->src)) {
+				filters_needed++;
+			} else {
+				filters_needed += 2;
+			}
+		}
+
+		if (!is_zero_ether_addr(match.mask->dst)) {
+			if (is_broadcast_ether_addr(match.mask->dst)) {
+				filters_needed++;
+			} else {
+				filters_needed += 2;
+			}
+		}
+
+		if ((MAX_PF_ENTRIES - pf_index) < filters_needed) {
+			/* Not enough perfect filters left for matching */
+			goto err;
+		}
+
+		if (!is_zero_ether_addr(match.mask->src)) {
+			if (is_broadcast_ether_addr(match.mask->src)) {
+				pf_param.entries[pf_index].val = rswitch_mac_left_half(match.key->src);
+				pf_param.entries[pf_index].ext_val = rswitch_mac_right_half(match.key->src);
+				pf_param.entries[pf_index].off = RSWITCH_MAC_SRC_OFFSET;
+				pf_param.entries[pf_index].type = PF_THREE_BYTE;
+				pf_param.entries[pf_index].mode = RSWITCH_PF_EXPAND_MODE;
+				pf_index++;
+			} else {
+				pf_param.entries[pf_index].val = rswitch_mac_left_half(match.key->src);
+				pf_param.entries[pf_index].mask = rswitch_mac_left_half(match.mask->src);
+				pf_param.entries[pf_index].off = RSWITCH_MAC_SRC_OFFSET;
+				pf_param.entries[pf_index].type = PF_THREE_BYTE;
+				pf_param.entries[pf_index].mode = RSWITCH_PF_MASK_MODE;
+				pf_index++;
+
+				pf_param.entries[pf_index].val = rswitch_mac_right_half((match.key->src));
+				pf_param.entries[pf_index].mask = rswitch_mac_right_half(match.mask->src);
+				pf_param.entries[pf_index].off = RSWITCH_MAC_SRC_OFFSET + 3;
+				pf_param.entries[pf_index].type = PF_THREE_BYTE;
+				pf_param.entries[pf_index].mode = RSWITCH_PF_MASK_MODE;
+				pf_index++;
+			}
+		}
+
+		if (!is_zero_ether_addr(match.mask->dst)) {
+			if (is_broadcast_ether_addr(match.mask->dst)) {
+				pf_param.entries[pf_index].val = rswitch_mac_left_half(match.key->dst);
+				pf_param.entries[pf_index].ext_val = rswitch_mac_right_half(match.key->dst);
+				pf_param.entries[pf_index].off = RSWITCH_MAC_DST_OFFSET;
+				pf_param.entries[pf_index].type = PF_THREE_BYTE;
+				pf_param.entries[pf_index].mode = RSWITCH_PF_EXPAND_MODE;
+				pf_index++;
+			} else {
+				pf_param.entries[pf_index].val = rswitch_mac_left_half(match.key->dst);
+				pf_param.entries[pf_index].mask = rswitch_mac_left_half(match.mask->dst);
+				pf_param.entries[pf_index].off = RSWITCH_MAC_DST_OFFSET;
+				pf_param.entries[pf_index].type = PF_THREE_BYTE;
+				pf_param.entries[pf_index].mode = RSWITCH_PF_MASK_MODE;
+				pf_index++;
+
+				pf_param.entries[pf_index].val = rswitch_mac_right_half((match.key->dst));
+				pf_param.entries[pf_index].mask = rswitch_mac_right_half(match.mask->dst);
+				pf_param.entries[pf_index].off = RSWITCH_MAC_DST_OFFSET + 3;
+				pf_param.entries[pf_index].type = PF_THREE_BYTE;
+				pf_param.entries[pf_index].mode = RSWITCH_PF_MASK_MODE;
+				pf_index++;
+			}
 		}
 	}
 
