@@ -262,6 +262,17 @@ static inline void rs_write32(u32 data, void *addr)
 	iowrite32(data, addr);
 }
 
+/* Used for three byte filter configuration values in expand mode */
+static inline u32 rswitch_mac_left_half(const u8 *addr)
+{
+	return ((addr[0] << 16) | (addr[1] << 8) | addr[2]);
+}
+
+static inline u32 rswitch_mac_right_half(const u8 *addr)
+{
+	return ((addr[3] << 16) | (addr[4] << 8) | addr[5]);
+}
+
 int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param);
 int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param);
 void rswitch_put_pf(struct l3_ipv4_fwd_param *param);
