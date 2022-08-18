@@ -8,8 +8,7 @@
 #include "rswitch.h"
 #include "rswitch_tc_filters.h"
 
-static int rswitch_tc_flower_validate_match(struct net_device *dev,
-				struct flow_rule *rule)
+static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 {
 	struct flow_dissector *dissector = rule->match.dissector;
 
@@ -67,7 +66,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 
 	u16 addr_type = 0;
 
-	if (rswitch_tc_flower_validate_match(dev, rule) ||
+	if (rswitch_tc_flower_validate_match(rule) ||
 		rswitch_tc_flower_validate_action(dev, rule)) {
 		return -EOPNOTSUPP;
 	}
