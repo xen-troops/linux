@@ -10,9 +10,9 @@
 #include <net/flow_offload.h>
 
 enum rswitch_tc_action {
-	ACTION_SKBMOD = 1,
-	ACTION_MIRRED_REDIRECT = 2,
-	ACTION_DROP = 4,
+	ACTION_DROP = BIT(0),
+	ACTION_MIRRED_REDIRECT = BIT(1),
+	ACTION_CHANGE_DMAC = BIT(2),
 };
 
 struct rswitch_tc_filter {
