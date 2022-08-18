@@ -67,7 +67,7 @@ static int rswitch_add_redirect_action(struct rswitch_tc_filter *filter, struct 
 	cfg->param.priv = priv;
 	cfg->param.slv = BIT(rdev->port);
 	cfg->param.dv = BIT(filter->target_rdev->port);
-	if (filter->action & ACTION_SKBMOD) {
+	if (filter->action & ACTION_CHANGE_DMAC) {
 		cfg->param.l23_info.priv = priv;
 		ether_addr_copy(cfg->param.l23_info.dst_mac, filter->dmac);
 		ether_addr_copy(cfg->dmac, filter->dmac);
@@ -131,7 +131,7 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 
 		if (entry->id == FLOW_ACTION_MANGLE &&
 			entry->mangle.htype == FLOW_ACT_MANGLE_HDR_TYPE_ETH) {
-			filter.action |= ACTION_SKBMOD;
+			filter.action |= ACTION_CHANGE_DMAC;
 			rswitch_parse_pedit(&filter, entry);
 			continue;
 		}
@@ -142,7 +142,7 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 	}
 
 	/* skbmod cannot be offloaded without redirect */
-	if ((filter.action & (ACTION_SKBMOD | ACTION_MIRRED_REDIRECT)) == ACTION_SKBMOD)
+	if ((filter.action & (ACTION_CHANGE_DMAC | ACTION_MIRRED_REDIRECT)) == ACTION_CHANGE_DMAC)
 		return -EOPNOTSUPP;
 	if (filter.action & ACTION_DROP)
 		return rswitch_add_drop_action(&filter, cls_matchall);
