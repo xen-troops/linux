@@ -70,7 +70,7 @@ static int rswitch_add_redirect_action_knode(struct rswitch_tc_filter *filter, s
 	tc_u32_cfg->param.priv = priv;
 	tc_u32_cfg->param.slv = BIT(rdev->port);
 	tc_u32_cfg->param.dv = BIT(filter->target_rdev->port);
-	if (filter->action & ACTION_SKBMOD) {
+	if (filter->action & ACTION_CHANGE_DMAC) {
 		tc_u32_cfg->param.l23_info.priv = priv;
 		ether_addr_copy(tc_u32_cfg->param.l23_info.dst_mac, filter->dmac);
 		ether_addr_copy(tc_u32_cfg->dmac, filter->dmac);
@@ -183,7 +183,7 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 			/* skbmod dmac action can be offloaded only if placed before redirrect */
 			if (!rswitch_skbmod_can_offload(a) || filter.action != 0)
 				return -EOPNOTSUPP;
-			filter.action |= ACTION_SKBMOD;
+			filter.action |= ACTION_CHANGE_DMAC;
 			rswitch_tc_skbmod_get_dmac(a, filter.dmac);
 			continue;
 		}
@@ -203,7 +203,7 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 	}
 
 	/* skbmod cannot be offloaded without redirect */
-	if ((filter.action & (ACTION_SKBMOD | ACTION_MIRRED_REDIRECT)) == ACTION_SKBMOD)
+	if ((filter.action & (ACTION_CHANGE_DMAC | ACTION_MIRRED_REDIRECT)) == ACTION_CHANGE_DMAC)
 		return -EOPNOTSUPP;
 	if (filter.action & ACTION_DROP)
 		return rswitch_add_drop_action_knode(&filter, cls);
