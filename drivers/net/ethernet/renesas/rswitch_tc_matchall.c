@@ -124,6 +124,11 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 		if (entry->id == FLOW_ACTION_REDIRECT) {
 			struct net_device *target_dev = entry->dev;
 
+			if (!ndev_is_rswitch_dev(target_dev, rdev->priv)) {
+				pr_err("Can not redirect to not R-Switch dev!\n");
+				return -EOPNOTSUPP;
+			}
+
 			filter.action |= ACTION_MIRRED_REDIRECT;
 			filter.target_rdev = netdev_priv(target_dev);
 			continue;
