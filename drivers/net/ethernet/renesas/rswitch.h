@@ -447,6 +447,22 @@ static inline u32 rswitch_mac_right_half(const u8 *addr)
 	return ((addr[3] << 16) | (addr[4] << 8) | addr[5]);
 }
 
+static inline bool ndev_is_rswitch_dev(const struct net_device *ndev,
+			struct rswitch_private *priv)
+{
+	int i;
+
+	for (i = 0; i < RSWITCH_MAX_NUM_NDEV; i++) {
+		struct rswitch_device *rdev = priv->rdev[i];
+
+		if (rdev && (rdev->ndev == ndev)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param);
 int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param);
 void rswitch_put_pf(struct l3_ipv4_fwd_param *param);
