@@ -32,16 +32,48 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 	return 0;
 }
 
-static int rswitch_tc_flower_validate_action(struct net_device *dev,
+static int rswitch_tc_flower_validate_action(struct rswitch_device *rdev,
 				struct flow_rule *rule)
 {
-	/* TODO: only drop is currently supported */
-	if (flow_action_first_entry_get(&rule->action)->id == FLOW_ACTION_DROP
-		&& flow_offload_has_one_action(&rule->action)) {
-		return 0;
+	struct flow_action_entry *act;
+	struct flow_action *actions = &rule->action;
+	int i;
+	bool redirect = false, dmac_change = false;
+
+	flow_action_for_each(i, act, actions) {
+		switch (act->id) {
+		case FLOW_ACTION_DROP:
+			if (!flow_offload_has_one_action(actions)) {
+				pr_err("Other actions with DROP is not supported\n");
+				return -EOPNOTSUPP;
+			}
+			break;
+		case FLOW_ACTION_REDIRECT:
+			if (!ndev_is_rswitch_dev(act->dev, rdev->priv)) {
+				pr_err("Can not redirect to not R-Switch dev!\n");
+				return -EOPNOTSUPP;
+			}
+			redirect = true;
+			break;
+		case FLOW_ACTION_MANGLE:
+			if (act->mangle.htype != FLOW_ACT_MANGLE_HDR_TYPE_ETH) {
+				pr_err("Only dst MAC change is supported for mangle\n");
+				return -EOPNOTSUPP;
+			}
+			dmac_change = true;
+			break;
+		default:
+			pr_err("Unsupported for offload action id = %d\n", act->id);
+			return -EOPNOTSUPP;
+		}
 	}
 
-	return -EOPNOTSUPP;
+	if (dmac_change && !redirect) {
+		pr_err("dst MAC change is supported only with redirect\n");
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
 }
 
 static int rswitch_tc_flower_setup_drop_action(struct rswitch_tc_filter *f)
@@ -52,6 +84,69 @@ static int rswitch_tc_flower_setup_drop_action(struct rswitch_tc_filter *f)
 	f->param.csd = 0;
 
 	return 0;
+}
+
+static int rswitch_tc_flower_setup_redirect_action(struct rswitch_tc_filter *f)
+{
+	struct rswitch_device *rdev = f->rdev;
+
+	f->param.slv = BIT(rdev->port);
+	f->param.dv = BIT(f->target_rdev->port);
+	f->param.csd = 0;
+	if (f->action & ACTION_CHANGE_DMAC) {
+		f->param.l23_info.priv = rdev->priv;
+		ether_addr_copy(f->param.l23_info.dst_mac, f->dmac);
+		f->param.l23_info.update_dst_mac = true;
+		f->param.l23_info.routing_number = rswitch_rn_get(rdev->priv);
+		f->param.l23_info.routing_port_valid = BIT(rdev->port) | BIT(f->target_rdev->port);
+	}
+
+	return 0;
+}
+
+static int rswitch_tc_flower_setup_action(struct rswitch_tc_filter *f,
+				struct flow_rule *rule)
+{
+	struct flow_action_entry *act;
+	struct flow_action *actions = &rule->action;
+	int i;
+
+	flow_action_for_each(i, act, actions) {
+		switch (act->id) {
+		case FLOW_ACTION_DROP:
+			f->action = ACTION_DROP;
+			break;
+		case FLOW_ACTION_REDIRECT:
+			f->action |= ACTION_MIRRED_REDIRECT;
+			f->target_rdev = netdev_priv(act->dev);
+			break;
+		case FLOW_ACTION_MANGLE:
+			/*
+			 * The only FLOW_ACT_MANGLE_HDR_TYPE_ETH is supported,
+			 * sanitized by rswitch_tc_flower_validate_action().
+			 */
+			f->action |= ACTION_CHANGE_DMAC;
+			rswitch_parse_pedit(f, act);
+			break;
+		default:
+			/*
+			 * Should not come here, such action will be dropped by
+			 * rswitch_tc_flower_validate_action().
+			 */
+			pr_err("Unsupported action for offload!\n");
+			return -EOPNOTSUPP;
+		}
+	}
+
+	if (f->action & ACTION_DROP) {
+		return rswitch_tc_flower_setup_drop_action(f);
+	}
+
+	if (f->action & ACTION_MIRRED_REDIRECT) {
+		return rswitch_tc_flower_setup_redirect_action(f);
+	}
+
+	return -EOPNOTSUPP;
 }
 
 static int rswitch_tc_flower_replace(struct net_device *dev,
@@ -67,7 +162,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 	u16 addr_type = 0;
 
 	if (rswitch_tc_flower_validate_match(rule) ||
-		rswitch_tc_flower_validate_action(dev, rule)) {
+		rswitch_tc_flower_validate_action(rdev, rule)) {
 		return -EOPNOTSUPP;
 	}
 
@@ -77,6 +172,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 		return -ENOMEM;
 	}
 
+	f->rdev = rdev;
 	f->param.priv = priv;
 	/* Using cascade filter, src_ip field is not used */
 	f->param.src_ip = 0;
@@ -315,28 +411,33 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 		}
 	}
 
-	/* Check if any parameters matched and setup l3fwd */
-	if (pf_index) {
-		rswitch_tc_flower_setup_drop_action(f);
 
-		pf_param.rdev = rdev;
-		pf_param.all_sources = false;
-
-		pf_param.used_entries = pf_index;
-		f->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
-		if (f->param.pf_cascade_index < 0) {
-			goto err;
-		}
-
-		if (rswitch_add_l3fwd(&f->param)) {
-			rswitch_put_pf(&f->param);
-			goto err;
-		}
-
-		list_add(&f->lh, &rdev->tc_flower_list);
-
-		return 0;
+	if (!pf_index) {
+		/* No parameters matched in rule */
+		goto err;
 	}
+
+	if (rswitch_tc_flower_setup_action(f, rule)) {
+		goto err;
+	}
+
+	pf_param.rdev = rdev;
+	pf_param.all_sources = false;
+
+	pf_param.used_entries = pf_index;
+	f->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
+	if (f->param.pf_cascade_index < 0) {
+		goto err;
+	}
+
+	if (rswitch_add_l3fwd(&f->param)) {
+		rswitch_put_pf(&f->param);
+		goto err;
+	}
+
+	list_add(&f->lh, &rdev->tc_flower_list);
+
+	return 0;
 
 err:
 	kfree(f);
