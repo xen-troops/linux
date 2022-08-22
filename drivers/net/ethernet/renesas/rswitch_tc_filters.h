@@ -5,6 +5,9 @@
  * Copyright (C) 2022 EPAM Systems
  */
 
+#ifndef __RSWITCH_TC_FILTERS_H__
+#define __RSWITCH_TC_FILTERS_H__
+
 #include <linux/netdevice.h>
 #include <net/pkt_cls.h>
 #include <net/flow_offload.h>
@@ -46,3 +49,5 @@ int rswitch_setup_tc_cls_u32(struct net_device *dev,
 
 int rswitch_setup_tc_matchall(struct net_device *dev,
 				  struct tc_cls_matchall_offload *cls_matchall);
+
+#endif /* __RSWITCH_TC_FILTERS_H__ */

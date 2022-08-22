@@ -5,6 +5,9 @@
  * Copyright (C) 2022 EPAM Systems
  */
 
+#ifndef __RSWITCH_H__
+#define __RSWITCH_H__
+
 #include <linux/kernel.h>
 #include <linux/phy.h>
 #include <linux/netdevice.h>
@@ -468,3 +471,5 @@ int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param);
 void rswitch_put_pf(struct l3_ipv4_fwd_param *param);
 int rswitch_setup_pf(struct rswitch_pf_param *pf_param);
 int rswitch_rn_get(struct rswitch_private *priv);
+
+#endif /* __RSWITCH_H__ */
