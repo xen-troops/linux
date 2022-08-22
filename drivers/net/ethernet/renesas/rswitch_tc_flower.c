@@ -12,10 +12,6 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 {
 	struct flow_dissector *dissector = rule->match.dissector;
 
-	/*
-	 * Note: IPV6 dissector is always set for IPV4 rules for some reason,
-	 * but true IPV6 rules are not currently supported for offload.
-	 */
 	if (dissector->used_keys &
 		~(BIT(FLOW_DISSECTOR_KEY_CONTROL) |
 		  BIT(FLOW_DISSECTOR_KEY_BASIC) |
@@ -26,6 +22,18 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 		  BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS)
 		  )
 	    ) {
+		return -EOPNOTSUPP;
+	}
+
+	/*
+	 * Note: IPV6 dissector is always set for IPV4 rules for some reason,
+	 * but true IPV6 rules are not currently supported for offload.
+	 */
+	if (dissector->used_keys &
+	    ((BIT(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
+	     BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS)) ==
+	     BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS))
+	   ) {
 		return -EOPNOTSUPP;
 	}
 
