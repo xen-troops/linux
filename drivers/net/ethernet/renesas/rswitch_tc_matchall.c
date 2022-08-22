@@ -12,8 +12,10 @@ static int rswitch_add_drop_action(struct rswitch_tc_filter *filter, struct tc_c
 {
 	struct rswitch_device *rdev = filter->rdev;
 	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param;
+	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *cfg = kzalloc(sizeof(*cfg), GFP_KERNEL);
+	int rc;
+
 	if (!cfg)
 		return -ENOMEM;
 
@@ -26,37 +28,41 @@ static int rswitch_add_drop_action(struct rswitch_tc_filter *filter, struct tc_c
 
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = 0;
 	/* Match all packets */
-	pf_param.entries[0].mask = 0;
-	pf_param.entries[0].off = 0;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
+	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE, 0, 0, 0);
+	if (rc)
+		goto free;
 
 	cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (cfg->param.pf_cascade_index < 0) {
-		kfree(cfg);
-		return -E2BIG;
+		rc = -E2BIG;
+		goto free;
 	}
 
 	if (rswitch_add_l3fwd(&cfg->param)) {
-		rswitch_put_pf(&cfg->param);
-		kfree(cfg);
-		return -EBUSY;
+		rc = -EBUSY;
+		goto put_pf;
 	}
 
 	list_add(&cfg->lh, &rdev->tc_matchall_list);
 
 	return 0;
+
+put_pf:
+	rswitch_put_pf(&cfg->param);
+free:
+	kfree(cfg);
+	return rc;
 }
 
 static int rswitch_add_redirect_action(struct rswitch_tc_filter *filter, struct tc_cls_matchall_offload *cls)
 {
 	struct rswitch_device *rdev = filter->rdev;
 	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param;
+	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *cfg = kzalloc(sizeof(*cfg), GFP_KERNEL);
+	int rc;
+
 	if (!cfg)
 		return -ENOMEM;
 
@@ -78,29 +84,31 @@ static int rswitch_add_redirect_action(struct rswitch_tc_filter *filter, struct 
 
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = 0;
 	/* Match all packets */
-	pf_param.entries[0].mask = 0;
-	pf_param.entries[0].off = 0;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
+	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE, 0, 0, 0);
+	if (rc)
+		goto free;
 
 	cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (cfg->param.pf_cascade_index < 0) {
-		kfree(cfg);
-		return -E2BIG;
+		rc = -E2BIG;
+		goto free;
 	}
 
 	if (rswitch_add_l3fwd(&cfg->param)) {
-		rswitch_put_pf(&cfg->param);
-		kfree(cfg);
-		return -EBUSY;
+		rc = -EBUSY;
+		goto put_pf;
 	}
 
 	list_add(&cfg->lh, &rdev->tc_matchall_list);
 
 	return 0;
+
+put_pf:
+	rswitch_put_pf(&cfg->param);
+free:
+	kfree(cfg);
+	return rc;
 }
 
 static int rswitch_tc_matchall_replace(struct net_device *ndev,
