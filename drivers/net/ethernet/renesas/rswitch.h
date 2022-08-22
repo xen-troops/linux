@@ -472,4 +472,43 @@ void rswitch_put_pf(struct l3_ipv4_fwd_param *param);
 int rswitch_setup_pf(struct rswitch_pf_param *pf_param);
 int rswitch_rn_get(struct rswitch_private *priv);
 
+/* Helper functions for perfect filter initialization */
+static inline int rswitch_init_mask_pf_entry(struct rswitch_pf_param *p,
+		enum pf_type type, u32 value, u32 mask, u32 offset)
+{
+	int idx = p->used_entries;
+
+	if (idx >= MAX_PF_ENTRIES) {
+		return -E2BIG;
+	}
+
+	p->entries[idx].mode = RSWITCH_PF_MASK_MODE;
+	p->entries[idx].type = type;
+	p->entries[idx].val = value;
+	p->entries[idx].mask = mask;
+	p->entries[idx].off = offset;
+	p->used_entries++;
+
+	return 0;
+}
+
+static inline int rswitch_init_expand_pf_entry(struct rswitch_pf_param *p,
+		enum pf_type type, u32 value, u32 expand_value, u32 offset)
+{
+	int idx = p->used_entries;
+
+	if (idx >= MAX_PF_ENTRIES) {
+		return -E2BIG;
+	}
+
+	p->entries[idx].mode = RSWITCH_PF_EXPAND_MODE;
+	p->entries[idx].type = type;
+	p->entries[idx].val = value;
+	p->entries[idx].ext_val = expand_value;
+	p->entries[idx].off = offset;
+	p->used_entries++;
+
+	return 0;
+}
+
 #endif /* __RSWITCH_H__ */

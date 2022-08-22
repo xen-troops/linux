@@ -2554,12 +2554,10 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 
 	pf_param.rdev = dev;
 	pf_param.all_sources = true;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = ip;
-	pf_param.entries[0].mask = 0xffffffff;
-	pf_param.entries[0].off = RSWITCH_IPV4_DST_OFFSET;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
+	ret = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
+			ip, 0xffffffff, RSWITCH_IPV4_DST_OFFSET);
+	if (ret)
+		goto free_param_list;
 
 	param_list->param->pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (param_list->param->pf_cascade_index < 0)
