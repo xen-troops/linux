@@ -16,8 +16,10 @@ static int rswitch_add_drop_action_knode(struct rswitch_tc_filter *filter, struc
 {
 	struct rswitch_device *rdev = filter->rdev;
 	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param;
+	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
+	int rc;
+
 	if (!tc_u32_cfg)
 		return -ENOMEM;
 
@@ -30,36 +32,43 @@ static int rswitch_add_drop_action_knode(struct rswitch_tc_filter *filter, struc
 
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = be32_to_cpu(cls->knode.sel->keys[0].val);
-	pf_param.entries[0].mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
-	pf_param.entries[0].off = cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
+	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
+			be32_to_cpu(cls->knode.sel->keys[0].val),
+			be32_to_cpu(cls->knode.sel->keys[0].mask),
+			cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET);
+	if (rc)
+		goto free;
 
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
-		kfree(tc_u32_cfg);
-		return -E2BIG;
+		rc = -E2BIG;
+		goto free;
 	}
 
 	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
-		rswitch_put_pf(&tc_u32_cfg->param);
-		kfree(tc_u32_cfg);
-		return -EBUSY;
+		rc = -EBUSY;
+		goto put_pf;
 	}
 
 	list_add(&tc_u32_cfg->lh, &rdev->tc_u32_list);
 
 	return 0;
+
+put_pf:
+	rswitch_put_pf(&tc_u32_cfg->param);
+free:
+	kfree(tc_u32_cfg);
+	return rc;
 }
 
 static int rswitch_add_redirect_action_knode(struct rswitch_tc_filter *filter, struct tc_cls_u32_offload *cls)
 {
 	struct rswitch_device *rdev = filter->rdev;
 	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param;
+	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
+	int rc;
+
 	if (!tc_u32_cfg)
 		return -ENOMEM;
 
@@ -81,28 +90,34 @@ static int rswitch_add_redirect_action_knode(struct rswitch_tc_filter *filter, s
 
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
-	pf_param.used_entries = 1;
-	pf_param.entries[0].val = be32_to_cpu(cls->knode.sel->keys[0].val);
-	pf_param.entries[0].mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
-	pf_param.entries[0].off = cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET;
-	pf_param.entries[0].type = PF_FOUR_BYTE;
-	pf_param.entries[0].mode = RSWITCH_PF_MASK_MODE;
+
+	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
+			be32_to_cpu(cls->knode.sel->keys[0].val),
+			be32_to_cpu(cls->knode.sel->keys[0].mask),
+			cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET);
+	if (rc)
+		goto free;
 
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
-		kfree(tc_u32_cfg);
-		return -E2BIG;
+		rc = -E2BIG;
+		goto free;
 	}
 
 	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
-		rswitch_put_pf(&tc_u32_cfg->param);
-		kfree(tc_u32_cfg);
-		return -EBUSY;
+		rc = -EBUSY;
+		goto put_pf;
 	}
 
 	list_add(&tc_u32_cfg->lh, &rdev->tc_u32_list);
 
 	return 0;
+
+put_pf:
+	rswitch_put_pf(&tc_u32_cfg->param);
+free:
+	kfree(tc_u32_cfg);
+	return rc;
 }
 
 static bool is_tcf_act_skbmod(const struct tc_action *a)
