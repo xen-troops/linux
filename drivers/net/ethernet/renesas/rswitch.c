@@ -2027,6 +2027,9 @@ static struct rswitch_device *get_dev_by_ip(struct rswitch_private *priv, u32 ip
 	int i;
 
 	for (i = 0; i < RSWITCH_NUM_HW; i++) {
+		if (!priv->rdev[i])
+			break;
+
 		ip = priv->rdev[i]->ndev->ip_ptr;
 		if (ip == NULL)
 			continue;
