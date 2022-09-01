@@ -12,58 +12,34 @@
 #include "rswitch.h"
 #include "rswitch_tc_filters.h"
 
-static int rswitch_add_drop_action_knode(struct rswitch_tc_filter *filter, struct tc_cls_u32_offload *cls)
+static void rswitch_init_u32_drop_action(struct rswitch_tc_filter *cfg,
+		struct rswitch_tc_filter *f, struct tc_cls_u32_offload *cls)
 {
-	struct rswitch_device *rdev = filter->rdev;
-	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param = {0};
-	struct rswitch_tc_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
-	int rc;
-
-	if (!tc_u32_cfg)
-		return -ENOMEM;
-
-	tc_u32_cfg->cookie = cls->knode.handle;
-	tc_u32_cfg->action = ACTION_DROP;
-	tc_u32_cfg->rdev = rdev;
+	cfg->action = ACTION_DROP;
 	/* Leave other paramters as zero */
-	tc_u32_cfg->param.priv = priv;
-	tc_u32_cfg->param.slv = 0x3F;
-
-	pf_param.rdev = rdev;
-	pf_param.all_sources = false;
-	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-			be32_to_cpu(cls->knode.sel->keys[0].val),
-			be32_to_cpu(cls->knode.sel->keys[0].mask),
-			cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET);
-	if (rc)
-		goto free;
-
-	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
-	if (tc_u32_cfg->param.pf_cascade_index < 0) {
-		rc = -E2BIG;
-		goto free;
-	}
-
-	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
-		rc = -EBUSY;
-		goto put_pf;
-	}
-
-	list_add(&tc_u32_cfg->lh, &rdev->tc_u32_list);
-
-	return 0;
-
-put_pf:
-	rswitch_put_pf(&tc_u32_cfg->param);
-free:
-	kfree(tc_u32_cfg);
-	return rc;
+	cfg->param.slv = 0x3F;
 }
 
-static int rswitch_add_redirect_action_knode(struct rswitch_tc_filter *filter, struct tc_cls_u32_offload *cls)
+static void rswitch_init_u32_redirect_action(struct rswitch_tc_filter *cfg,
+		struct rswitch_tc_filter *f, struct tc_cls_u32_offload *cls)
 {
-	struct rswitch_device *rdev = filter->rdev;
+	cfg->action = f->action;
+	cfg->param.slv = BIT(f->rdev->port);
+	cfg->param.dv = BIT(f->target_rdev->port);
+	if (f->action & ACTION_CHANGE_DMAC) {
+		cfg->param.l23_info.priv = f->rdev->priv;
+		ether_addr_copy(cfg->param.l23_info.dst_mac, f->dmac);
+		ether_addr_copy(cfg->dmac, f->dmac);
+		cfg->param.l23_info.update_dst_mac = true;
+		cfg->param.l23_info.routing_number = rswitch_rn_get(f->rdev->priv);
+		cfg->param.l23_info.routing_port_valid = BIT(f->rdev->port) | BIT(f->target_rdev->port);
+	}
+
+}
+
+static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u32_offload *cls)
+{
+	struct rswitch_device *rdev = f->rdev;
 	struct rswitch_private *priv = rdev->priv;
 	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
@@ -73,24 +49,20 @@ static int rswitch_add_redirect_action_knode(struct rswitch_tc_filter *filter, s
 		return -ENOMEM;
 
 	tc_u32_cfg->cookie = cls->knode.handle;
-	tc_u32_cfg->action = filter->action;
 	tc_u32_cfg->rdev = rdev;
-
 	tc_u32_cfg->param.priv = priv;
-	tc_u32_cfg->param.slv = BIT(rdev->port);
-	tc_u32_cfg->param.dv = BIT(filter->target_rdev->port);
-	if (filter->action & ACTION_CHANGE_DMAC) {
-		tc_u32_cfg->param.l23_info.priv = priv;
-		ether_addr_copy(tc_u32_cfg->param.l23_info.dst_mac, filter->dmac);
-		ether_addr_copy(tc_u32_cfg->dmac, filter->dmac);
-		tc_u32_cfg->param.l23_info.update_dst_mac = true;
-		tc_u32_cfg->param.l23_info.routing_number = rswitch_rn_get(priv);
-		tc_u32_cfg->param.l23_info.routing_port_valid = BIT(rdev->port) | BIT(filter->target_rdev->port);
+
+	if (f->action & ACTION_DROP) {
+		rswitch_init_u32_drop_action(tc_u32_cfg, f, cls);
+	} else if (f->action & ACTION_MIRRED_REDIRECT) {
+		rswitch_init_u32_redirect_action(tc_u32_cfg, f, cls);
+	} else {
+		rc = -EOPNOTSUPP;
+		goto free;
 	}
 
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
-
 	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
 			be32_to_cpu(cls->knode.sel->keys[0].val),
 			be32_to_cpu(cls->knode.sel->keys[0].mask),
@@ -224,12 +196,8 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 	/* skbmod cannot be offloaded without redirect */
 	if ((filter.action & (ACTION_CHANGE_DMAC | ACTION_MIRRED_REDIRECT)) == ACTION_CHANGE_DMAC)
 		return -EOPNOTSUPP;
-	if (filter.action & ACTION_DROP)
-		return rswitch_add_drop_action_knode(&filter, cls);
-	if (filter.action & ACTION_MIRRED_REDIRECT)
-		return rswitch_add_redirect_action_knode(&filter, cls);
 
-	return -EOPNOTSUPP;
+	return rswitch_add_action_knode(&filter, cls);
 }
 
 int rswitch_setup_tc_cls_u32(struct net_device *dev,
