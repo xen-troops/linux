@@ -201,9 +201,6 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 
 		flow_rule_match_basic(rule, &match);
 
-		pr_err("FLOW_DISSECTOR_KEY_BASIC: n_proto = 0x%x, ip_proto = 0x%x\n",
-				ntohs(match.key->n_proto), match.key->ip_proto);
-
 		if (match.mask->n_proto) {
 			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
 					ntohs(match.key->n_proto), ntohs(match.mask->n_proto),
@@ -314,9 +311,6 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 
 		flow_rule_match_ip(rule, &match);
 
-		pr_err("FLOW_DISSECTOR_KEY_IP: tos = 0x%x, ttl = %d\n",
-			match.key->tos, match.key->ttl);
-
 		if (match.mask->tos) {
 			/* Using one byte in two-byte filter, make offset correction */
 			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE, match.key->tos,
@@ -338,9 +332,6 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 		struct flow_match_ports match;
 
 		flow_rule_match_ports(rule, &match);
-
-		pr_err("FLOW_DISSECTOR_KEY_PORTS: src = 0x%x, dst = 0x%x\n",
-			be16_to_cpu(match.key->src), be16_to_cpu(match.key->dst));
 
 		if (match.mask->src) {
 			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
