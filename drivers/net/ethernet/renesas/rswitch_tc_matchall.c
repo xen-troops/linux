@@ -8,54 +8,33 @@
 #include "rswitch.h"
 #include "rswitch_tc_filters.h"
 
-static int rswitch_add_drop_action(struct rswitch_tc_filter *filter, struct tc_cls_matchall_offload *cls)
+static void rswitch_init_mall_drop_action(struct rswitch_tc_filter *f, struct rswitch_tc_filter *cfg,
+		struct tc_cls_matchall_offload *cls)
 {
-	struct rswitch_device *rdev = filter->rdev;
-	struct rswitch_private *priv = rdev->priv;
-	struct rswitch_pf_param pf_param = {0};
-	struct rswitch_tc_filter *cfg = kzalloc(sizeof(*cfg), GFP_KERNEL);
-	int rc;
-
-	if (!cfg)
-		return -ENOMEM;
-
-	cfg->cookie = cls->cookie;
 	cfg->action = ACTION_DROP;
-	cfg->rdev = rdev;
 	/* Leave other paramters as zero */
-	cfg->param.priv = priv;
 	cfg->param.slv = 0x3F;
-
-	pf_param.rdev = rdev;
-	pf_param.all_sources = false;
-	/* Match all packets */
-	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE, 0, 0, 0);
-	if (rc)
-		goto free;
-
-	cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
-	if (cfg->param.pf_cascade_index < 0) {
-		rc = -E2BIG;
-		goto free;
-	}
-
-	if (rswitch_add_l3fwd(&cfg->param)) {
-		rc = -EBUSY;
-		goto put_pf;
-	}
-
-	list_add(&cfg->lh, &rdev->tc_matchall_list);
-
-	return 0;
-
-put_pf:
-	rswitch_put_pf(&cfg->param);
-free:
-	kfree(cfg);
-	return rc;
 }
 
-static int rswitch_add_redirect_action(struct rswitch_tc_filter *filter, struct tc_cls_matchall_offload *cls)
+static void rswitch_init_mall_redirect_action(struct rswitch_tc_filter *f,
+		struct rswitch_tc_filter *cfg,
+		struct tc_cls_matchall_offload *cls)
+{
+	cfg->action = f->action;
+	cfg->param.slv = BIT(f->rdev->port);
+	cfg->param.dv = BIT(f->target_rdev->port);
+	if (f->action & ACTION_CHANGE_DMAC) {
+		cfg->param.l23_info.priv = f->rdev->priv;
+		ether_addr_copy(cfg->param.l23_info.dst_mac, f->dmac);
+		ether_addr_copy(cfg->dmac, f->dmac);
+		cfg->param.l23_info.update_dst_mac = true;
+		cfg->param.l23_info.routing_number = rswitch_rn_get(f->rdev->priv);
+		cfg->param.l23_info.routing_port_valid = BIT(f->rdev->port) | BIT(f->target_rdev->port);
+	}
+}
+
+static int rswitch_add_mall_action(struct rswitch_tc_filter *filter,
+		struct tc_cls_matchall_offload *cls)
 {
 	struct rswitch_device *rdev = filter->rdev;
 	struct rswitch_private *priv = rdev->priv;
@@ -67,19 +46,16 @@ static int rswitch_add_redirect_action(struct rswitch_tc_filter *filter, struct 
 		return -ENOMEM;
 
 	cfg->cookie = cls->cookie;
-	cfg->action = filter->action;
 	cfg->rdev = rdev;
-
 	cfg->param.priv = priv;
-	cfg->param.slv = BIT(rdev->port);
-	cfg->param.dv = BIT(filter->target_rdev->port);
-	if (filter->action & ACTION_CHANGE_DMAC) {
-		cfg->param.l23_info.priv = priv;
-		ether_addr_copy(cfg->param.l23_info.dst_mac, filter->dmac);
-		ether_addr_copy(cfg->dmac, filter->dmac);
-		cfg->param.l23_info.update_dst_mac = true;
-		cfg->param.l23_info.routing_number = rswitch_rn_get(priv);
-		cfg->param.l23_info.routing_port_valid = BIT(rdev->port) | BIT(filter->target_rdev->port);
+
+	if (filter->action & ACTION_DROP) {
+		rswitch_init_mall_drop_action(filter, cfg, cls);
+	} else if (filter->action & ACTION_MIRRED_REDIRECT) {
+		rswitch_init_mall_redirect_action(filter, cfg, cls);
+	} else {
+		rc = -EOPNOTSUPP;
+		goto free;
 	}
 
 	pf_param.rdev = rdev;
@@ -157,12 +133,8 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 	/* skbmod cannot be offloaded without redirect */
 	if ((filter.action & (ACTION_CHANGE_DMAC | ACTION_MIRRED_REDIRECT)) == ACTION_CHANGE_DMAC)
 		return -EOPNOTSUPP;
-	if (filter.action & ACTION_DROP)
-		return rswitch_add_drop_action(&filter, cls_matchall);
-	if (filter.action & ACTION_MIRRED_REDIRECT)
-		return rswitch_add_redirect_action(&filter, cls_matchall);
 
-	return -EOPNOTSUPP;
+	return rswitch_add_mall_action(&filter, cls_matchall);
 }
 
 static int rswitch_tc_matchall_destroy(struct net_device *ndev,
