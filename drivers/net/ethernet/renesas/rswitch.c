@@ -2554,6 +2554,14 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 
 	pf_param.rdev = dev;
 	pf_param.all_sources = true;
+
+	/* Match only packets with IPv4 EtherType */
+	ret = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
+			ETH_P_IP, 0xffff, RSWITCH_IP_VERSION_OFFSET);
+	if (ret)
+		goto free_param_list;
+
+	/* Set destination IP matching */
 	ret = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
 			ip, 0xffffffff, RSWITCH_IPV4_DST_OFFSET);
 	if (ret)
