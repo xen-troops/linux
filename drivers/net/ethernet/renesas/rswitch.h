@@ -109,6 +109,8 @@ enum DIE_DT {
 #define RSWITCH_IPV4_PROTO_OFFSET (23)
 #define RSWITCH_IPV4_SRC_OFFSET (26)
 #define RSWITCH_IPV4_DST_OFFSET (30)
+#define RSWITCH_IPV6_SRC_OFFSET (22)
+#define RSWITCH_IPV6_DST_OFFSET (38)
 #define RSWITCH_L4_SRC_PORT_OFFSET (34)
 #define RSWITCH_L4_DST_PORT_OFFSET (36)
 
@@ -509,6 +511,18 @@ static inline int rswitch_init_expand_pf_entry(struct rswitch_pf_param *p,
 	p->used_entries++;
 
 	return 0;
+}
+
+static inline bool rswitch_ipv6_all_set(struct in6_addr *addr)
+{
+	return ( (addr->s6_addr32[0] & addr->s6_addr32[1] &
+		  addr->s6_addr32[2] & addr->s6_addr32[3]) == 0xffffffff);
+}
+
+static inline bool rswitch_ipv6_all_zero(struct in6_addr *addr)
+{
+	return ( !(addr->s6_addr32[0] | addr->s6_addr32[1] |
+		   addr->s6_addr32[2] | addr->s6_addr32[3]));
 }
 
 #endif /* __RSWITCH_H__ */
