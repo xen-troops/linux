@@ -25,18 +25,6 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 		return -EOPNOTSUPP;
 	}
 
-	/*
-	 * Note: IPV6 dissector is always set for IPV4 rules for some reason,
-	 * but true IPV6 rules are not currently supported for offload.
-	 */
-	if (dissector->used_keys &
-	    ((BIT(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
-	     BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS)) ==
-	     BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS))
-	   ) {
-		return -EOPNOTSUPP;
-	}
-
 	return 0;
 }
 
@@ -165,7 +153,7 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 	struct rswitch_private *priv = rdev->priv;
 	struct rswitch_tc_filter *f;
 	struct rswitch_pf_param pf_param = {0};
-	int rc = 0;
+	int rc = 0, i;
 	u16 addr_type = 0;
 
 	if (rswitch_tc_flower_validate_match(rule) ||
@@ -303,6 +291,74 @@ static int rswitch_tc_flower_replace(struct net_device *dev,
 					RSWITCH_IPV4_DST_OFFSET);
 			if (rc)
 				goto free;
+		}
+	}
+
+	if (addr_type == FLOW_DISSECTOR_KEY_IPV6_ADDRS) {
+		struct flow_match_ipv6_addrs match;
+
+		flow_rule_match_ipv6_addrs(rule, &match);
+
+		/*
+		 * Approach is the same as for MAC addresses:
+		 * - 2 four-byte filters in expand mode for exact IPv6
+		 * - 4 four-byte filter in mask mode for masked IPv6 (or less
+		 *   if mask has more than 32 zeros at the end)
+		 */
+		if (!rswitch_ipv6_all_zero(&match.mask->src)) {
+			if (rswitch_ipv6_all_set(&match.mask->src)) {
+				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
+						be32_to_cpu(match.key->src.s6_addr32[0]),
+						be32_to_cpu(match.key->src.s6_addr32[1]),
+						RSWITCH_IPV6_SRC_OFFSET);
+				if (rc)
+					goto free;
+
+				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
+						be32_to_cpu(match.key->src.s6_addr32[2]),
+						be32_to_cpu(match.key->src.s6_addr32[3]),
+						RSWITCH_IPV6_SRC_OFFSET + 8);
+				if (rc)
+					goto free;
+			} else {
+				/* Walk through all 128-bit or until we reach zero mask in addr */
+				for (i = 0; (i < 4) && match.mask->src.s6_addr32[i]; i++) {
+					rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
+							be32_to_cpu(match.key->src.s6_addr32[i]),
+							be32_to_cpu(match.mask->src.s6_addr32[i]),
+							RSWITCH_IPV6_SRC_OFFSET + 4 * i);
+					if (rc)
+						goto free;
+				}
+			}
+		}
+
+		if (!rswitch_ipv6_all_zero((&match.mask->dst))) {
+			if (rswitch_ipv6_all_set(&match.mask->dst)) {
+				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
+						be32_to_cpu(match.key->dst.s6_addr32[0]),
+						be32_to_cpu(match.key->dst.s6_addr32[1]),
+						RSWITCH_IPV6_DST_OFFSET);
+				if (rc)
+					goto free;
+
+				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
+						be32_to_cpu(match.key->dst.s6_addr32[2]),
+						be32_to_cpu(match.key->dst.s6_addr32[3]),
+						RSWITCH_IPV6_DST_OFFSET + 8);
+				if (rc)
+					goto free;
+			} else {
+				/* Walk through all 128-bit or until we reach zero mask in addr */
+				for (i = 0; (i < 4) && match.mask->dst.s6_addr32[i]; i++) {
+					rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
+							be32_to_cpu(match.key->dst.s6_addr32[i]),
+							be32_to_cpu(match.mask->dst.s6_addr32[i]),
+							RSWITCH_IPV6_DST_OFFSET + 4 * i);
+					if (rc)
+						goto free;
+				}
+			}
 		}
 	}
 
