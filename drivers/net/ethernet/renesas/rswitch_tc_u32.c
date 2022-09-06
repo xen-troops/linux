@@ -43,10 +43,16 @@ static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u
 	struct rswitch_private *priv = rdev->priv;
 	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
-	int rc;
+	u16 protocol = be16_to_cpu(cls->common.protocol);
+	int rc, i;
 
 	if (!tc_u32_cfg)
 		return -ENOMEM;
+
+	if ((protocol != ETH_P_IP) && (protocol != ETH_P_IPV6)) {
+		rc = -EOPNOTSUPP;
+		goto free;
+	}
 
 	tc_u32_cfg->cookie = cls->knode.handle;
 	tc_u32_cfg->rdev = rdev;
@@ -63,12 +69,21 @@ static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u
 
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
-	rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-			be32_to_cpu(cls->knode.sel->keys[0].val),
-			be32_to_cpu(cls->knode.sel->keys[0].mask),
-			cls->knode.sel->keys[0].off + RSWITCH_IPV4_HEADER_OFFSET);
+
+	/* Check packets EthType to prevent spurious match on different than IP protos */
+	rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE, protocol, 0xffff,
+				RSWITCH_IP_VERSION_OFFSET);
 	if (rc)
 		goto free;
+
+	for (i = 0; i < cls->knode.sel->nkeys; i++) {
+		rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
+				be32_to_cpu(cls->knode.sel->keys[i].val),
+				be32_to_cpu(cls->knode.sel->keys[i].mask),
+				cls->knode.sel->keys[i].off + RSWITCH_MAC_HEADER_LEN);
+		if (rc)
+			goto free;
+	}
 
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
