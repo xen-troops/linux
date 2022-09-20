@@ -19,7 +19,8 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 		  BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
 		  BIT(FLOW_DISSECTOR_KEY_IP) |
 		  BIT(FLOW_DISSECTOR_KEY_PORTS) |
-		  BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS)
+		  BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
+		  BIT(FLOW_DISSECTOR_KEY_VLAN)
 		  )
 	    ) {
 		return -EOPNOTSUPP;
@@ -338,6 +339,22 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
 					be16_to_cpu(match.key->dst), be16_to_cpu(match.mask->dst),
 					RSWITCH_L4_DST_PORT_OFFSET);
+			if (rc)
+				return rc;
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
+		struct flow_match_vlan match;
+		u16 tci, tci_mask;
+		flow_rule_match_vlan(rule, &match);
+
+		tci = match.key->vlan_id | (match.key->vlan_priority << VLAN_PRIO_SHIFT);
+		tci_mask = match.mask->vlan_id | (match.mask->vlan_priority << VLAN_PRIO_SHIFT);
+
+		if (tci_mask) {
+			rc = rswitch_init_tag_mask_pf_entry(&pf_param, tci, tci_mask,
+						RSWITCH_VLAN_CTAG_OFFSET);
 			if (rc)
 				return rc;
 		}
