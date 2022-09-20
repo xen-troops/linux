@@ -822,6 +822,7 @@ enum rswitch_etha_mode {
 #define FWCFMCij(i, j) (FWCFMC00 + ((i) * 0x40 + (j) * 0x4))
 #define FWCFCi(i) (FWCFC0 + ((i) * 0x40))
 #define SNOOPING_BUS_OFFSET(offset) ((offset) << 16)
+#define TWBFM_VAL(val) ((val) << 8)
 #define TWBFILTER_NUM(i) (2 * (i))
 #define THBFILTER_NUM(i) (2 * (PFL_TWBF_N + i))
 #define FBFILTER_NUM(i) (2 * (PFL_TWBF_N + PFL_THBF_N + i))
@@ -2321,7 +2322,7 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 	rs_write32(RSWITCH_PF_DISABLE_FILTER, priv->addr + FWCFCi(cascade_idx));
 
 	for (i = 0; i < pf_param->used_entries; i++) {
-		u32 val0, val1;
+		u32 val0, val1, cfg_val;
 
 		/*
 		 * Perfect filter uses two values for configuration:
@@ -2329,11 +2330,14 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 		 * - in expand and precise modes: val0, val1 - compared values
 		 */
 		val0 = pf_param->entries[i].val;
-		if (pf_param->entries[i].mode == RSWITCH_PF_MASK_MODE) {
+		if (pf_param->entries[i].match_mode == RSWITCH_PF_MASK_MODE) {
 			val1 = ~(pf_param->entries[i].mask);
 		} else {
 			val1 = pf_param->entries[i].ext_val;
 		}
+
+		cfg_val = pf_param->entries[i].match_mode;
+		cfg_val |= SNOOPING_BUS_OFFSET(pf_param->entries[i].off);
 
 		/* TODO: Free allocated resources */
 		if (rswitch_get_pf_config(priv, &pf_param->entries[i]) < 0)
@@ -2343,13 +2347,15 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 		if (pf_param->entries[i].type == PF_TWO_BYTE) {
 			rs_write32(((u16) val0) | (((u16) val1) << 16),
 				pf_param->entries[i].cfg0_addr);
+
+			cfg_val |= TWBFM_VAL(pf_param->entries[i].filtering_mode);
 		} else {
 			rs_write32(val0, pf_param->entries[i].cfg0_addr);
 			rs_write32(val1, pf_param->entries[i].cfg1_addr);
 		}
 
-		rs_write32(pf_param->entries[i].mode | SNOOPING_BUS_OFFSET(pf_param->entries[i].off),
-			pf_param->entries[i].offs_addr);
+
+		rs_write32(cfg_val, pf_param->entries[i].offs_addr);
 		rs_write32(pf_param->entries[i].pf_num | RSWITCH_PF_ENABLE_FILTER,
 			priv->addr + FWCFMCij(cascade_idx, i));
 	}
@@ -3679,6 +3685,12 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	rswitch_reg_wait(priv->addr, FWL23UTIM, BIT(1), 1);
 	/* TODO: add chrdev for fwd */
 	/* TODO: add proc for fwd */
+
+	/* Enable unsecure APB access to VLAN configuration via FWGC and FWTTCi */
+	rs_write32(BIT(0) | BIT(1), priv->addr + FWSCR0);
+
+	/* Enable C-Tag filtering mode for VLANs */
+	rs_write32(BIT(0), priv->addr + FWGC);
 }
 
 static int rswitch_init(struct rswitch_private *priv)

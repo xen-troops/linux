@@ -12,6 +12,7 @@
 #include <linux/phy.h>
 #include <linux/netdevice.h>
 #include <linux/io.h>
+#include <linux/if_vlan.h>
 #include <net/flow_offload.h>
 #include <net/fib_notifier.h>
 #include <net/ip_fib.h>
@@ -97,6 +98,10 @@ enum DIE_DT {
 #define RSWITCH_PF_EXPAND_MODE (BIT(0))
 #define RSWITCH_PF_PRECISE_MODE (BIT(1))
 
+/* Valid only for two-byte filters (TWBFMi) */
+#define RSWITCH_PF_OFFSET_FILTERING (0)
+#define RSWITCH_PF_TAG_FILTERING (BIT(0))
+
 #define RSWITCH_PF_DISABLE_FILTER (0)
 #define RSWITCH_PF_ENABLE_FILTER (BIT(15))
 
@@ -113,6 +118,8 @@ enum DIE_DT {
 #define RSWITCH_IPV6_DST_OFFSET (38)
 #define RSWITCH_L4_SRC_PORT_OFFSET (34)
 #define RSWITCH_L4_DST_PORT_OFFSET (36)
+#define RSWITCH_VLAN_STAG_OFFSET (0)
+#define RSWITCH_VLAN_CTAG_OFFSET (2)
 
 struct rswitch_desc {
 	__le16 info_ds;	/* Descriptor size */
@@ -334,7 +341,10 @@ struct rswitch_pf_entry {
 	};
 	u32 off;
 	enum pf_type type;
-	u8 mode;
+
+	u8 match_mode;		/* RSWITCH_PF_*_MODE */
+	/* Valid only for two-byte filters */
+	u8 filtering_mode;	/* RSWITCH_PF_*_FILTERING */
 
 	void *cfg0_addr;
 	void *cfg1_addr;
@@ -484,8 +494,30 @@ static inline int rswitch_init_mask_pf_entry(struct rswitch_pf_param *p,
 		return -E2BIG;
 	}
 
-	p->entries[idx].mode = RSWITCH_PF_MASK_MODE;
+	p->entries[idx].match_mode = RSWITCH_PF_MASK_MODE;
+	p->entries[idx].filtering_mode = RSWITCH_PF_OFFSET_FILTERING;
 	p->entries[idx].type = type;
+	p->entries[idx].val = value;
+	p->entries[idx].mask = mask;
+	p->entries[idx].off = offset;
+	p->used_entries++;
+
+	return 0;
+}
+
+static inline int rswitch_init_tag_mask_pf_entry(struct rswitch_pf_param *p,
+		u32 value, u32 mask, u32 offset)
+{
+	int idx = p->used_entries;
+
+	if (idx >= MAX_PF_ENTRIES) {
+		return -E2BIG;
+	}
+
+	p->entries[idx].match_mode = RSWITCH_PF_MASK_MODE;
+	p->entries[idx].filtering_mode = RSWITCH_PF_TAG_FILTERING;
+	/* Tag filtering supported only for two-byte filters */
+	p->entries[idx].type = PF_TWO_BYTE;
 	p->entries[idx].val = value;
 	p->entries[idx].mask = mask;
 	p->entries[idx].off = offset;
@@ -503,7 +535,9 @@ static inline int rswitch_init_expand_pf_entry(struct rswitch_pf_param *p,
 		return -E2BIG;
 	}
 
-	p->entries[idx].mode = RSWITCH_PF_EXPAND_MODE;
+	p->entries[idx].match_mode = RSWITCH_PF_EXPAND_MODE;
+	/* This mode is not supported for tag filtering */
+	p->entries[idx].filtering_mode = RSWITCH_PF_OFFSET_FILTERING;
 	p->entries[idx].type = type;
 	p->entries[idx].val = value;
 	p->entries[idx].ext_val = expand_value;
