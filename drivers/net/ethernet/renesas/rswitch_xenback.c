@@ -72,6 +72,8 @@ rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
 
 	spin_lock_init(&rdev->lock);
 
+	INIT_LIST_HEAD(&rdev->routing_list);
+
 	ndev->features = NETIF_F_RXCSUM;
 	ndev->hw_features = NETIF_F_RXCSUM;
 	ndev->base_addr = (unsigned long)rdev->addr;
@@ -137,7 +139,7 @@ static int rswitch_vmq_back_remove(struct xenbus_device *dev)
 	if (be->type == RSWITCH_PV_TSN) {
 		struct rswitch_device *rdev = be->rswitch_priv->rdev[be->if_num];
 		rswitch_mfwd_set_port_based(be->rswitch_priv, be->if_num,
-					    rdev->rx_chain);
+					    rdev->rx_default_chain);
 		netif_dormant_off(rdev->ndev);
 	}
 
@@ -248,7 +250,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 		case RSWITCH_PV_VMQ:
 			err = xenbus_printf(xbt, dev->nodename,
 					    "remote-chain-id", "%d",
-					    be->rdev->rx_chain->index);
+					    be->rdev->rx_default_chain->index);
 			if (err)
 				goto abort_transaction;
 			break;
