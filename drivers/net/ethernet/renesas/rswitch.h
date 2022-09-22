@@ -369,6 +369,10 @@ struct l23_update_info {
 	bool update_ttl;
 	bool update_dst_mac;
 	bool update_src_mac;
+	bool update_ctag_vlan_id;
+	bool update_ctag_vlan_prio;
+	u16 vlan_id;
+	u8 vlan_prio;
 };
 
 struct l3_ipv4_fwd_param {

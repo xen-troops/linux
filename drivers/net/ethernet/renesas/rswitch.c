@@ -810,6 +810,14 @@ enum rswitch_etha_mode {
 /* Update source MAC */
 #define L23UMSAUL (BIT(18))
 
+/* C-Tag VID update */
+#define L23UCVIDUL (BIT(19))
+/* C-Tag PCP (prio) update */
+#define L23UCPCPUL (BIT(20))
+
+#define RSWITCH_CTAG_VID(id) (id & 0xfff)
+#define RSWITCH_CTAG_VPRIO(prio) ((prio & 0x7) << 12)
+
 #define FWTWBFVCi(i) (FWTWBFVC0 + ((i) * 0x10))
 #define FWTHBFV0Ci(i) (FWTHBFV0C0 + ((i) * 0x10))
 #define FWTHBFV1Ci(i) (FWTHBFV1C0 + ((i) * 0x10))
@@ -2150,20 +2158,32 @@ LIST_HEAD(rswitch_block_cb_list);
 
 static int rswitch_setup_l23_update(struct l23_update_info *l23_info)
 {
-	u32 update_rule = 0;
-
+	u32 url1_val = 0, url2_val = 0, url3_val = 0;
 	if (l23_info->update_ttl)
-		update_rule |= L23UTTLUL;
-	if (l23_info->update_dst_mac)
-		update_rule |= L23UMDAUL;
+		url1_val |= L23UTTLUL;
 	if (l23_info->update_src_mac)
-		update_rule |= L23UMSAUL;
+		url1_val |= L23UMSAUL;
+
+	if (l23_info->update_dst_mac) {
+		url1_val |= L23UMDAUL;
+		url1_val |= l23_info->dst_mac[0] << 8 | l23_info->dst_mac[1];
+		url2_val = l23_info->dst_mac[2] << 24 | l23_info->dst_mac[3] << 16 |
+			l23_info->dst_mac[4] << 8 | l23_info->dst_mac[5];
+	}
+
+	if (l23_info->update_ctag_vlan_id) {
+		url1_val |= L23UCVIDUL;
+		url3_val |= RSWITCH_CTAG_VID(l23_info->vlan_id);
+	}
+	if (l23_info->update_ctag_vlan_prio) {
+		url1_val |= L23UCPCPUL;
+		url3_val |= RSWITCH_CTAG_VPRIO(l23_info->vlan_prio);
+	}
 
 	rs_write32(l23_info->routing_number | l23_info->routing_port_valid << 16, l23_info->priv->addr + FWL23URL0);
-	rs_write32(l23_info->dst_mac[0] << 8 | l23_info->dst_mac[1] | update_rule, l23_info->priv->addr + FWL23URL1);
-	rs_write32(l23_info->dst_mac[2] << 24 | l23_info->dst_mac[3] << 16 | l23_info->dst_mac[4] << 8 |
-		l23_info->dst_mac[5], l23_info->priv->addr + FWL23URL2);
-	rs_write32(0, l23_info->priv->addr + FWL23URL3);
+	rs_write32(url1_val, l23_info->priv->addr + FWL23URL1);
+	rs_write32(url2_val, l23_info->priv->addr + FWL23URL2);
+	rs_write32(url3_val, l23_info->priv->addr + FWL23URL3);
 
 	return rs_read32(l23_info->priv->addr + FWL23URLR);
 }
@@ -2174,7 +2194,8 @@ static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
 
 	if (!delete) {
 		if (param->l23_info.update_dst_mac || param->l23_info.update_src_mac ||
-			param->l23_info.update_ttl) {
+			param->l23_info.update_ttl || param->l23_info.update_ctag_vlan_id ||
+			param->l23_info.update_ctag_vlan_prio) {
 			rswitch_setup_l23_update(&param->l23_info);
 		}
 	}
