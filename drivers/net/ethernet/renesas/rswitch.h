@@ -260,6 +260,7 @@ struct rswitch_private {
 	struct rswitch_desc *desc_bat;
 	dma_addr_t desc_bat_dma;
 	u32 desc_bat_size;
+	phys_addr_t dev_id;
 
 	struct rswitch_device *rdev[RSWITCH_MAX_NUM_NDEV];
 
