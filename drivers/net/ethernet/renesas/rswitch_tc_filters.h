@@ -16,6 +16,7 @@ enum rswitch_tc_action {
 	ACTION_DROP = BIT(0),
 	ACTION_MIRRED_REDIRECT = BIT(1),
 	ACTION_CHANGE_DMAC = BIT(2),
+	ACTION_VLAN_CHANGE = BIT(3),
 };
 
 struct rswitch_tc_filter {
@@ -25,6 +26,8 @@ struct rswitch_tc_filter {
 	struct l3_ipv4_fwd_param param;
 	struct list_head lh;
 	u8 dmac[ETH_ALEN];
+	u16 vlan_id;
+	u8 vlan_prio;
 	enum rswitch_tc_action action;
 };
 
