@@ -29,6 +29,8 @@
 #include <net/nexthop.h>
 #include <net/netns/generic.h>
 #include <net/arp.h>
+#include <net/flow_offload.h>
+#include <net/fib_notifier.h>
 
 #include "rtsn_ptp.h"
 #include "rswitch.h"
@@ -2106,6 +2108,63 @@ static int rswitch_hwstamp_get(struct net_device *ndev, struct ifreq *req)
 	return copy_to_user(req->ifr_data, &config, sizeof(config)) ? -EFAULT : 0;
 }
 
+LIST_HEAD(rswitch_block_cb_list);
+
+static int rswitch_setup_tc_block_bind(struct rswitch_device *rdev,
+		struct flow_block_offload *f, bool ingress)
+{
+
+	return 0;
+}
+
+static int rswitch_setup_tc_block_unbind(struct rswitch_device *rdev,
+		struct flow_block_offload *f, bool ingress)
+{
+
+	return 0;
+}
+
+static int rswitch_setup_tc_block_clsact(struct rswitch_device *rdev,
+		struct flow_block_offload *f, bool ingress)
+{
+	f->driver_block_list = &rswitch_block_cb_list;
+
+	switch (f->command) {
+		case FLOW_BLOCK_BIND:
+			return rswitch_setup_tc_block_bind(rdev, f, ingress);
+		case FLOW_BLOCK_UNBIND:
+			return rswitch_setup_tc_block_unbind(rdev, f, ingress);
+		default:
+			return -EOPNOTSUPP;
+	}
+}
+
+static int rswitch_setup_tc_block(struct rswitch_device *rdev,
+		struct flow_block_offload *f)
+{
+	switch (f->binder_type) {
+		case FLOW_BLOCK_BINDER_TYPE_CLSACT_INGRESS:
+			return rswitch_setup_tc_block_clsact(rdev, f, true);
+		case FLOW_BLOCK_BINDER_TYPE_CLSACT_EGRESS:
+			return rswitch_setup_tc_block_clsact(rdev, f, false);
+		default:
+			return -EOPNOTSUPP;
+	}
+}
+
+static int rswitch_setup_tc(struct net_device *ndev, enum tc_setup_type type,
+		void *type_data)
+{
+	struct rswitch_device *rdev = netdev_priv(ndev);
+
+	switch (type) {
+		case TC_SETUP_BLOCK:
+			return rswitch_setup_tc_block(rdev, type_data);
+		default:
+			return -EOPNOTSUPP;
+	}
+}
+
 static int rswitch_hwstamp_set(struct net_device *ndev, struct ifreq *req)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
@@ -2168,6 +2227,17 @@ static int rswitch_do_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 	return 0;
 }
 
+static int rswitch_port_get_port_parent_id(struct net_device *ndev,
+					  struct netdev_phys_item_id *ppid)
+{
+	struct rswitch_device *rdev = netdev_priv(ndev);
+
+	ppid->id_len = sizeof(rdev->priv->dev_id);
+	memcpy(&ppid->id, &rdev->priv->dev_id, ppid->id_len);
+
+	return 0;
+}
+
 const struct net_device_ops rswitch_netdev_ops = {
 	.ndo_open = rswitch_open,
 	.ndo_stop = rswitch_stop,
@@ -2176,6 +2246,8 @@ const struct net_device_ops rswitch_netdev_ops = {
 	.ndo_do_ioctl = rswitch_do_ioctl,
 	.ndo_validate_addr = eth_validate_addr,
 	.ndo_set_mac_address = eth_mac_addr,
+	.ndo_get_port_parent_id = rswitch_port_get_port_parent_id,
+	.ndo_setup_tc           = rswitch_setup_tc,
 //	.ndo_change_mtu = eth_change_mtu,
 };
 
@@ -3549,6 +3621,8 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 		return PTR_ERR(priv->serdes_addr);
 
 	debug_addr = priv->addr;
+	priv->dev_id = res->start;
+
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(40));
 	if (ret < 0) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
