@@ -31,6 +31,8 @@
 #include <net/arp.h>
 #include <net/flow_offload.h>
 #include <net/fib_notifier.h>
+#include <net/pkt_cls.h>
+#include <net/tc_act/tc_gact.h>
 
 #include "rtsn_ptp.h"
 #include "rswitch.h"
@@ -804,6 +806,7 @@ enum rswitch_etha_mode {
 #define MAC_DST_OFFSET (0)
 #define MAC_SRC_OFFSET (6)
 #define IP_VERSION_OFFSET (12)
+#define IPV4_HEADER_OFFSET (14)
 #define IPV4_SRC_OFFSET (26)
 #define IPV4_DST_OFFSET (30)
 
@@ -2110,17 +2113,137 @@ static int rswitch_hwstamp_get(struct net_device *ndev, struct ifreq *req)
 
 LIST_HEAD(rswitch_block_cb_list);
 
+static int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param);
+
+static int rswitch_add_drop_action_knode(struct rswitch_device *rdev, struct tc_cls_u32_offload *cls)
+{
+	struct rswitch_private *priv = rdev->priv;
+	u32 reverse_mask = ~be32_to_cpu(cls->knode.sel->keys[0].mask);
+	int cascade_idx, four_byte_idx;
+	struct rswitch_tc_u32_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
+	if (!tc_u32_cfg)
+		return -ENOMEM;
+
+	tc_u32_cfg->action = FILTER_DROP;
+	tc_u32_cfg->dev = rdev;
+	tc_u32_cfg->ip = be32_to_cpu(cls->knode.sel->keys[0].val);
+	tc_u32_cfg->mask = be32_to_cpu(cls->knode.sel->keys[0].mask);
+	tc_u32_cfg->offset = cls->knode.sel->keys[0].off;
+	/* Leave other paramters as zero */
+	tc_u32_cfg->param.priv = priv;
+	tc_u32_cfg->param.slv = 0x3F;
+
+	cascade_idx = find_first_zero_bit(priv->filters.cascade, PFL_CADF_N);
+	four_byte_idx = find_first_zero_bit(priv->filters.four_bytes, PFL_FOBF_N);
+	if (cascade_idx == PFL_CADF_N || four_byte_idx == PFL_FOBF_N)
+		return -EOPNOTSUPP;
+
+	tc_u32_cfg->param.pf_cascade_index = cascade_idx;
+
+	rs_write32(DISABLE_CASCADE_FILTER, priv->addr + FWCFCi(cascade_idx));
+	rs_write32(tc_u32_cfg->ip, priv->addr + FWFOBFV0Ci(four_byte_idx));
+	rs_write32(reverse_mask, priv->addr + FWFOBFV1Ci(four_byte_idx));
+	rs_write32(MASK_MODE | SNOOPING_BUS_OFFSET(cls->knode.sel->keys[0].off + IPV4_HEADER_OFFSET), priv->addr + FWFOBFCi(four_byte_idx));
+	rs_write32(FBFILTER_NUM(four_byte_idx) | ENABLE_FILTER, priv->addr + FWCFMCij(cascade_idx, 0));
+	rs_write32(0x000f003f, priv->addr + FWCFCi(cascade_idx));
+
+	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
+		kfree(tc_u32_cfg);
+		return -EOPNOTSUPP;
+	}
+
+	set_bit(four_byte_idx, priv->filters.four_bytes);
+	set_bit(cascade_idx, priv->filters.cascade);
+
+	list_add(&tc_u32_cfg->list, &rdev->tc_u32_list);
+
+	return 0;
+}
+
+static int rswitch_new_knode(struct net_device *ndev, struct tc_cls_u32_offload *cls)
+{
+	struct rswitch_device *rdev = netdev_priv(ndev);
+	const struct tc_action *a;
+	struct tcf_exts *exts;
+	int i;
+
+	exts = cls->knode.exts;
+	if (!tcf_exts_has_actions(exts))
+		return -EINVAL;
+
+	tcf_exts_for_each_action(i, a, exts) {
+		/* Drop in hardware. */
+		if (is_tcf_gact_shot(a)) {
+			return rswitch_add_drop_action_knode(rdev, cls);
+		}
+	}
+
+	return -EOPNOTSUPP;
+}
+
+static int rswitch_delete_knode(struct net_device *dev, struct tc_cls_u32_offload *cls)
+{
+	return -EOPNOTSUPP;
+}
+
+static int rswitch_setup_tc_flower(struct net_device *dev,
+		struct flow_cls_offload *cls_flower)
+{
+	return -EOPNOTSUPP;
+}
+
+static int rswitch_setup_tc_cls_u32(struct net_device *dev,
+		struct tc_cls_u32_offload *cls_u32)
+{
+	switch (cls_u32->command) {
+		case TC_CLSU32_NEW_KNODE:
+		case TC_CLSU32_REPLACE_KNODE:
+			return rswitch_new_knode(dev, cls_u32);
+		case TC_CLSU32_DELETE_KNODE:
+			return rswitch_delete_knode(dev, cls_u32);
+		default:
+			return -EOPNOTSUPP;
+	}
+
+	return -EOPNOTSUPP;
+}
+
+static int rswitch_setup_tc_matchall(struct net_device *dev,
+		struct tc_cls_matchall_offload *cls_matchall)
+{
+	return -EOPNOTSUPP;
+}
+
+static int rswitch_setup_tc_block_cb(enum tc_setup_type type,
+		void *type_data,
+		void *cb_priv)
+{
+	struct net_device *dev = cb_priv;
+
+	switch (type) {
+		case TC_SETUP_CLSU32:
+			return rswitch_setup_tc_cls_u32(dev, type_data);
+		case TC_SETUP_CLSFLOWER:
+			return rswitch_setup_tc_flower(dev, type_data);
+		case TC_SETUP_CLSMATCHALL:
+			return rswitch_setup_tc_matchall(dev, type_data);
+		default:
+			return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
 static int rswitch_setup_tc_block_bind(struct rswitch_device *rdev,
 		struct flow_block_offload *f, bool ingress)
 {
-
-	return 0;
+	return flow_block_cb_setup_simple(f, &rswitch_block_cb_list,
+		rswitch_setup_tc_block_cb, rdev, rdev->ndev, ingress);
 }
 
 static int rswitch_setup_tc_block_unbind(struct rswitch_device *rdev,
 		struct flow_block_offload *f, bool ingress)
 {
-
 	return 0;
 }
 
@@ -3134,6 +3257,7 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 	rdev->ndev = ndev;
 	rdev->priv = priv;
 	INIT_LIST_HEAD(&rdev->routing_list);
+	INIT_LIST_HEAD(&rdev->tc_u32_list);
 	priv->rdev[index] = rdev;
 	/* TODO: netdev instance : ETHA port is 1:1 mapping */
 	if (index < RSWITCH_MAX_NUM_ETHA) {

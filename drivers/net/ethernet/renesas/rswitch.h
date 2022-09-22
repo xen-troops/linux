@@ -214,6 +214,23 @@ struct rswitch_ipv4_route {
 	struct list_head list;
 };
 
+enum rswitch_tc_u32_action {
+	FILTER_PASS = 0,
+	FILTER_DROP,
+	FILTER_SWITCH
+};
+
+struct rswitch_tc_u32_filter {
+	u32 ip;
+	u32 subnet;
+	u32 mask;
+	u32 offset;
+	enum rswitch_tc_u32_action action;
+	struct rswitch_device *dev;
+	struct list_head list;
+	struct l3_ipv4_fwd_param param;
+};
+
 struct rswitch_device {
 	struct rswitch_private *priv;
 	struct net_device *ndev;
@@ -231,6 +248,7 @@ struct rswitch_device {
 	u8 remote_chain;
 	struct rswitch_vmq_front_info *front_info;
 	struct list_head routing_list;
+	struct list_head tc_u32_list;
 };
 
 /* Two-byte filter number */
