@@ -2406,13 +2406,13 @@ static int rswitch_add_drop_action_knode(struct rswitch_tc_u32_filter *filter, s
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
 		kfree(tc_u32_cfg);
-		return -EOPNOTSUPP;
+		return -E2BIG;
 	}
 
 	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
 		rswitch_put_pf(&tc_u32_cfg->param);
 		kfree(tc_u32_cfg);
-		return -EOPNOTSUPP;
+		return -EBUSY;
 	}
 
 	list_add(&tc_u32_cfg->list, &rdev->tc_u32_list);
@@ -2459,13 +2459,13 @@ static int rswitch_add_redirect_action_knode(struct rswitch_tc_u32_filter *filte
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
 		kfree(tc_u32_cfg);
-		return -EOPNOTSUPP;
+		return -E2BIG;
 	}
 
 	if (rswitch_add_l3fwd(&tc_u32_cfg->param)) {
 		rswitch_put_pf(&tc_u32_cfg->param);
 		kfree(tc_u32_cfg);
-		return -EOPNOTSUPP;
+		return -EBUSY;
 	}
 
 	list_add(&tc_u32_cfg->list, &rdev->tc_u32_list);
@@ -2523,7 +2523,7 @@ static int rswitch_del_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 	if (removed)
 		return 0;
 
-	return -EOPNOTSUPP;
+	return -ENOENT;
 }
 
 static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload *cls)
