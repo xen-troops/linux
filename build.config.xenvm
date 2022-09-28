@@ -1,5 +1,6 @@
 . ${ROOT_DIR}/${KERNEL_DIR}/build.config.common
 . ${ROOT_DIR}/${KERNEL_DIR}/build.config.aarch64
+. ${ROOT_DIR}/${KERNEL_DIR}/build.config.allmodconfig
 
 DEFCONFIG=android_xenvm_defconfig
 CROSS_COMPILE=aarch64-linux-gnu-
@@ -7,6 +8,13 @@ CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 LINUX_GCC_CROSS_COMPILE_PREBUILTS_BIN=prebuilts/gas/linux-x86
 LINUX_GCC_CROSS_COMPILE_COMPAT_PREBUILTS_BIN=prebuilts-master/gcc/linux-x86/aarch64/bin
 
+EXT_MODULES="
+modules/vspm
+modules/vspmif
+modules/mmngr
+modules/uvcs
+imagination
+"
 
 FILES="
 arch/arm64/boot/Image
