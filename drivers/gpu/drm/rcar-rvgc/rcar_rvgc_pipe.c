@@ -156,8 +156,7 @@ rvgc_connector_create(struct rcar_rvgc_pipe *rvgc_pipe)
 }
 
 static void rvgc_pipe_enable(struct drm_simple_display_pipe *pipe,
-			     struct drm_crtc_state *crtc_state,
-			     struct drm_plane_state *plane_state)
+			struct drm_crtc_state *crtc_state)
 {
 	struct device *ddev = pipe->plane.dev->dev;
 	struct rcar_rvgc_pipe *rvgc_pipe = container_of(pipe, struct rcar_rvgc_pipe, drm_simple_pipe);
