@@ -142,7 +142,7 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 			filter.action |= ACTION_DROP;
 
 		if (entry->id == FLOW_ACTION_VLAN_MANGLE) {
-			if (entry->vlan.proto != ETH_P_8021Q) {
+			if (be16_to_cpu(entry->vlan.proto) != ETH_P_8021Q) {
 				pr_err("Unsupported VLAN proto for offload!\n");
 				return -EOPNOTSUPP;
 			}
