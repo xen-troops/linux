@@ -247,6 +247,7 @@ static int rcar_rvgc_probe(struct rpmsg_device* rpdev) {
 
 	ddev->irq_enabled = 1;
 	ddev->dev->coherent_dma_mask = DMA_BIT_MASK(32);
+	ddev->dev->dma_mask = &ddev->dev->coherent_dma_mask;
 
 	/*
 	 * Register the DRM device with the core and the connectors with
