@@ -2422,42 +2422,15 @@ static int rswitch_setup_tc_block_cb(enum tc_setup_type type,
 	return 0;
 }
 
-static int rswitch_setup_tc_block_bind(struct rswitch_device *rdev,
-		struct flow_block_offload *f, bool ingress)
-{
-	return flow_block_cb_setup_simple(f, &rswitch_block_cb_list,
-		rswitch_setup_tc_block_cb, rdev, rdev->ndev, ingress);
-}
-
-static int rswitch_setup_tc_block_unbind(struct rswitch_device *rdev,
-		struct flow_block_offload *f, bool ingress)
-{
-	return 0;
-}
-
-static int rswitch_setup_tc_block_clsact(struct rswitch_device *rdev,
-		struct flow_block_offload *f, bool ingress)
-{
-	f->driver_block_list = &rswitch_block_cb_list;
-
-	switch (f->command) {
-		case FLOW_BLOCK_BIND:
-			return rswitch_setup_tc_block_bind(rdev, f, ingress);
-		case FLOW_BLOCK_UNBIND:
-			return rswitch_setup_tc_block_unbind(rdev, f, ingress);
-		default:
-			return -EOPNOTSUPP;
-	}
-}
-
 static int rswitch_setup_tc_block(struct rswitch_device *rdev,
 		struct flow_block_offload *f)
 {
+	f->driver_block_list = &rswitch_block_cb_list;
+
 	switch (f->binder_type) {
 		case FLOW_BLOCK_BINDER_TYPE_CLSACT_INGRESS:
-			return rswitch_setup_tc_block_clsact(rdev, f, true);
-		case FLOW_BLOCK_BINDER_TYPE_CLSACT_EGRESS:
-			return rswitch_setup_tc_block_clsact(rdev, f, false);
+			return flow_block_cb_setup_simple(f, &rswitch_block_cb_list,
+				rswitch_setup_tc_block_cb, rdev, rdev->ndev, true);
 		default:
 			return -EOPNOTSUPP;
 	}
