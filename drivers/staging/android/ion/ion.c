@@ -35,6 +35,8 @@ static struct ion_device *internal_dev;
 struct dma_buf *ion_alloc(size_t len, unsigned int heap_id_mask,
 			  unsigned int flags)
 {
+	if (0xFFFFFFFF == heap_id_mask)
+               heap_id_mask = 0x1;
 	return ion_dmabuf_alloc(internal_dev, len, heap_id_mask, flags);
 }
 EXPORT_SYMBOL_GPL(ion_alloc);
@@ -50,6 +52,9 @@ static int ion_alloc_fd(size_t len, unsigned int heap_id_mask,
 {
 	int fd;
 	struct dma_buf *dmabuf;
+
+	if (0xFFFFFFFF == heap_id_mask)
+               heap_id_mask = 0x1;
 
 	dmabuf = ion_dmabuf_alloc(internal_dev, len, heap_id_mask, flags);
 	if (IS_ERR(dmabuf))
