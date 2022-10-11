@@ -535,7 +535,7 @@ struct mac80211_hwsim_data {
 	bool ps_poll_pending;
 	struct dentry *debugfs;
 
-	uintptr_t pending_cookie;
+	atomic_t pending_cookie;
 	struct sk_buff_head pending;	/* packets pending */
 	/*
 	 * Only radios in the same group can communicate together (the
@@ -1055,6 +1055,47 @@ static int hwsim_unicast_netgroup(struct mac80211_hwsim_data *data,
 	return res;
 }
 
+static void mac80211_hwsim_config_mac_nl(struct ieee80211_hw *hw,
+					 const u8 *addr, bool add)
+{
+	struct mac80211_hwsim_data *data = hw->priv;
+	u32 _portid = READ_ONCE(data->wmediumd);
+	struct sk_buff *skb;
+	void *msg_head;
+
+	if (!_portid && !hwsim_virtio_enabled)
+		return;
+
+	skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_ATOMIC);
+	if (!skb)
+		return;
+
+	msg_head = genlmsg_put(skb, 0, 0, &hwsim_genl_family, 0,
+			       add ? HWSIM_CMD_ADD_MAC_ADDR :
+				     HWSIM_CMD_DEL_MAC_ADDR);
+	if (!msg_head) {
+		pr_debug("mac80211_hwsim: problem with msg_head\n");
+		goto nla_put_failure;
+	}
+
+	if (nla_put(skb, HWSIM_ATTR_ADDR_TRANSMITTER,
+		    ETH_ALEN, data->addresses[1].addr))
+		goto nla_put_failure;
+
+	if (nla_put(skb, HWSIM_ATTR_ADDR_RECEIVER, ETH_ALEN, addr))
+		goto nla_put_failure;
+
+	genlmsg_end(skb, msg_head);
+
+	if (hwsim_virtio_enabled)
+		hwsim_tx_virtio(data, skb);
+	else
+		hwsim_unicast_netgroup(data, skb, _portid);
+	return;
+nla_put_failure:
+	nlmsg_free(skb);
+}
+
 static inline u16 trans_tx_rate_flags_ieee2hwsim(struct ieee80211_tx_rate *rate)
 {
 	u16 result = 0;
@@ -1168,8 +1209,7 @@ static void mac80211_hwsim_tx_frame_nl(struct ieee80211_hw *hw,
 		goto nla_put_failure;
 
 	/* We create a cookie to identify this skb */
-	data->pending_cookie++;
-	cookie = data->pending_cookie;
+	cookie = atomic_inc_return(&data->pending_cookie);
 	info->rate_driver_data[0] = (void *)cookie;
 	if (nla_put_u64_64bit(skb, HWSIM_ATTR_COOKIE, cookie, HWSIM_ATTR_PAD))
 		goto nla_put_failure;
@@ -1538,6 +1578,9 @@ static int mac80211_hwsim_add_interface(struct ieee80211_hw *hw,
 		  vif->addr);
 	hwsim_set_magic(vif);
 
+	if (vif->type != NL80211_IFTYPE_MONITOR)
+		mac80211_hwsim_config_mac_nl(hw, vif->addr, true);
+
 	vif->cab_queue = 0;
 	vif->hw_queue[IEEE80211_AC_VO] = 0;
 	vif->hw_queue[IEEE80211_AC_VI] = 1;
@@ -1577,6 +1620,8 @@ static void mac80211_hwsim_remove_interface(
 		  vif->addr);
 	hwsim_check_magic(vif);
 	hwsim_clear_magic(vif);
+	if (vif->type != NL80211_IFTYPE_MONITOR)
+		mac80211_hwsim_config_mac_nl(hw, vif->addr, false);
 }
 
 static void mac80211_hwsim_tx_frame(struct ieee80211_hw *hw,
@@ -2090,6 +2135,8 @@ static void hw_scan_work(struct work_struct *work)
 		hwsim->hw_scan_vif = NULL;
 		hwsim->tmp_chan = NULL;
 		mutex_unlock(&hwsim->mutex);
+		mac80211_hwsim_config_mac_nl(hwsim->hw, hwsim->scan_addr,
+					     false);
 		return;
 	}
 
@@ -2123,11 +2170,13 @@ static void hw_scan_work(struct work_struct *work)
 			if (req->ie_len)
 				skb_put_data(probe, req->ie, req->ie_len);
 
+			rcu_read_lock();
 			if (!ieee80211_tx_prepare_skb(hwsim->hw,
 						      hwsim->hw_scan_vif,
 						      probe,
 						      hwsim->tmp_chan->band,
 						      NULL)) {
+				rcu_read_unlock();
 				kfree_skb(probe);
 				continue;
 			}
@@ -2135,6 +2184,7 @@ static void hw_scan_work(struct work_struct *work)
 			local_bh_disable();
 			mac80211_hwsim_tx_frame(hwsim->hw, probe,
 						hwsim->tmp_chan);
+			rcu_read_unlock();
 			local_bh_enable();
 		}
 	}
@@ -2172,6 +2222,7 @@ static int mac80211_hwsim_hw_scan(struct ieee80211_hw *hw,
 	memset(hwsim->survey_data, 0, sizeof(hwsim->survey_data));
 	mutex_unlock(&hwsim->mutex);
 
+	mac80211_hwsim_config_mac_nl(hw, hwsim->scan_addr, true);
 	wiphy_dbg(hw->wiphy, "hwsim hw_scan request\n");
 
 	ieee80211_queue_delayed_work(hwsim->hw, &hwsim->hw_scan, 0);
@@ -2215,6 +2266,7 @@ static void mac80211_hwsim_sw_scan(struct ieee80211_hw *hw,
 	pr_debug("hwsim sw_scan request, prepping stuff\n");
 
 	memcpy(hwsim->scan_addr, mac_addr, ETH_ALEN);
+	mac80211_hwsim_config_mac_nl(hw, hwsim->scan_addr, true);
 	hwsim->scanning = true;
 	memset(hwsim->survey_data, 0, sizeof(hwsim->survey_data));
 
@@ -2231,6 +2283,7 @@ static void mac80211_hwsim_sw_scan_complete(struct ieee80211_hw *hw,
 
 	pr_debug("hwsim sw_scan_complete\n");
 	hwsim->scanning = false;
+	mac80211_hwsim_config_mac_nl(hw, hwsim->scan_addr, false);
 	eth_zero_addr(hwsim->scan_addr);
 
 	mutex_unlock(&hwsim->mutex);
@@ -3336,6 +3389,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	const u8 *src;
 	unsigned int hwsim_flags;
 	int i;
+	unsigned long flags;
 	bool found = false;
 
 	if (!info->attrs[HWSIM_ATTR_ADDR_TRANSMITTER] ||
@@ -3363,18 +3417,20 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	}
 
 	/* look for the skb matching the cookie passed back from user */
+	spin_lock_irqsave(&data2->pending.lock, flags);
 	skb_queue_walk_safe(&data2->pending, skb, tmp) {
-		u64 skb_cookie;
+		uintptr_t skb_cookie;
 
 		txi = IEEE80211_SKB_CB(skb);
-		skb_cookie = (u64)(uintptr_t)txi->rate_driver_data[0];
+		skb_cookie = (uintptr_t)txi->rate_driver_data[0];
 
 		if (skb_cookie == ret_skb_cookie) {
-			skb_unlink(skb, &data2->pending);
+			__skb_unlink(skb, &data2->pending);
 			found = true;
 			break;
 		}
 	}
+	spin_unlock_irqrestore(&data2->pending.lock, flags);
 
 	/* not found */
 	if (!found)
@@ -3407,6 +3463,10 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 		}
 		txi->flags |= IEEE80211_TX_STAT_ACK;
 	}
+
+	if (hwsim_flags & HWSIM_TX_CTL_NO_ACK)
+		txi->flags |= IEEE80211_TX_STAT_NOACK_TRANSMITTED;
+
 	ieee80211_tx_status_irqsafe(data2->hw, skb);
 	return 0;
 out:
