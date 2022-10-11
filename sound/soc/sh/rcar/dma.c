@@ -840,12 +840,27 @@ int rsnd_dma_attach(struct rsnd_dai_stream *io, struct rsnd_mod *mod,
 	return rsnd_dai_connect(*dma_mod, io, (*dma_mod)->type);
 }
 
+static void rsnd_xen_p2m_fix(void)
+{
+	int i;
+	uint32_t addr[2] = {0xec000000, 0xec008000};
+	void *ptr;
+
+	for (i = 0; i < 2; i++)
+	{
+		ptr = ioremap(addr[i], 4);
+		(void)readl(ptr);
+		iounmap(ptr);
+	}
+}
+
 int rsnd_dma_probe(struct rsnd_priv *priv)
 {
 	struct platform_device *pdev = rsnd_priv_to_pdev(priv);
 	struct device *dev = rsnd_priv_to_dev(priv);
 	struct rsnd_dma_ctrl *dmac;
 	struct resource *res;
+	int rv;
 
 	/*
 	 * for Gen1
@@ -871,5 +886,8 @@ int rsnd_dma_probe(struct rsnd_priv *priv)
 	priv->dma = dmac;
 
 	/* dummy mem mod for debug */
-	return rsnd_mod_init(NULL, &mem, &mem_ops, NULL, 0, 0);
+	rv = rsnd_mod_init(NULL, &mem, &mem_ops, NULL, 0, 0);
+	/* HACK: force XEN P2M to resolve translation fault on SRC addresses */
+	rsnd_xen_p2m_fix();
+	return rv;
 }
