@@ -204,8 +204,12 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 		}
 
 		/* Drop in hardware */
-		if (is_tcf_gact_shot(a))
+		if (is_tcf_gact_shot(a)) {
 			filter.action |= ACTION_DROP;
+			continue;
+		}
+
+		return -EOPNOTSUPP;
 	}
 
 	/* skbmod cannot be offloaded without redirect */
