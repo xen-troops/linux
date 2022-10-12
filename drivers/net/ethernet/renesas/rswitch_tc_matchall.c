@@ -138,8 +138,10 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 		}
 
 		/* Drop in hardware */
-		if (entry->id == FLOW_ACTION_DROP)
+		if (entry->id == FLOW_ACTION_DROP) {
 			filter.action |= ACTION_DROP;
+			continue;
+		}
 
 		if (entry->id == FLOW_ACTION_VLAN_MANGLE) {
 			if (be16_to_cpu(entry->vlan.proto) != ETH_P_8021Q) {
@@ -150,7 +152,10 @@ static int rswitch_tc_matchall_replace(struct net_device *ndev,
 			filter.vlan_id = entry->vlan.vid;
 			filter.vlan_prio = entry->vlan.prio;
 			filter.action |= ACTION_VLAN_CHANGE;
+			continue;
 		}
+
+		return -EOPNOTSUPP;
 	}
 
 	/* skbmod cannot be offloaded without redirect */
