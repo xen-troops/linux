@@ -262,6 +262,16 @@ void vhost_dev_flush(struct vhost_dev *dev)
 }
 EXPORT_SYMBOL_GPL(vhost_dev_flush);
 
+static void vhost_worker_flush(struct vhost_worker *w)
+{
+       struct vhost_flush_struct flush;
+
+       init_completion(&flush.wait_event);
+       vhost_work_init(&flush.work, vhost_flush_work);
+       vhost_work_queue_at_worker(w, &flush.work);
+       wait_for_completion(&flush.wait_event);
+}
+
 void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
 {
 	struct vhost_worker *w = &dev->workers[0];
@@ -562,14 +572,14 @@ static void vhost_attach_cgroups_work(struct vhost_work *work)
 	s->ret = cgroup_attach_task_all(s->owner, current);
 }
 
-static int vhost_attach_cgroups(struct vhost_dev *dev)
+static int vhost_worker_attach_cgroups(struct vhost_worker *w)
 {
 	struct vhost_attach_cgroups_struct attach;
 
 	attach.owner = current;
 	vhost_work_init(&attach.work, vhost_attach_cgroups_work);
-	vhost_work_queue(dev, &attach.work);
-	vhost_dev_flush(dev);
+	vhost_work_queue_at_worker(w, &attach.work);
+	vhost_worker_flush(w);
 	return attach.ret;
 }
 
@@ -637,7 +647,7 @@ long vhost_dev_set_owner(struct vhost_dev *dev)
 		dev->nworkers = 1;
 		wake_up_process(worker); /* avoid contributing to loadavg */
 
-		err = vhost_attach_cgroups(dev);
+		err = vhost_worker_attach_cgroups(&dev->workers[0]);
 		if (err)
 			goto err_cgroup;
 	}
