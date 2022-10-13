@@ -8,6 +8,7 @@
 #include <net/tc_act/tc_mirred.h>
 #include <net/tc_act/tc_skbmod.h>
 #include <net/tc_act/tc_gact.h>
+#include <net/tc_act/tc_vlan.h>
 
 #include "rswitch.h"
 #include "rswitch_tc_filters.h"
@@ -26,15 +27,25 @@ static void rswitch_init_u32_redirect_action(struct rswitch_tc_filter *cfg,
 	cfg->action = f->action;
 	cfg->param.slv = BIT(f->rdev->port);
 	cfg->param.dv = BIT(f->target_rdev->port);
-	if (f->action & ACTION_CHANGE_DMAC) {
+
+	if (f->action & (ACTION_CHANGE_DMAC | ACTION_VLAN_CHANGE)) {
 		cfg->param.l23_info.priv = f->rdev->priv;
-		ether_addr_copy(cfg->param.l23_info.dst_mac, f->dmac);
-		ether_addr_copy(cfg->dmac, f->dmac);
-		cfg->param.l23_info.update_dst_mac = true;
 		cfg->param.l23_info.routing_number = rswitch_rn_get(f->rdev->priv);
 		cfg->param.l23_info.routing_port_valid = BIT(f->rdev->port) | BIT(f->target_rdev->port);
-	}
 
+		if (f->action & ACTION_CHANGE_DMAC) {
+			ether_addr_copy(cfg->param.l23_info.dst_mac, f->dmac);
+			ether_addr_copy(cfg->dmac, f->dmac);
+			cfg->param.l23_info.update_dst_mac = true;
+		}
+
+		if (f->action & ACTION_VLAN_CHANGE) {
+			cfg->param.l23_info.update_ctag_vlan_id = true;
+			cfg->param.l23_info.update_ctag_vlan_prio = true;
+			cfg->param.l23_info.vlan_id = f->vlan_id;
+			cfg->param.l23_info.vlan_prio = f->vlan_prio;
+		}
+	}
 }
 
 static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u32_offload *cls)
@@ -183,7 +194,7 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 
 		if (is_tcf_act_skbmod(a)) {
 			/* skbmod dmac action can be offloaded only if placed before redirrect */
-			if (!rswitch_skbmod_can_offload(a) || filter.action != 0)
+			if (!rswitch_skbmod_can_offload(a) || (filter.action & ACTION_MIRRED_REDIRECT) != 0)
 				return -EOPNOTSUPP;
 			filter.action |= ACTION_CHANGE_DMAC;
 			rswitch_tc_skbmod_get_dmac(a, filter.dmac);
@@ -200,6 +211,27 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 
 			filter.action |= ACTION_MIRRED_REDIRECT;
 			filter.target_rdev = netdev_priv(target_dev);
+			continue;
+		}
+
+		if (is_tcf_vlan(a)) {
+			/* vlan change action can be offloaded only if placed before redirrect */
+			if ((filter.action & ACTION_MIRRED_REDIRECT) != 0)
+				return -EOPNOTSUPP;
+
+			switch (tcf_vlan_action(a)) {
+			case TCA_VLAN_ACT_MODIFY:
+				if (be16_to_cpu(tcf_vlan_push_proto(a)) != ETH_P_8021Q) {
+					pr_err("Unsupported VLAN proto for offload!\n");
+					return -EOPNOTSUPP;
+				}
+				filter.action |= ACTION_VLAN_CHANGE;
+				filter.vlan_id = tcf_vlan_push_vid(a);
+				filter.vlan_prio = tcf_vlan_push_prio(a);
+				break;
+			default:
+				return -EOPNOTSUPP;
+			}
 			continue;
 		}
 
