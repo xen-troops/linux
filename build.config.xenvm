@@ -13,7 +13,7 @@ modules/vspm
 modules/vspmif
 modules/mmngr
 modules/uvcs
-imagination
+modules/imagination
 "
 
 FILES="
