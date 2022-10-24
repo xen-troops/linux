@@ -21,7 +21,8 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 		  BIT(FLOW_DISSECTOR_KEY_IP) |
 		  BIT(FLOW_DISSECTOR_KEY_PORTS) |
 		  BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
-		  BIT(FLOW_DISSECTOR_KEY_VLAN)
+		  BIT(FLOW_DISSECTOR_KEY_VLAN) |
+		  BIT(FLOW_DISSECTOR_KEY_CVLAN)
 		  )
 	    ) {
 		return -EOPNOTSUPP;
@@ -273,19 +274,83 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 		}
 	}
 
+	/*
+	 * In R-Switch terminology we have C-Tags and S-Tags (TPIDs 0x8100 and 0x88A8 by default).
+	 *
+	 * There 3 supported cases for VLAN matching:
+	 * - single tagged traffic - VLAN dissector contains TPID 0x8100, CVLAN dissector not used
+	 * - double tagged traffic (match outer VLAN) - VLAN dissector contains TPID 0x88A8,
+	 *   CVLAN dissector none
+	 * - double tagged traffic (match both VLANs) - VLAN dissector contains TPID 0x88A8,
+	 *   CVLAN dissector contains TPID 0x8100
+	 */
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
-		struct flow_match_vlan match;
-		u16 tci, tci_mask;
-		flow_rule_match_vlan(rule, &match);
+		struct flow_match_vlan vlan;
+		u16 vlan_tpid;
+		u16 vlan_tci, vlan_mask;
+		bool has_cvlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CVLAN);
 
-		tci = match.key->vlan_id | (match.key->vlan_priority << VLAN_PRIO_SHIFT);
-		tci_mask = match.mask->vlan_id | (match.mask->vlan_priority << VLAN_PRIO_SHIFT);
+		flow_rule_match_vlan(rule, &vlan);
 
-		if (tci_mask) {
-			rc = rswitch_init_tag_mask_pf_entry(&pf_param, tci, tci_mask,
-						RSWITCH_VLAN_CTAG_OFFSET);
-			if (rc)
-				return rc;
+		vlan_tpid = be16_to_cpu(vlan.key->vlan_tpid);
+		vlan_tci = vlan.key->vlan_id | (vlan.key->vlan_priority << VLAN_PRIO_SHIFT);
+		vlan_mask = vlan.mask->vlan_id | (vlan.mask->vlan_priority << VLAN_PRIO_SHIFT);
+
+		switch (vlan_tpid) {
+		case ETH_P_8021Q:
+			if (has_cvlan)
+				return -EOPNOTSUPP;
+
+			if (vlan_mask) {
+				rc = rswitch_init_tag_mask_pf_entry(&pf_param, vlan_tci, vlan_mask,
+							RSWITCH_VLAN_CTAG_OFFSET);
+				if (rc)
+					return rc;
+			}
+			break;
+		case ETH_P_8021AD:
+			if (vlan_mask) {
+				rc = rswitch_init_tag_mask_pf_entry(&pf_param, vlan_tci, vlan_mask,
+							RSWITCH_VLAN_STAG_OFFSET);
+				if (rc)
+					return rc;
+			} else {
+				/*
+				 * We can not verify if traffic has 802.1ad TPID in outer VLAN,
+				 * because S-tag contains only TCI value (TPID dropped
+				 * automatically after packet matching). This will cause
+				 * pure 802.1q traffic match by rule below, instead of double
+				 * tagged traffic where S-tag is not matter.
+				 */
+				return -EOPNOTSUPP;
+			}
+
+			if (has_cvlan) {
+				struct flow_match_vlan cvlan;
+				u16 cvlan_tpid;
+				u16 cvlan_tci, cvlan_mask;
+
+				flow_rule_match_cvlan(rule, &cvlan);
+				cvlan_tpid = be16_to_cpu(cvlan.key->vlan_tpid);
+				if (cvlan_tpid != ETH_P_8021Q)
+					return -EOPNOTSUPP;
+
+				cvlan_tci = cvlan.key->vlan_id |
+						(cvlan.key->vlan_priority << VLAN_PRIO_SHIFT);
+				cvlan_mask = cvlan.mask->vlan_id |
+						(cvlan.mask->vlan_priority << VLAN_PRIO_SHIFT);
+
+				if (cvlan_mask) {
+					rc = rswitch_init_tag_mask_pf_entry(&pf_param, cvlan_tci,
+							cvlan_mask, RSWITCH_VLAN_CTAG_OFFSET);
+					if (rc)
+						return rc;
+				}
+			}
+			break;
+		default:
+			return -EOPNOTSUPP;
+
 		}
 	}
 
