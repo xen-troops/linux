@@ -18,7 +18,7 @@ static void rswitch_init_u32_drop_action(struct rswitch_tc_filter *cfg,
 {
 	cfg->action = ACTION_DROP;
 	/* Leave other paramters as zero */
-	cfg->param.slv = 0x3F;
+	cfg->param.slv = BIT(f->rdev->port);
 }
 
 static void rswitch_init_u32_redirect_action(struct rswitch_tc_filter *cfg,
