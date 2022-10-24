@@ -3683,8 +3683,8 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	/* Enable unsecure APB access to VLAN configuration via FWGC and FWTTCi */
 	rs_write32(BIT(0) | BIT(1), priv->addr + FWSCR0);
 
-	/* Enable C-Tag filtering mode for VLANs */
-	rs_write32(BIT(0), priv->addr + FWGC);
+	/* Enable SC-Tag filtering mode for VLANs */
+	rs_write32(BIT(1), priv->addr + FWGC);
 }
 
 static int rswitch_init(struct rswitch_private *priv)
