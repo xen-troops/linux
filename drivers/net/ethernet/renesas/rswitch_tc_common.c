@@ -96,7 +96,7 @@ static int rswitch_tc_setup_redirect_action(struct rswitch_tc_filter *f)
 }
 static int rswitch_tc_setup_drop_action(struct rswitch_tc_filter *f)
 {
-	f->param.slv = 0x3F;
+	f->param.slv = BIT(f->rdev->port);
 	/* Explicitly zeroing parameters for drop */
 	f->param.dv = 0;
 	f->param.csd = 0;
