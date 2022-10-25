@@ -1062,8 +1062,9 @@ void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable)
 	{
 		rswitch_enadis_data_irq(rdev->priv, rdev->rx_default_chain->index,
 					enable);
-		rswitch_enadis_data_irq(rdev->priv, rdev->rx_learning_chain->index,
-					enable);
+		if (rdev->rx_learning_chain)
+			rswitch_enadis_data_irq(rdev->priv, rdev->rx_learning_chain->index,
+						enable);
 		rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index,
 					enable);
 	}
@@ -1285,7 +1286,7 @@ retry:
 		goto out;
 	else if (rswitch_is_chain_rxed(rdev->rx_default_chain, DT_FEMPTY))
 		goto retry;
-	else if (rswitch_is_chain_rxed(rdev->rx_learning_chain, DT_FEMPTY))
+	else if (rdev->rx_learning_chain && rswitch_is_chain_rxed(rdev->rx_learning_chain, DT_FEMPTY))
 		goto retry;
 
 	netif_wake_subqueue(ndev, 0);
@@ -1957,7 +1958,8 @@ static int rswitch_open(struct net_device *ndev)
 	/* Enable RX */
 	if (!rswitch_is_front_dev(rdev)) {
 		rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_default_chain->index));
-		rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_learning_chain->index));
+		if (rdev->rx_learning_chain)
+			rswitch_modify(rdev->addr, GWTRC0, 0, BIT(rdev->rx_learning_chain->index));
 	}
 
 	/* Enable interrupt */
@@ -2929,6 +2931,8 @@ static void rswitch_gwca_chain_free(struct net_device *ndev,
 {
 	int i;
 
+	if (!c)
+		return;
 	if (c->gptp) {
 		dma_free_coherent(ndev->dev.parent,
 				  sizeof(struct rswitch_ext_ts_desc) *
@@ -2956,9 +2960,12 @@ static int rswitch_gwca_chain_init(struct net_device *ndev,
 				bool dir_tx, bool gptp, int num_ring)
 {
 	int i;
-	int index = c->index;	/* Keep the index before memset() */
+	int index;	/* Keep the index before memset() */
 	struct sk_buff *skb;
 
+	if (!c)
+		return 0;
+	index = c->index;
 	memset(c, 0, sizeof(*c));
 	c->index = index;
 	c->dir_tx = dir_tx;
@@ -3068,10 +3075,13 @@ static int rswitch_gwca_chain_ts_format(struct net_device *ndev,
 					struct rswitch_gwca_chain *c)
 {
 	struct rswitch_ext_ts_desc *ring;
-	int tx_ts_ring_size = sizeof(*ring) * c->num_ring;
+	int tx_ts_ring_size;
 	int i;
 	dma_addr_t dma_addr;
 
+	if (!c)
+		return 0;
+	tx_ts_ring_size = sizeof(*ring) * c->num_ring;
 	memset(c->ts_ring, 0, tx_ts_ring_size);
 	for (i = 0, ring = c->ts_ring; i < c->num_ring; i++, ring++) {
 		if (!c->dir_tx) {
@@ -3152,7 +3162,8 @@ struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
 void rswitch_gwca_put(struct rswitch_private *priv,
 		      struct rswitch_gwca_chain *c)
 {
-	clear_bit(c->index, priv->gwca.used);
+	if (c)
+		clear_bit(c->index, priv->gwca.used);
 }
 
 int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv,
@@ -3409,7 +3420,8 @@ static void rswitch_queue_interrupt(struct net_device *ndev)
 	if (napi_schedule_prep(&rdev->napi)) {
 		rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index, false);
 		rswitch_enadis_data_irq(rdev->priv, rdev->rx_default_chain->index, false);
-		rswitch_enadis_data_irq(rdev->priv, rdev->rx_learning_chain->index, false);
+		if (rdev->rx_learning_chain)
+			rswitch_enadis_data_irq(rdev->priv, rdev->rx_learning_chain->index, false);
 		__napi_schedule(&rdev->napi);
 	}
 }
@@ -3615,8 +3627,10 @@ void rswitch_mfwd_set_port_based(struct rswitch_private *priv, u8 port,
 {
 	int gwca_hw_idx = RSWITCH_HW_NUM_TO_GWCA_IDX(priv->gwca.index);
 
-	rs_write32(rx_chain->index, priv->addr + FWPBFCSDC(gwca_hw_idx, port));
-	rs_write32(BIT(priv->gwca.index), priv->addr + FWPBFC(port));
+	if (rx_chain) {
+		rs_write32(rx_chain->index, priv->addr + FWPBFCSDC(gwca_hw_idx, port));
+		rs_write32(BIT(priv->gwca.index), priv->addr + FWPBFC(port));
+	}
 }
 
 static void rswitch_fwd_init(struct rswitch_private *priv)
