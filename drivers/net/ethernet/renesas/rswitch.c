@@ -2441,6 +2441,9 @@ static int rswitch_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 
+	if (rswitch_is_front_dev(rdev))
+		return -EOPNOTSUPP;
+
 	switch (type) {
 		case TC_SETUP_BLOCK:
 			return rswitch_setup_tc_block(rdev, type_data);
