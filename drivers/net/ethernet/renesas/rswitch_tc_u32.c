@@ -204,8 +204,8 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 		if (is_tcf_mirred_egress_redirect(a)) {
 			struct net_device *target_dev = tcf_mirred_dev(a);
 
-			if (!ndev_is_rswitch_dev(target_dev, rdev->priv)) {
-				pr_err("Can not redirect to not R-Switch dev!\n");
+			if (!ndev_is_tsn_dev(target_dev, rdev->priv)) {
+				pr_err("Can not redirect to not R-Switch TSN dev!\n");
 				return -EOPNOTSUPP;
 			}
 

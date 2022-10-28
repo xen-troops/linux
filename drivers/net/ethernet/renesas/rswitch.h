@@ -466,7 +466,7 @@ static inline u32 rswitch_mac_right_half(const u8 *addr)
 	return ((addr[3] << 16) | (addr[4] << 8) | addr[5]);
 }
 
-static inline bool ndev_is_rswitch_dev(const struct net_device *ndev,
+static inline bool ndev_is_tsn_dev(const struct net_device *ndev,
 			struct rswitch_private *priv)
 {
 	int i;
@@ -475,7 +475,8 @@ static inline bool ndev_is_rswitch_dev(const struct net_device *ndev,
 		struct rswitch_device *rdev = priv->rdev[i];
 
 		if (rdev && (rdev->ndev == ndev)) {
-			return true;
+			/* TSN devices contains valid etha pointer, VMQs contains NULL */
+			return (rdev->etha != NULL);
 		}
 	}
 
