@@ -26,8 +26,8 @@ int rswitch_tc_validate_flow_action(struct rswitch_device *rdev,
 			}
 			break;
 		case FLOW_ACTION_REDIRECT:
-			if (!ndev_is_rswitch_dev(act->dev, rdev->priv)) {
-				pr_err("Can not redirect to not R-Switch dev!\n");
+			if (!ndev_is_tsn_dev(act->dev, rdev->priv)) {
+				pr_err("Can not redirect to not R-Switch TSN dev!\n");
 				return -EOPNOTSUPP;
 			}
 			redirect = true;
