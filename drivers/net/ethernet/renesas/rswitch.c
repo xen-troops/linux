@@ -2617,7 +2617,8 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 		return;
 
 	dev = get_dev_by_ip(fib_work->priv, be32_to_cpu(nh->nh_saddr), false);
-	if (!dev)
+	/* Do not offload routes, related to VMQs (etha equal to NULL) */
+	if (!dev || (dev->etha == NULL))
 		return;
 
 	new_routing_list = kzalloc(sizeof(*new_routing_list), GFP_KERNEL);
