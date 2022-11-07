@@ -2363,6 +2363,14 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 			priv->addr + FWCFMCij(cascade_idx, i));
 	}
 
+	/*
+	 * HW WA: unfilled cascade filter mapping registers may copy values
+	 * from previous cascade filter, so we need explicitly disable them.
+	 */
+	for (i = pf_param->used_entries; i < MAX_PF_ENTRIES; i++) {
+		rs_write32(RSWITCH_PF_DISABLE_FILTER, priv->addr + FWCFMCij(cascade_idx, i));
+	}
+
 	if (pf_param->all_sources) {
 		rs_write32(0x000f007f, priv->addr + FWCFCi(cascade_idx));
 	} else {
