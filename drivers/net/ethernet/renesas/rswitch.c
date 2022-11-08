@@ -2220,40 +2220,46 @@ static enum pf_type rswitch_get_pf_type_by_num(int num)
 
 void rswitch_put_pf(struct l3_ipv4_fwd_param *param)
 {
-	int i, idx, pf_num;
+	int i, idx, pf_used = 0;
 	enum pf_type type;
+	u32 pf_nums[MAX_PF_ENTRIES] = {0};
 
-	rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWCFCi(param->pf_cascade_index));
-
+	/* First, need to remember used perfect filter nums before cascade filter reset */
 	for (i = 0; i < MAX_PF_ENTRIES; i++) {
-		pf_num = rs_read32(param->priv->addr + FWCFMCij(param->pf_cascade_index, i)) & 0xff;
-		if (!(rs_read32(param->priv->addr + FWCFMCij(param->pf_cascade_index, i)) & RSWITCH_PF_ENABLE_FILTER))
-			break;
+		u32 pf_num = rs_read32(param->priv->addr + FWCFMCij(param->pf_cascade_index, i)) & 0xff;
 
-		type = rswitch_get_pf_type_by_num(pf_num);
+		if (pf_num) {
+			pf_nums[pf_used] = pf_num;
+			pf_used++;
+		}
+	}
+
+	/* Disable and free cascade filter */
+	rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWCFCi(param->pf_cascade_index));
+	clear_bit(param->pf_cascade_index, param->priv->filters.cascade);
+
+	/* Free all used perfect filters */
+	for (i = 0; i < pf_used; i++) {
+		type = rswitch_get_pf_type_by_num(pf_nums[i]);
 		if (type == PF_TWO_BYTE) {
-			idx = TBWFILTER_IDX(pf_num);
+			idx = TBWFILTER_IDX(pf_nums[i]);
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTWBFVCi(idx));
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTWBFCi(idx));
 			clear_bit(idx, param->priv->filters.two_bytes);
 		} else if (type == PF_THREE_BYTE) {
-			idx = THBFILTER_IDX(pf_num);
+			idx = THBFILTER_IDX(pf_nums[i]);
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTHBFV0Ci(idx));
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTHBFV1Ci(idx));
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWTHBFCi(idx));
 			clear_bit(idx, param->priv->filters.three_bytes);
 		} else if (type == PF_FOUR_BYTE) {
-			idx = FBFILTER_IDX(pf_num);
+			idx = FBFILTER_IDX(pf_nums[i]);
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWFOBFV0Ci(idx));
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWFOBFV1Ci(idx));
 			rs_write32(RSWITCH_PF_DISABLE_FILTER, param->priv->addr + FWFOBFCi(idx));
 			clear_bit(idx, param->priv->filters.four_bytes);
 		}
-		rs_write32(RSWITCH_PF_DISABLE_FILTER,
-			param->priv->addr + FWCFMCij(param->pf_cascade_index, i));
 	}
-
-	clear_bit(param->pf_cascade_index, param->priv->filters.cascade);
 }
 
 int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param)
