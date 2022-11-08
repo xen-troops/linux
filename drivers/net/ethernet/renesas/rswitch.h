@@ -80,7 +80,7 @@ enum DIE_DT {
 #define RSWITCH_MAX_NUM_NDEV	8
 #define RSWITCH_MAX_NUM_CHAINS	128
 #define RSWITCH_NUM_IRQ_REGS	(RSWITCH_MAX_NUM_CHAINS / BITS_PER_TYPE(u32))
-#define MAX_PF_ENTRIES (8)
+#define MAX_PF_ENTRIES (7)
 #define RSWITCH_MAX_NUM_L23 256
 
 /* Two-byte filter number */
