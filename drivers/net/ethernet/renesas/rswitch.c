@@ -2316,7 +2316,7 @@ static int rswitch_get_pf_config(struct rswitch_private *priv, struct rswitch_pf
 
 int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 {
-	int cascade_idx, i;
+	int cascade_idx, i, filters_cnt = 0;
 	struct rswitch_device *rdev = pf_param->rdev;
 	struct rswitch_private *priv = rdev->priv;
 
@@ -2348,9 +2348,10 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 		cfg_val = pf_param->entries[i].match_mode;
 		cfg_val |= SNOOPING_BUS_OFFSET(pf_param->entries[i].off);
 
-		/* TODO: Free allocated resources */
 		if (rswitch_get_pf_config(priv, &pf_param->entries[i]) < 0)
-			return -1;
+			goto put_pfs;
+
+		filters_cnt++;
 
 		/* There is no second config register for Two-Byte filter */
 		if (pf_param->entries[i].type == PF_TWO_BYTE) {
@@ -2386,6 +2387,33 @@ int rswitch_setup_pf(struct rswitch_pf_param *pf_param)
 	set_bit(cascade_idx, priv->filters.cascade);
 
 	return cascade_idx;
+
+put_pfs:
+	/* Free all filters, that were taken during failed setup */
+	for (i = 0; i < filters_cnt; i++) {
+		switch (pf_param->entries[i].type) {
+		case PF_TWO_BYTE:
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, pf_param->entries[i].cfg0_addr);
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, pf_param->entries[i].offs_addr);
+			clear_bit(pf_param->entries[i].pf_idx, priv->filters.two_bytes);
+			break;
+		case PF_THREE_BYTE:
+		case PF_FOUR_BYTE:
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, pf_param->entries[i].cfg0_addr);
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, pf_param->entries[i].cfg1_addr);
+			rs_write32(RSWITCH_PF_DISABLE_FILTER, pf_param->entries[i].offs_addr);
+			if (pf_param->entries[i].type == PF_THREE_BYTE) {
+				clear_bit(pf_param->entries[i].pf_idx, priv->filters.three_bytes);
+			} else {
+				clear_bit(pf_param->entries[i].pf_idx, priv->filters.four_bytes);
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	return -1;
 }
 
 int rswitch_rn_get(struct rswitch_private *priv)
