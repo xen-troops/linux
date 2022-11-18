@@ -2642,12 +2642,11 @@ free_param_list:
 
 static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 {
-	struct fib_entry_notifier_info fen;
+	struct fib_entry_notifier_info fen = fib_work->fen_info;
 	struct rswitch_ipv4_route *new_routing_list;
 	struct rswitch_device *dev;
 	struct fib_nh *nh;
 
-	fen = fib_work->fen_info;
 	nh = fib_info_nh(fen.fi, 0);
 
 	if (fen.type != RTN_UNICAST)
@@ -2683,7 +2682,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 
 static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 {
-	struct fib_entry_notifier_info fen;
+	struct fib_entry_notifier_info fen = fib_work->fen_info;
 	struct rswitch_device *dev;
 	struct fib_nh *nh;
 	struct list_head *cur, *tmp;
@@ -2691,7 +2690,6 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	struct l3_ipv4_fwd_param_list *param_list;
 	bool route_found = false;
 
-	fen = fib_work->fen_info;
 	nh = fib_info_nh(fen.fi, 0);
 
 	if (fen.type != RTN_UNICAST)
@@ -3650,7 +3648,7 @@ void rswitch_add_ipv4_forward(struct rswitch_private *priv, u32 src_ip, u32 dst_
 {
 	struct rswitch_device *dev;
 	struct rswitch_ipv4_route *routing_list = NULL;
-	struct l3_ipv4_fwd_param param;
+	struct l3_ipv4_fwd_param param = {0};
 	u8 mac[ETH_ALEN];
 
 	if (is_l3_exist(priv, src_ip, dst_ip))
