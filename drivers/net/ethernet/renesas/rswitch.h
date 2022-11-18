@@ -191,7 +191,7 @@ struct rswitch_gwca_chain {
 	int index;
 	bool dir_tx;
 	struct sk_buff **skb;
-	struct net_device *ndev;	/* chain to ndev for irq */
+	struct rswitch_device *rdev;	/* chain to rdev for irq */
 	struct rswitch_vmq_back_info *back_info;
 };
 
@@ -260,6 +260,7 @@ struct rswitch_filters {
 };
 
 struct rswitch_device {
+	struct list_head list;
 	struct rswitch_private *priv;
 	struct net_device *ndev;
 	struct napi_struct napi;
@@ -292,7 +293,8 @@ struct rswitch_private {
 	u32 desc_bat_size;
 	phys_addr_t dev_id;
 
-	struct rswitch_device *rdev[RSWITCH_MAX_NUM_NDEV];
+	struct list_head rdev_list;
+	struct mutex rdev_list_lock;
 
 	struct rswitch_gwca gwca;
 	struct rswitch_etha etha[RSWITCH_MAX_NUM_ETHA];
@@ -398,7 +400,7 @@ int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv,
 			int chain_num);
 void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
-void rswitch_ndev_unregister(struct rswitch_private *priv, int index);
+void rswitch_ndev_unregister(struct rswitch_device *rdev);
 
 int rswitch_poll(struct napi_struct *napi, int budget);
 int rswitch_tx_free(struct net_device *ndev, bool free_txed_only);
@@ -435,6 +437,23 @@ static inline bool rswitch_is_front_priv(struct rswitch_private *priv)
 	return !priv->addr;
 }
 
+static inline struct rswitch_device *rswitch_find_rdev_by_port(struct rswitch_private *priv,
+							       int port)
+{
+	struct rswitch_device *rdev;
+
+	mutex_lock(&priv->rdev_list_lock);
+	list_for_each_entry(rdev, &priv->rdev_list, list) {
+		if (rdev->port == port) {
+			mutex_unlock(&priv->rdev_list_lock);
+			return rdev;
+		}
+	}
+	mutex_unlock(&priv->rdev_list_lock);
+
+	return NULL;
+}
+
 /* Used for three byte filter configuration values in expand mode */
 static inline u32 rswitch_mac_left_half(const u8 *addr)
 {
@@ -449,19 +468,18 @@ static inline u32 rswitch_mac_right_half(const u8 *addr)
 static inline bool ndev_is_tsn_dev(const struct net_device *ndev,
 			struct rswitch_private *priv)
 {
-	int i;
+	struct rswitch_device *rdev;
 
-	for (i = 0; i < RSWITCH_MAX_NUM_NDEV; i++) {
-		struct rswitch_device *rdev = priv->rdev[i];
-
-		if (rdev && (rdev->ndev == ndev)) {
-			/* TSN devices contains valid etha pointer, VMQs contains NULL */
-			return (rdev->etha != NULL);
-		}
+	list_for_each_entry(rdev, &priv->rdev_list, list) {
+		/* TSN devices contains valid etha pointer, VMQs contains NULL */
+		if (rdev->ndev == ndev && rdev->etha != NULL)
+			return true;
 	}
 
 	return false;
 }
+
+struct rswitch_device *ndev_to_rdev(const struct net_device *ndev);
 
 int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param);
 int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param);
