@@ -159,7 +159,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 {
 	int err = 0;
 	struct xenbus_transaction xbt;
-	char *type_str;
+	char *type_str = NULL;
 
 	struct rswitch_vmq_back_info *be = kzalloc(sizeof(*be), GFP_KERNEL);
 
@@ -173,7 +173,8 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 	be->rswitch_priv = rswitch_find_priv();
 	if (!be->rswitch_priv) {
 		xenbus_dev_fatal(dev, -ENODEV, "Failed to get rswitch priv data");
-		return -ENODEV;
+		err = -ENODEV;
+		goto fail;
 	}
 	be->tx_chain = rswitch_gwca_get(be->rswitch_priv);
 	be->rx_chain = rswitch_gwca_get(be->rswitch_priv);
@@ -207,8 +208,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 			xenbus_dev_fatal(dev, err,
 					 "Failed to allocate local rdev: %d ",
 					 err);
-			kfree(type_str);
-			return err;
+			goto fail;
 		}
 	}
 	else if (strcmp(type_str, "tsn") == 0) {
@@ -216,18 +216,17 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 
 		if (be->if_num > RSWITCH_MAX_NUM_ETHA) {
 			xenbus_dev_fatal(dev, err, "Invalid device tsn%d ", be->if_num);
-			kfree(type_str);
-			return -ENODEV;
+			err = -ENODEV;
+			goto fail;
 		}
 
 		be->type = RSWITCH_PV_TSN;
 		netif_dormant_on(rdev->ndev);
 	} else {
 		xenbus_dev_fatal(dev, err, "Unknown device type: %s ", type_str);
-		kfree(type_str);
-		return -ENODEV;
+		err = -ENODEV;
+		goto fail;
 	}
-	kfree(type_str);
 
 	do {
 		err = xenbus_transaction_start(&xbt);
@@ -271,16 +270,28 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 
 	xenbus_switch_state(dev, XenbusStateInitWait);
 
+	kfree(type_str);
+
 	return 0;
 
 abort_transaction:
 	xenbus_transaction_end(xbt, 1);
 	xenbus_dev_fatal(dev, err, "Failed to write xenstore info\n");
 fail:
+	kfree(type_str);
+
+	if (be->type == RSWITCH_PV_TSN) {
+		struct rswitch_device *rdev =
+			be->rswitch_priv->rdev[be->if_num];
+		netif_dormant_off(rdev->ndev);
+	}
 	if (be->rx_chain)
 		rswitch_gwca_put(be->rswitch_priv, be->rx_chain);
 	if (be->tx_chain)
 		rswitch_gwca_put(be->rswitch_priv, be->tx_chain);
+
+	dev_set_drvdata(&dev->dev, NULL);
+	kfree(be);
 
 	return err;
 }
