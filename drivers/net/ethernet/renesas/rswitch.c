@@ -2670,6 +2670,13 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 
 	list_add(&new_routing_list->list, &dev->routing_list);
 
+	/*
+	 * Route with zeroed subnet is default route. It does not need a PF entry
+	 * added to MFWD, just need to be added in device routing list.
+	 */
+	if (!new_routing_list->subnet)
+		return;
+
 	if (!rswitch_add_ipv4_dst_route(new_routing_list, dev, be32_to_cpu(nh->nh_saddr)))
 		nh->fib_nh_flags |= RTNH_F_OFFLOAD;
 }
@@ -3612,17 +3619,29 @@ free:
 
 static struct rswitch_ipv4_route *rswitch_get_route(struct rswitch_private *priv, u32 dst_ip)
 {
-	struct rswitch_ipv4_route *routing_list;
+	struct rswitch_ipv4_route *routing_list, *default_route;
 	struct list_head *cur;
 	int i;
+	bool default_present = false;
 
 	for (i = 0; i < num_ndev; i++) {
 		list_for_each(cur, &priv->rdev[i]->routing_list) {
 			routing_list = list_entry(cur, struct rswitch_ipv4_route, list);
+
+			/* Handle case, when default route is present; it should be taken last */
+			if (!routing_list->subnet) {
+				default_route = routing_list;
+				default_present = true;
+				continue;
+			}
+
 			if (routing_list->subnet == (dst_ip & routing_list->mask))
 				return routing_list;
 		}
 	}
+
+	if (default_present)
+		return default_route;
 
 	return NULL;
 }
