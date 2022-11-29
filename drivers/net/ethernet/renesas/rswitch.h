@@ -205,6 +205,7 @@ struct rswitch_gwca_chain {
 #define RSWITCH_NUM_IRQ_REGS	(RSWITCH_MAX_NUM_CHAINS / BITS_PER_TYPE(u32))
 #define RSWITCH_NUM_HW		5
 #define RSWITCH_MAX_NUM_ETHA	3
+#define RSWITCH_MAX_RMON_DEV	3
 #define RSWITCH_MAX_NUM_NDEV	8
 #define RSWITCH_MAX_NUM_L23	256
 
@@ -275,6 +276,8 @@ struct rswitch_device {
 	struct list_head tc_u32_list;
 	struct list_head tc_flower_list;
 	struct list_head tc_matchall_list;
+
+	bool mondev;
 };
 
 struct rswitch_private {
@@ -288,6 +291,7 @@ struct rswitch_private {
 	phys_addr_t dev_id;
 
 	struct list_head rdev_list;
+	struct rswitch_device *rmon_dev[RSWITCH_MAX_RMON_DEV];
 	struct mutex rdev_list_lock;
 
 	struct rswitch_gwca gwca;
@@ -302,6 +306,8 @@ struct rswitch_private {
 	struct workqueue_struct *rswitch_fib_wq;
 	DECLARE_BITMAP(l23_routing_number, RSWITCH_MAX_NUM_L23);
 	struct reset_control *sd_rst;
+	struct rswitch_gwca_chain *mon_rx_chain;
+	struct rswitch_gwca_chain *mon_tx_chain;
 
 	u8 chan_running;
 	bool serdes_common_init;
@@ -398,7 +404,7 @@ int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv,
 			int chain_num);
 void rswitch_rxdmac_free(struct net_device *ndev, struct rswitch_private *priv);
 
-void rswitch_ndev_unregister(struct rswitch_device *rdev);
+void rswitch_ndev_unregister(struct rswitch_device *rdev, int index);
 
 int rswitch_poll(struct napi_struct *napi, int budget);
 int rswitch_tx_free(struct net_device *ndev, bool free_txed_only);

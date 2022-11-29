@@ -818,6 +818,8 @@ enum rswitch_etha_mode {
 #define LTHSLP0v6 (6)
 /* L3 Routing Valid Learn */
 #define LTHRVL (BIT(15))
+/* L3 CPU Mirroring Enable Learn */
+#define LTHCMEL (BIT(21))
 #define LTHTL (BIT(31))
 #define LTHTS (BIT(31))
 #define LTHTIOG (BIT(0))
@@ -859,6 +861,8 @@ enum rswitch_etha_mode {
 #define TBWFILTER_IDX(i) ((i / 2))
 #define THBFILTER_IDX(i) ((i / 2) - PFL_TWBF_N)
 #define FBFILTER_IDX(i) ((i / 2) - PFL_TWBF_N - PFL_THBF_N)
+#define L3_SLV_DESC_SHIFT (36)
+#define L3_SLV_DESC_MASK (0xFUL << L3_SLV_DESC_SHIFT)
 
 #define filter_index_check(idx, idx_max) \
 	(idx < idx_max) ? idx : -1;
@@ -1238,6 +1242,18 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 			skb_checksum_none_assert(skb);
 			skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
 			skb_put(skb, pkt_len);
+		}
+
+		if (rdev->mondev) {
+			struct rswitch_private *priv = rdev->priv;
+			int slv;
+
+			slv = ((desc->info1 & L3_SLV_DESC_MASK) >> L3_SLV_DESC_SHIFT);
+			if (slv >= RSWITCH_MAX_RMON_DEV)
+				continue;
+
+			ndev = priv->rmon_dev[slv]->ndev;
+			skb->dev = ndev;
 		}
 
 		if (learn_chain) {
@@ -2540,7 +2556,15 @@ static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
 		rs_write32(param->csd, priv->addr + FWLTHTL80 + 4 * RSWITCH_HW_NUM_TO_GWCA_IDX(priv->gwca.index));
 	else
 		rs_write32(0, priv->addr + FWLTHTL80 + 4 * RSWITCH_HW_NUM_TO_GWCA_IDX(priv->gwca.index));
-	rs_write32(param->dv, priv->addr + FWLTHTL9);
+
+	/* Do not mirror traffic, that will be transferred to GWCA,
+	 * because it will be handled by acquiring from the endpoint
+	 * interface.
+	 */
+	if (param->dv != BIT(priv->gwca.index))
+		rs_write32(param->dv | LTHCMEL, priv->addr + FWLTHTL9);
+	else
+		rs_write32(param->dv, priv->addr + FWLTHTL9);
 
 	return rswitch_reg_wait(priv->addr, FWLTHTLR, LTHTL, 0);
 }
@@ -3743,7 +3767,7 @@ static void rswitch_set_mac_address(struct rswitch_device *rdev)
 	of_node_put(ports);
 }
 
-static int rswitch_ndev_create(struct rswitch_private *priv, int index)
+static int rswitch_ndev_create(struct rswitch_private *priv, int index, bool rmon_dev)
 {
 	struct platform_device *pdev = priv->pdev;
 	struct net_device *ndev;
@@ -3765,12 +3789,16 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 	INIT_LIST_HEAD(&rdev->tc_matchall_list);
 	INIT_LIST_HEAD(&rdev->tc_flower_list);
 	INIT_LIST_HEAD(&rdev->list);
-	mutex_lock(&priv->rdev_list_lock);
-	list_add_tail(&rdev->list, &priv->rdev_list);
-	mutex_unlock(&priv->rdev_list_lock);
+	if (!rmon_dev) {
+		mutex_lock(&priv->rdev_list_lock);
+		list_add_tail(&rdev->list, &priv->rdev_list);
+		mutex_unlock(&priv->rdev_list_lock);
+	} else {
+		priv->rmon_dev[index] = rdev;
+	}
 
 	/* TODO: netdev instance : ETHA port is 1:1 mapping */
-	if (index < RSWITCH_MAX_NUM_ETHA) {
+	if (index < RSWITCH_MAX_NUM_ETHA && !rmon_dev) {
 		rdev->port = index;
 		rdev->etha = &priv->etha[index];
 	} else {
@@ -3785,25 +3813,55 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 	ndev->features = NETIF_F_RXCSUM;
 	ndev->hw_features = NETIF_F_RXCSUM;
 	ndev->base_addr = (unsigned long)rdev->addr;
-	snprintf(ndev->name, IFNAMSIZ, "tsn%d", index);
+	if (!rmon_dev) {
+		snprintf(ndev->name, IFNAMSIZ, "tsn%d", index);
+		ndev->ethtool_ops = &rswitch_ethtool_ops;
+		rswitch_set_mac_address(rdev);
+		rdev->mondev = false;
+	} else {
+		snprintf(ndev->name, IFNAMSIZ, "rmon%d", index);
+		eth_hw_addr_random(ndev);
+		rdev->mondev = true;
+	}
 	ndev->netdev_ops = &rswitch_netdev_ops;
-	ndev->ethtool_ops = &rswitch_ethtool_ops;
 
 	netif_napi_add(ndev, &rdev->napi, rswitch_poll, 64);
-
-	rswitch_set_mac_address(rdev);
 
 	/* FIXME: it seems S4 VPF has FWPBFCSDC0/1 only so that we cannot set
 	 * CSD = 1 (rx_default_chain->index = 1) for FWPBFCS03. So, use index = 0
 	 * for the RX.
 	 */
-	err = rswitch_rxdmac_init(ndev, priv, -1);
-	if (err < 0)
-		goto out_rxdmac;
+	if (!rmon_dev) {
+		err = rswitch_rxdmac_init(ndev, priv, -1);
+		if (err < 0)
+			goto out_rxdmac;
 
-	err = rswitch_txdmac_init(ndev, priv, -1);
-	if (err < 0)
-		goto out_txdmac;
+		err = rswitch_txdmac_init(ndev, priv, -1);
+		if (err < 0)
+			goto out_txdmac;
+	} else {
+		/* All rmon devices use the same chains because
+		 * CPU mirroring can mirror traffic only to one
+		 * sub-destination. The traffic will be forwarded
+		 * to appropriate netdevs in rswitch_rx function
+		 * according to source lock vector stored in info1.
+		 */
+		if (!priv->mon_rx_chain || !priv->mon_tx_chain) {
+			err = rswitch_rxdmac_init(ndev, priv, -1);
+			if (err < 0)
+				goto out_rxdmac;
+
+			err = rswitch_txdmac_init(ndev, priv, -1);
+			if (err < 0)
+				goto out_txdmac;
+
+			priv->mon_rx_chain = rdev->rx_default_chain;
+			priv->mon_tx_chain = rdev->tx_chain;
+		} else {
+			rdev->rx_default_chain = priv->mon_rx_chain;
+			rdev->tx_chain = priv->mon_tx_chain;
+		}
+	}
 
 	/* Print device information */
 	netdev_info(ndev, "MAC address %pMn", ndev->dev_addr);
@@ -3820,7 +3878,7 @@ out_rxdmac:
 	return err;
 }
 
-void rswitch_ndev_unregister(struct rswitch_device *rdev)
+void rswitch_ndev_unregister(struct rswitch_device *rdev, int index)
 {
 	struct net_device *ndev = rdev->ndev;
 	struct rswitch_private *priv = rdev->priv;
@@ -3829,9 +3887,13 @@ void rswitch_ndev_unregister(struct rswitch_device *rdev)
 	rswitch_rxdmac_free(ndev, priv);
 	unregister_netdev(ndev);
 	netif_napi_del(&rdev->napi);
-	list_del(&rdev->list);
-
-	free_netdev(ndev);
+	if (!rdev->mondev) {
+		list_del(&rdev->list);
+		free_netdev(ndev);
+	} else {
+		free_netdev(ndev);
+		priv->rmon_dev[index] = NULL;
+	}
 }
 
 static int rswitch_bpool_config(struct rswitch_private *priv)
@@ -3853,14 +3915,35 @@ static void rswitch_coma_init(struct rswitch_private *priv)
 
 static void rswitch_queue_interrupt(struct rswitch_device *rdev)
 {
-	if (napi_schedule_prep(&rdev->napi)) {
-		spin_lock(&rdev->priv->lock);
-		rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index, false);
-		rswitch_enadis_data_irq(rdev->priv, rdev->rx_default_chain->index, false);
-		if (rdev->rx_learning_chain)
-			rswitch_enadis_data_irq(rdev->priv, rdev->rx_learning_chain->index, false);
-		spin_unlock(&rdev->priv->lock);
-		__napi_schedule(&rdev->napi);
+	if (!rdev->mondev) {
+		if (napi_schedule_prep(&rdev->napi)) {
+			spin_lock(&rdev->priv->lock);
+			rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index, false);
+			rswitch_enadis_data_irq(rdev->priv, rdev->rx_default_chain->index, false);
+			if (rdev->rx_learning_chain) {
+				rswitch_enadis_data_irq(rdev->priv,
+							rdev->rx_learning_chain->index, false);
+			}
+			spin_unlock(&rdev->priv->lock);
+			__napi_schedule(&rdev->napi);
+		}
+	} else {
+		struct rswitch_private *priv = rdev->priv;
+		int i;
+
+		/* Schedule napi for all rmon devices as
+		 * they share the same chain.
+		 */
+		for (i = 0; i < RSWITCH_MAX_RMON_DEV; i++) {
+			if (priv->rmon_dev[i] && napi_schedule_prep(&priv->rmon_dev[i]->napi)) {
+				spin_lock(&rdev->priv->lock);
+				rswitch_enadis_data_irq(priv->rmon_dev[i]->priv,
+							priv->rmon_dev[i]->rx_default_chain->index,
+							false);
+				spin_unlock(&rdev->priv->lock);
+				__napi_schedule(&priv->rmon_dev[i]->napi);
+			}
+		}
 	}
 }
 
@@ -4214,6 +4297,10 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 
 	/* Enable SC-Tag filtering mode for VLANs */
 	rs_write32(BIT(1), priv->addr + FWGC);
+
+	/* CPU mirroring */
+	rs_write32(priv->mon_rx_chain->index | (RSWITCH_HW_NUM_TO_GWCA_IDX(priv->gwca.index) << 16),
+		   priv->addr + FWCMPTC);
 }
 
 static int rswitch_init(struct rswitch_private *priv)
@@ -4254,7 +4341,11 @@ static int rswitch_init(struct rswitch_private *priv)
 	}
 
 	for (i = 0; i < num_ndev; i++) {
-		err = rswitch_ndev_create(priv, i);
+		err = rswitch_ndev_create(priv, i, false);
+		if (err < 0)
+			goto workqueue_destroy;
+
+		err = rswitch_ndev_create(priv, i, true);
 		if (err < 0)
 			goto workqueue_destroy;
 	}
@@ -4288,6 +4379,12 @@ static int rswitch_init(struct rswitch_private *priv)
 			goto workqueue_destroy;
 	}
 
+	for (i = 0; i < num_ndev; i++) {
+		err = register_netdev(priv->rmon_dev[i]->ndev);
+		if (err)
+			goto workqueue_destroy;
+	}
+
 	return 0;
 
 workqueue_destroy:
@@ -4295,7 +4392,12 @@ workqueue_destroy:
 
 out:
 	list_for_each_entry_safe(rdev, tmp, &priv->rdev_list, list)
-		rswitch_ndev_unregister(rdev);
+		rswitch_ndev_unregister(rdev, -1);
+
+	for (i = 0; i < num_ndev; i++) {
+		if (priv->rmon_dev[i])
+			rswitch_ndev_unregister(priv->rmon_dev[i], i);
+	}
 
 err_ts_queue_alloc:
 	rswitch_desc_free(priv);
@@ -4314,13 +4416,17 @@ static void rswitch_deinit_rdev(struct rswitch_device *rdev)
 static void rswitch_deinit(struct rswitch_private *priv)
 {
 	struct rswitch_device *rdev, *tmp;
+	int i;
 
 	mutex_lock(&priv->rdev_list_lock);
 	list_for_each_entry_safe(rdev, tmp, &priv->rdev_list, list) {
 		rswitch_deinit_rdev(rdev);
-		rswitch_ndev_unregister(rdev);
+		rswitch_ndev_unregister(rdev, -1);
 	}
 	mutex_unlock(&priv->rdev_list_lock);
+
+	for (i = 0; i < RSWITCH_MAX_RMON_DEV; i++)
+		rswitch_ndev_unregister(priv->rmon_dev[i], i);
 
 	rswitch_free_irqs(priv);
 	rswitch_gwca_ts_queue_free(priv);

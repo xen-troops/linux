@@ -128,7 +128,7 @@ static int rswitch_vmq_back_remove(struct xenbus_device *dev)
 
 	if (be->rdev) {
 		rswitch_vmq_back_disconnect(dev);
-		rswitch_ndev_unregister(be->rdev);
+		rswitch_ndev_unregister(be->rdev, -1);
 		be->rdev = NULL;
 	}
 
