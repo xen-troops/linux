@@ -3450,10 +3450,6 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index)
 
 	rswitch_set_mac_address(rdev);
 
-	priv->rswitch_fib_wq = alloc_ordered_workqueue("rswitch_ordered", 0);
-	if (!priv->rswitch_fib_wq)
-		return -ENOMEM;
-
 	/* FIXME: it seems S4 VPF has FWPBFCSDC0/1 only so that we cannot set
 	 * CSD = 1 (rx_default_chain->index = 1) for FWPBFCS03. So, use index = 0
 	 * for the RX.
@@ -3820,10 +3816,16 @@ static int rswitch_init(struct rswitch_private *priv)
 	if (err < 0)
 		goto out;
 
+	priv->rswitch_fib_wq = alloc_ordered_workqueue("rswitch_ordered", 0);
+	if (!priv->rswitch_fib_wq) {
+		err = -ENOMEM;
+		goto out;
+	}
+
 	for (i = 0; i < num_ndev; i++) {
 		err = rswitch_ndev_create(priv, i);
 		if (err < 0)
-			goto out;
+			goto workqueue_destroy;
 	}
 
 	/* TODO: chrdev register */
@@ -3831,23 +3833,26 @@ static int rswitch_init(struct rswitch_private *priv)
 	if (!parallel_mode) {
 		err = rswitch_bpool_config(priv);
 		if (err < 0)
-			goto out;
+			goto workqueue_destroy;
 
 		rswitch_fwd_init(priv);
 	}
 
 	err = rswitch_request_irqs(priv);
 	if (err < 0)
-		goto out;
+		goto workqueue_destroy;
 	/* Register devices so Linux network stack can access them now */
 
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		err = register_netdev(rdev->ndev);
 		if (err)
-			goto out;
+			goto workqueue_destroy;
 	}
 
 	return 0;
+
+workqueue_destroy:
+	destroy_workqueue(priv->rswitch_fib_wq);
 
 out:
 	list_for_each_entry_safe(rdev, tmp, &priv->rdev_list, list)
@@ -4104,6 +4109,7 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	unregister_netdevice_notifier(&vlan_notifier_block);
 	unregister_fib_notifier(&init_net, &priv->fib_nb);
+	destroy_workqueue(priv->rswitch_fib_wq);
 	glob_priv = NULL;
 
 	return 0;
