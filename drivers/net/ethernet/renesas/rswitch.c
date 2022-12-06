@@ -3947,6 +3947,7 @@ err_rx:
 	rswitch_txdmac_free(dev, priv);
 err_tx:
 	list_del(&rdev->list);
+	kfree(rdev);
 	return ret;
 }
 
@@ -3964,6 +3965,7 @@ static void vlan_dev_unregister(struct net_device *dev)
 	napi_disable(&rdev->napi);
 
 	list_del(&rdev->list);
+	kfree(rdev);
 }
 
 static int vlan_device_event(struct notifier_block *unused, unsigned long event,
