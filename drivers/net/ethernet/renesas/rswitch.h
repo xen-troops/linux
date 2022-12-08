@@ -226,36 +226,6 @@ struct rswitch_mfwd {
 	int num_mac_table_entries;
 };
 
-#if 0
-struct rswitch_ipv4_route {
-	u32 ip;
-	u32 subnet;
-	u32 mask;
-	struct rswitch_device *dev;
-	struct list_head param_list;
-	struct list_head list;
-};
-/* TODO: make common struct for filters */
-struct rswitch_tc_u32_filter {
-	u32 handle;
-	u32 value;
-	u32 mask;
-	u32 offset;
-	u8 dmac[ETH_ALEN];
-	enum rswitch_tc_u32_action action;
-	struct rswitch_device *rdev;
-	struct rswitch_device *target_rdev;
-	struct list_head list;
-	struct l3_ipv4_fwd_param param;
-};
-struct rswitch_tc_flower_filter {
-	struct rswitch_device *rdev;
-	unsigned long cookie;
-	struct l3_ipv4_fwd_param param;
-	struct list_head lh;
-};
-#endif
-
 /* Two-byte filter number */
 #define PFL_TWBF_N (48)
 /* Three-byte filter number */
@@ -394,12 +364,7 @@ struct l3_ipv4_fwd_param {
 	u8 frame_type;
 	bool enable_sub_dst;
 };
-/*
-struct l3_ipv4_fwd_param_list {
-	struct l3_ipv4_fwd_param *param;
-	struct list_head list;
-};
-*/
+
 int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param);
 int rswitch_remove_l3fwd(struct l3_ipv4_fwd_param *param);
 void rswitch_put_pf(struct l3_ipv4_fwd_param *param);
