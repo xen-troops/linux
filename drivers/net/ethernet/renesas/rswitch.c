@@ -1147,10 +1147,8 @@ static inline bool skb_is_vlan(struct sk_buff *skb)
 }
 
 static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch_gwca_chain *c, bool learn_chain)
-//static bool rswitch_rx(struct net_device *ndev, int *quota)
 {
 	struct rswitch_device *rdev = ndev_to_rdev(ndev);
-//	struct rswitch_gwca_chain *c = rdev->rx_chain;
 	int boguscnt = c->dirty + c->num_ring - c->cur;
 	int entry = c->cur % c->num_ring;
 	struct rswitch_ext_ts_desc *desc = &c->ts_ring[entry];
