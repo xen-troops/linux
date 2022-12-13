@@ -59,6 +59,7 @@
 #include <net/route.h>
 #include <net/ip_fib.h>
 #include <net/rtnetlink.h>
+#include <net/netevent.h>
 #include <net/net_namespace.h>
 #include <net/addrconf.h>
 
@@ -2456,6 +2457,8 @@ static int devinet_sysctl_forward(struct ctl_table *ctl, int write,
 						    NETCONFA_FORWARDING,
 						    NETCONFA_IFINDEX_DEFAULT,
 						    net->ipv4.devconf_dflt);
+
+		call_netevent_notifiers(NETEVENT_IPV4_FORWARD_UPDATE, net);
 	}
 
 	return ret;
