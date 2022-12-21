@@ -13,6 +13,7 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/net_tstamp.h>
+#include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
@@ -30,6 +31,7 @@
 #include <net/netns/generic.h>
 #include <net/arp.h>
 #include <net/switchdev.h>
+#include <net/netevent.h>
 
 #include "rtsn_ptp.h"
 #include "rswitch.h"
@@ -933,6 +935,13 @@ struct rswitch_fib_event_work {
 	};
 	struct rswitch_private *priv;
 	unsigned long event;
+};
+
+struct rswitch_forward_work {
+	struct work_struct work;
+	struct rswitch_private *priv;
+	u32 src_ip;
+	u32 dst_ip;
 };
 
 struct l3_ipv4_fwd_param_list {
@@ -2051,31 +2060,26 @@ static int rswitch_stop(struct net_device *ndev)
 	return 0;
 };
 
-static u32 rswitch_search_l3fwd(struct l3_ipv4_fwd_param *param)
+/* Should be called with rswitch_priv->ipv4_forward_lock taken */
+static bool is_l3_exist(struct rswitch_private *priv, u32 src_ip, u32 dst_ip)
 {
-	struct rswitch_private *priv = param->priv;
+	struct rswitch_device *rdev;
+	struct rswitch_ipv4_route *routing_list;
+	struct l3_ipv4_fwd_param_list *l3_param_list;
 
-	rs_write32(param->frame_type, priv->addr + FWLTHTS0);
-	rs_write32(0, priv->addr + FWLTHTS1);
-	rs_write32(0, priv->addr + FWLTHTS2);
-	rs_write32(param->src_ip, priv->addr + FWLTHTS3);
-	rs_write32(param->dst_ip, priv->addr + FWLTHTS4);
+	mutex_lock(&priv->rdev_list_lock);
+	list_for_each_entry(rdev, &priv->rdev_list, list)
+		list_for_each_entry(routing_list, &rdev->routing_list, list)
+			list_for_each_entry(l3_param_list, &routing_list->param_list, list) {
+				if (l3_param_list->param->src_ip == src_ip &&
+				    l3_param_list->param->dst_ip == dst_ip) {
+					mutex_unlock(&priv->rdev_list_lock);
+					return true;
+				}
+			}
+	mutex_unlock(&priv->rdev_list_lock);
 
-	rswitch_reg_wait(priv->addr, FWLTHTSR0, LTHTS, 0);
-
-	return (rs_read32(priv->addr + FWLTHTSR0) & BIT(1));
-}
-
-bool is_l3_exist(struct rswitch_private *priv, u32 src_ip, u32 dst_ip)
-{
-	struct l3_ipv4_fwd_param param = {
-		.priv = priv,
-		.src_ip = src_ip,
-		.dst_ip = dst_ip,
-		.frame_type = LTHSLP0v4OTHER,
-	};
-
-	return !rswitch_search_l3fwd(&param);
+	return false;
 }
 
 static struct rswitch_device *get_dev_by_ip(struct rswitch_private *priv, u32 ip_search, bool use_mask)
@@ -2693,7 +2697,9 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 	if (ret)
 		goto put_pf;
 
+	mutex_lock(&priv->ipv4_forward_lock);
 	list_add(&param_list->list, &routing_list->param_list);
+	mutex_unlock(&priv->ipv4_forward_lock);
 
 	return ret;
 
@@ -2733,7 +2739,9 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 	new_routing_list->dev = dev;
 	INIT_LIST_HEAD(&new_routing_list->param_list);
 
+	mutex_lock(&dev->priv->ipv4_forward_lock);
 	list_add(&new_routing_list->list, &dev->routing_list);
+	mutex_unlock(&dev->priv->ipv4_forward_lock);
 
 	/*
 	 * Route with zeroed subnet is default route. It does not need a PF entry
@@ -2765,6 +2773,7 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	if (!dev)
 		return;
 
+	mutex_lock(&dev->priv->ipv4_forward_lock);
 	list_for_each(cur, &dev->routing_list) {
 		routing_list = list_entry(cur, struct rswitch_ipv4_route, list);
 		if (routing_list->subnet == fen.dst && routing_list->ip == be32_to_cpu(nh->nh_saddr)) {
@@ -2774,8 +2783,10 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	}
 
 	/* There is nothing to free */
-	if (!route_found)
+	if (!route_found) {
+		mutex_unlock(&dev->priv->ipv4_forward_lock);
 		return;
+	}
 
 	list_for_each_safe(cur, tmp, &routing_list->param_list) {
 		param_list = list_entry(cur, struct l3_ipv4_fwd_param_list, list);
@@ -2786,6 +2797,8 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	}
 
 	list_del(&routing_list->list);
+	mutex_unlock(&dev->priv->ipv4_forward_lock);
+
 	kfree(routing_list);
 }
 
@@ -3693,40 +3706,49 @@ static int rswitch_ipv4_resolve(struct rswitch_device *rdev, u32 ip, u8 mac[ETH_
 	return err;
 }
 
-void rswitch_add_ipv4_forward_all_types(struct l3_ipv4_fwd_param *param, struct rswitch_ipv4_route *routing_list)
+/* Should be called with rswitch_priv->ipv4_forward_lock taken */
+static void rswitch_add_ipv4_forward_all_types(struct l3_ipv4_fwd_param *param,
+					       struct rswitch_ipv4_route *routing_list)
 {
 	struct l3_ipv4_fwd_param_list *param_list;
+	struct rswitch_private *priv = routing_list->dev->priv;
 	const int frame_type_num = 3;
 	int i, j;
 
-	param_list = kcalloc(frame_type_num, sizeof(*param_list), GFP_KERNEL);
+	param_list = kcalloc(frame_type_num, sizeof(*param_list), GFP_ATOMIC);
 	if (!param_list)
 		return;
 
 	for (i = 0; i < frame_type_num; i++) {
-		param_list[i].param = kcalloc(frame_type_num, sizeof(*param), GFP_KERNEL);
+		param_list[i].param = kcalloc(frame_type_num, sizeof(*param), GFP_ATOMIC);
 		if (!param_list[i].param)
 			goto free;
 		memcpy(param_list[i].param, param, sizeof(*param));
 	}
 
 	param_list[0].param->frame_type = LTHSLP0v4OTHER;
+	param_list[1].param->frame_type = LTHSLP0v4UDP;
+	param_list[2].param->frame_type = LTHSLP0v4TCP;
+
+	if (!priv->ipv4_forward_enabled)
+		/* Add these params only to list, not to HW */
+		goto list_add;
+
 	if (rswitch_add_l3fwd(param_list[0].param))
 		goto free;
 
-	param_list[1].param->frame_type = LTHSLP0v4UDP;
 	if (rswitch_add_l3fwd(param_list[1].param)) {
 		rswitch_remove_l3fwd(param_list[0].param);
 		goto free;
 	}
 
-	param_list[2].param->frame_type = LTHSLP0v4TCP;
 	if (rswitch_add_l3fwd(param_list[2].param)) {
 		rswitch_remove_l3fwd(param_list[0].param);
 		rswitch_remove_l3fwd(param_list[1].param);
 		goto free;
 	}
 
+list_add:
 	list_add(&param_list[0].list, &routing_list->param_list);
 	list_add(&param_list[1].list, &routing_list->param_list);
 	list_add(&param_list[2].list, &routing_list->param_list);
@@ -3734,12 +3756,14 @@ void rswitch_add_ipv4_forward_all_types(struct l3_ipv4_fwd_param *param, struct 
 	return;
 
 free:
+
 	for (j = 0; j < i; j++)
 		kfree(param_list[j].param);
 
 	kfree(param_list);
 }
 
+/* Should be called with rswitch_priv->ipv4_forward_lock taken */
 static struct rswitch_ipv4_route *rswitch_get_route(struct rswitch_private *priv, u32 dst_ip)
 {
 	struct rswitch_ipv4_route *routing_list, *default_route;
@@ -3770,8 +3794,9 @@ static struct rswitch_ipv4_route *rswitch_get_route(struct rswitch_private *priv
 	return NULL;
 }
 
-void rswitch_add_ipv4_forward(struct rswitch_private *priv, u32 src_ip, u32 dst_ip)
+static void rswitch_forward_work(struct work_struct *work)
 {
+	struct rswitch_forward_work *fwd_work;
 	struct rswitch_device *dev;
 	struct rswitch_device *real_dev;
 	struct net_device *real_ndev;
@@ -3779,16 +3804,19 @@ void rswitch_add_ipv4_forward(struct rswitch_private *priv, u32 src_ip, u32 dst_
 	struct l3_ipv4_fwd_param param = {0};
 	u8 mac[ETH_ALEN];
 
-	if (is_l3_exist(priv, src_ip, dst_ip))
-		return;
+	fwd_work = container_of(work, struct rswitch_forward_work, work);
 
-	routing_list = rswitch_get_route(priv, dst_ip);
+	mutex_lock(&fwd_work->priv->ipv4_forward_lock);
+	if (is_l3_exist(fwd_work->priv, fwd_work->src_ip, fwd_work->dst_ip))
+		goto free;
+
+	routing_list = rswitch_get_route(fwd_work->priv, fwd_work->dst_ip);
 	if (!routing_list)
-		return;
+		goto free;
 
 	dev = routing_list->dev;
-	if (rswitch_ipv4_resolve(dev, dst_ip, mac))
-		return;
+	if (rswitch_ipv4_resolve(dev, fwd_work->dst_ip, mac))
+		goto free;
 
 	if (is_vlan_dev(dev->ndev)) {
 		real_ndev = vlan_dev_real_dev(dev->ndev);
@@ -3801,18 +3829,38 @@ void rswitch_add_ipv4_forward(struct rswitch_private *priv, u32 src_ip, u32 dst_
 	param.enable_sub_dst = false;
 	memcpy(param.l23_info.dst_mac, mac, ETH_ALEN);
 	param.slv = 0x3F;
-	param.l23_info.priv = priv;
+	param.l23_info.priv = fwd_work->priv;
 	param.l23_info.update_ttl = true;
 	param.l23_info.update_dst_mac = true;
 	param.l23_info.update_src_mac = false;
 	param.l23_info.routing_port_valid = 0x3F;
-	param.l23_info.routing_number = rswitch_rn_get(priv);
+	param.l23_info.routing_number = rswitch_rn_get(fwd_work->priv);
 
-	param.priv = priv;
-	param.src_ip = src_ip;
-	param.dst_ip = dst_ip;
+	param.priv = fwd_work->priv;
+	param.src_ip = fwd_work->src_ip;
+	param.dst_ip = fwd_work->dst_ip;
 
 	rswitch_add_ipv4_forward_all_types(&param, routing_list);
+
+free:
+	mutex_unlock(&fwd_work->priv->ipv4_forward_lock);
+	kfree(fwd_work);
+}
+
+void rswitch_add_ipv4_forward(struct rswitch_private *priv, u32 src_ip, u32 dst_ip)
+{
+	struct rswitch_forward_work *fwd_work;
+
+	fwd_work = kzalloc(sizeof(*fwd_work), GFP_ATOMIC);
+	if (!fwd_work)
+		return;
+
+	INIT_WORK(&fwd_work->work, rswitch_forward_work);
+	fwd_work->priv = priv;
+	fwd_work->src_ip = src_ip;
+	fwd_work->dst_ip = dst_ip;
+
+	queue_work(priv->rswitch_forward_wq, &fwd_work->work);
 }
 
 void rswitch_mfwd_set_port_based(struct rswitch_private *priv, u8 port,
@@ -3909,15 +3957,27 @@ static int rswitch_init(struct rswitch_private *priv)
 		goto out;
 	}
 
+	priv->rswitch_netevent_wq = alloc_ordered_workqueue("rswitch_netevent", 0);
+	if (!priv->rswitch_netevent_wq) {
+		err = -ENOMEM;
+		goto fib_wq_destroy;
+	}
+
+	priv->rswitch_forward_wq = alloc_ordered_workqueue("rswitch_forward", 0);
+	if (!priv->rswitch_forward_wq) {
+		err = -ENOMEM;
+		goto netevent_wq_destroy;
+	}
+
 	for (i = 0; i < num_ndev; i++) {
 		err = rswitch_ndev_create(priv, i, false);
 		if (err < 0)
-			goto workqueue_destroy;
+			goto forward_wq_destroy;
 
 		if (!parallel_mode) {
 			err = rswitch_ndev_create(priv, i, true);
 			if (err < 0)
-				goto workqueue_destroy;
+				goto forward_wq_destroy;
 		}
 	}
 
@@ -3926,32 +3986,38 @@ static int rswitch_init(struct rswitch_private *priv)
 	if (!parallel_mode) {
 		err = rswitch_bpool_config(priv);
 		if (err < 0)
-			goto workqueue_destroy;
+			goto forward_wq_destroy;
 
 		rswitch_fwd_init(priv);
 	}
 
 	err = rswitch_request_irqs(priv);
 	if (err < 0)
-		goto workqueue_destroy;
+		goto forward_wq_destroy;
 	/* Register devices so Linux network stack can access them now */
 
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		err = register_netdev(rdev->ndev);
 		if (err)
-			goto workqueue_destroy;
+			goto forward_wq_destroy;
 	}
 
 	if (!parallel_mode)
 		for (i = 0; i < num_ndev; i++) {
 			err = register_netdev(priv->rmon_dev[i]->ndev);
 			if (err)
-				goto workqueue_destroy;
+				goto forward_wq_destroy;
 		}
 
 	return 0;
 
-workqueue_destroy:
+forward_wq_destroy:
+	destroy_workqueue(priv->rswitch_forward_wq);
+
+netevent_wq_destroy:
+	destroy_workqueue(priv->rswitch_netevent_wq);
+
+fib_wq_destroy:
 	destroy_workqueue(priv->rswitch_fib_wq);
 
 out:
@@ -4091,6 +4157,62 @@ static struct notifier_block vlan_notifier_block __read_mostly = {
 	.notifier_call = vlan_device_event,
 };
 
+static void rswitch_netevent_work(struct work_struct *work)
+{
+	struct rswitch_net *rn;
+	struct rswitch_private *priv;
+	struct rswitch_device *rdev;
+	struct rswitch_ipv4_route *routing_list;
+	struct l3_ipv4_fwd_param_list *l3_param_list;
+
+	rn = net_generic(&init_net, rswitch_net_id);
+	priv = rn->priv;
+
+	mutex_lock(&priv->ipv4_forward_lock);
+
+	priv->ipv4_forward_enabled = !!IPV4_DEVCONF_ALL(&init_net, FORWARDING);
+
+	mutex_lock(&priv->rdev_list_lock);
+	list_for_each_entry(rdev, &priv->rdev_list, list)
+		list_for_each_entry(routing_list, &rdev->routing_list, list)
+			list_for_each_entry(l3_param_list, &routing_list->param_list, list) {
+				/* Skip params related to dst interface route (zero src) */
+				if (l3_param_list->param->src_ip)
+					rswitch_modify_l3fwd(l3_param_list->param,
+							     !priv->ipv4_forward_enabled);
+			}
+	mutex_unlock(&priv->rdev_list_lock);
+	mutex_unlock(&priv->ipv4_forward_lock);
+
+	kfree(work);
+}
+
+static int rswitch_netevent_cb(struct notifier_block *unused, unsigned long event, void *ptr)
+{
+	struct rswitch_net *rn;
+	struct rswitch_private *priv;
+	struct work_struct *work;
+
+	if (event != NETEVENT_IPV4_FORWARD_UPDATE)
+		return NOTIFY_DONE;
+
+	rn = net_generic(&init_net, rswitch_net_id);
+	priv = rn->priv;
+
+	work = kzalloc(sizeof(*work), GFP_ATOMIC);
+	if (!work)
+		return -ENOMEM;
+
+	INIT_WORK(work, rswitch_netevent_work);
+	queue_work(priv->rswitch_netevent_wq, work);
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block netevent_notifier = {
+	.notifier_call = rswitch_netevent_cb,
+};
+
 static int renesas_eth_sw_probe(struct platform_device *pdev)
 {
 	struct rswitch_private *priv;
@@ -4195,6 +4317,12 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 
+		priv->ipv4_forward_enabled = !!IPV4_DEVCONF_ALL(&init_net, FORWARDING);
+		mutex_init(&priv->ipv4_forward_lock);
+		ret = register_netevent_notifier(&netevent_notifier);
+		if (ret)
+			return ret;
+
 		priv->fib_nb.notifier_call = rswitch_fib_event;
 
 		return register_fib_notifier(&init_net, &priv->fib_nb, NULL, NULL);
@@ -4219,6 +4347,8 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 		unregister_netdevice_notifier(&vlan_notifier_block);
 		unregister_fib_notifier(&init_net, &priv->fib_nb);
 		destroy_workqueue(priv->rswitch_fib_wq);
+		destroy_workqueue(priv->rswitch_netevent_wq);
+		destroy_workqueue(priv->rswitch_forward_wq);
 	}
 
 	rswitch_desc_free(priv);
