@@ -309,6 +309,12 @@ struct rswitch_private {
 	struct rswitch_gwca_chain *mon_rx_chain;
 	struct rswitch_gwca_chain *mon_tx_chain;
 
+	struct workqueue_struct *rswitch_netevent_wq;
+
+	bool ipv4_forward_enabled;
+	struct mutex ipv4_forward_lock;
+	struct workqueue_struct *rswitch_forward_wq;
+
 	u8 chan_running;
 	bool serdes_common_init;
 
