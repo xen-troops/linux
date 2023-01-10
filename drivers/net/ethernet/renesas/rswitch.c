@@ -866,16 +866,6 @@ enum rswitch_etha_mode {
 #define L3_SLV_DESC_SHIFT (36)
 #define L3_SLV_DESC_MASK (0xFUL << L3_SLV_DESC_SHIFT)
 
-#define filter_index_check(idx, idx_max) \
-	(idx < idx_max) ? idx : -1;
-
-#define get_two_byte_filter(priv) \
-	filter_index_check(find_first_zero_bit(priv->filters.two_bytes, PFL_TWBF_N), PFL_TWBF_N)
-#define get_three_byte_filter(priv) \
-	filter_index_check(find_first_zero_bit(priv->filters.three_bytes, PFL_THBF_N), PFL_THBF_N)
-#define get_four_byte_filter(priv) \
-	filter_index_check(find_first_zero_bit(priv->filters.four_bytes, PFL_FOBF_N), PFL_FOBF_N)
-
 #define FWPC0(i)                (FWPC00 + (i) * 0x10)
 #define FWPC0_DEFAULT	(FWPC0_LTHTA | FWPC0_IP4UE | FWPC0_IP4TE | \
 			 FWPC0_IP4OE | FWPC0_L2SE | FWPC0_IP4EA | \

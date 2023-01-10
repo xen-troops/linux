@@ -247,6 +247,26 @@ struct rswitch_mfwd {
 	int num_mac_table_entries;
 };
 
+/* Two-byte filter number */
+#define PFL_TWBF_N (48)
+/* Three-byte filter number */
+#define PFL_THBF_N (16)
+/* Four-byte filter number */
+#define PFL_FOBF_N (48)
+/* Range-byte filter number */
+#define PFL_RAGF_N (16)
+/* Cascade filter number */
+#define PFL_CADF_N (64)
+
+#define filter_index_check(idx, idx_max) ((idx) < (idx_max)) ? (idx) : -1
+
+#define get_two_byte_filter(priv) \
+	filter_index_check(find_first_zero_bit(priv->filters.two_bytes, PFL_TWBF_N), PFL_TWBF_N)
+#define get_three_byte_filter(priv) \
+	filter_index_check(find_first_zero_bit(priv->filters.three_bytes, PFL_THBF_N), PFL_THBF_N)
+#define get_four_byte_filter(priv) \
+	filter_index_check(find_first_zero_bit(priv->filters.four_bytes, PFL_FOBF_N), PFL_FOBF_N)
+
 struct rswitch_filters {
 	DECLARE_BITMAP(two_bytes, PFL_TWBF_N);
 	DECLARE_BITMAP(three_bytes, PFL_THBF_N);
@@ -464,17 +484,6 @@ static inline struct rswitch_device *rswitch_find_rdev_by_port(struct rswitch_pr
 	return NULL;
 }
 
-/* Used for three byte filter configuration values in expand mode */
-static inline u32 rswitch_mac_left_half(const u8 *addr)
-{
-	return ((addr[0] << 16) | (addr[1] << 8) | addr[2]);
-}
-
-static inline u32 rswitch_mac_right_half(const u8 *addr)
-{
-	return ((addr[3] << 16) | (addr[4] << 8) | addr[5]);
-}
-
 static inline bool ndev_is_tsn_dev(const struct net_device *ndev,
 			struct rswitch_private *priv)
 {
@@ -534,6 +543,26 @@ static inline int rswitch_init_tag_mask_pf_entry(struct rswitch_pf_param *p,
 	p->entries[idx].val = value;
 	p->entries[idx].mask = mask;
 	p->entries[idx].off = offset;
+	p->used_entries++;
+
+	return 0;
+}
+
+static inline int rswitch_init_tag_expand_pf_entry(struct rswitch_pf_param *p,
+						   u32 value, u32 expand_value)
+{
+	int idx = p->used_entries;
+
+	if (idx >= MAX_PF_ENTRIES)
+		return -E2BIG;
+
+	p->entries[idx].match_mode = RSWITCH_PF_EXPAND_MODE;
+	p->entries[idx].filtering_mode = RSWITCH_PF_TAG_FILTERING;
+	/* Tag filtering supported only for two-byte filters */
+	p->entries[idx].type = PF_TWO_BYTE;
+	p->entries[idx].val = value;
+	p->entries[idx].ext_val = expand_value;
+	p->entries[idx].off = 0;
 	p->used_entries++;
 
 	return 0;
