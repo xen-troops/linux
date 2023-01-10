@@ -31,15 +31,10 @@ static int rswitch_tc_flower_validate_match(struct flow_rule *rule)
 	return 0;
 }
 
-static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
-				struct flow_rule *rule)
+static int rswitch_flower_gen_fv_callback(struct filtering_vector *fv, void *filter_param)
 {
-	struct rswitch_pf_param pf_param = {0};
-	int rc = 0, i;
+	struct flow_rule *rule = filter_param;
 	u16 addr_type = 0;
-
-	pf_param.rdev = f->rdev;
-	pf_param.all_sources = false;
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL)) {
 		struct flow_match_control match;
@@ -58,20 +53,17 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 		flow_rule_match_basic(rule, &match);
 
 		if (match.mask->n_proto) {
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
-					ntohs(match.key->n_proto), ntohs(match.mask->n_proto),
-					RSWITCH_IP_VERSION_OFFSET);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_IP_VERSION_OFFSET], &match.key->n_proto,
+			       sizeof(match.key->n_proto));
+			memcpy(&fv->masks[RSWITCH_IP_VERSION_OFFSET], &match.mask->n_proto,
+			       sizeof(match.mask->n_proto));
 		}
 
 		if (match.mask->ip_proto) {
-			/* Using one byte in two-byte filter, make offset correction */
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
-					match.key->ip_proto, match.mask->ip_proto,
-					RSWITCH_IPV4_PROTO_OFFSET - 1);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_IPV4_PROTO_OFFSET], &match.key->ip_proto,
+			       sizeof(match.key->ip_proto));
+			memcpy(&fv->masks[RSWITCH_IPV4_PROTO_OFFSET], &match.mask->ip_proto,
+			       sizeof(match.mask->ip_proto));
 		}
 	}
 
@@ -80,63 +72,14 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 
 		flow_rule_match_eth_addrs(rule, &match);
 
-		/*
-		 * There two possible scenarios for both src and dst MAC
-		 * matching (when mask is non-zero):
-		 * - MAC is not masked (mask is ff:...:ff) and we can use
-		 *   1 three-byte filter in expand mode
-		 * - MAC is masked and we need to use 2 three-byte filters.
-		 *   Both MAC and mask will be divided into 2 parts and will
-		 *   be placed to separate filters.
-		 */
 		if (!is_zero_ether_addr(match.mask->src)) {
-			if (is_broadcast_ether_addr(match.mask->src)) {
-				rc = rswitch_init_expand_pf_entry(&pf_param, PF_THREE_BYTE,
-						rswitch_mac_left_half(match.key->src),
-						rswitch_mac_right_half(match.key->src),
-						RSWITCH_MAC_SRC_OFFSET);
-				if (rc)
-					return rc;
-			} else {
-				rc = rswitch_init_mask_pf_entry(&pf_param, PF_THREE_BYTE,
-						rswitch_mac_left_half(match.key->src),
-						rswitch_mac_left_half(match.mask->src),
-						RSWITCH_MAC_SRC_OFFSET);
-				if (rc)
-					return rc;
-
-				rc = rswitch_init_mask_pf_entry(&pf_param, PF_THREE_BYTE,
-						rswitch_mac_right_half(match.key->src),
-						rswitch_mac_right_half(match.mask->src),
-						RSWITCH_MAC_SRC_OFFSET + 3);
-				if (rc)
-					return rc;
-			}
+			memcpy(&fv->values[RSWITCH_MAC_SRC_OFFSET], match.key->src, ETH_ALEN);
+			memcpy(&fv->masks[RSWITCH_MAC_SRC_OFFSET], match.mask->src, ETH_ALEN);
 		}
 
 		if (!is_zero_ether_addr(match.mask->dst)) {
-			if (is_broadcast_ether_addr(match.mask->dst)) {
-				rc = rswitch_init_expand_pf_entry(&pf_param, PF_THREE_BYTE,
-							rswitch_mac_left_half(match.key->dst),
-							rswitch_mac_right_half(match.key->dst),
-							RSWITCH_MAC_DST_OFFSET);
-				if (rc)
-					return rc;
-			} else {
-				rc = rswitch_init_mask_pf_entry(&pf_param, PF_THREE_BYTE,
-						rswitch_mac_left_half(match.key->dst),
-						rswitch_mac_left_half(match.mask->dst),
-						RSWITCH_MAC_DST_OFFSET);
-				if (rc)
-					return rc;;
-
-				rc = rswitch_init_mask_pf_entry(&pf_param, PF_THREE_BYTE,
-						rswitch_mac_right_half(match.key->dst),
-						rswitch_mac_right_half(match.mask->dst),
-						RSWITCH_MAC_DST_OFFSET + 3);
-				if (rc)
-					return rc;
-			}
+			memcpy(&fv->values[RSWITCH_MAC_DST_OFFSET], match.key->dst, ETH_ALEN);
+			memcpy(&fv->masks[RSWITCH_MAC_DST_OFFSET], match.mask->dst, ETH_ALEN);
 		}
 	}
 
@@ -146,86 +89,47 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 		flow_rule_match_ipv4_addrs(rule, &match);
 
 		if (match.mask->src) {
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-					be32_to_cpu(match.key->src), be32_to_cpu(match.mask->src),
-					RSWITCH_IPV4_SRC_OFFSET);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_IPV4_SRC_OFFSET], &match.key->src,
+			       sizeof(match.key->src));
+			memcpy(&fv->masks[RSWITCH_IPV4_SRC_OFFSET], &match.mask->src,
+			       sizeof(match.mask->src));
 		}
 
 		if (match.mask->dst) {
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-					be32_to_cpu(match.key->dst), be32_to_cpu(match.mask->dst),
-					RSWITCH_IPV4_DST_OFFSET);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_IPV4_DST_OFFSET], &match.key->dst,
+			       sizeof(match.key->src));
+			memcpy(&fv->masks[RSWITCH_IPV4_DST_OFFSET], &match.mask->dst,
+			       sizeof(match.mask->src));
 		}
 	}
 
 	if (addr_type == FLOW_DISSECTOR_KEY_IPV6_ADDRS) {
 		struct flow_match_ipv6_addrs match;
+		int i;
 
 		flow_rule_match_ipv6_addrs(rule, &match);
 
-		/*
-		 * Approach is the same as for MAC addresses:
-		 * - 2 four-byte filters in expand mode for exact IPv6
-		 * - 4 four-byte filter in mask mode for masked IPv6 (or less
-		 *   if mask has more than 32 zeros at the end)
-		 */
 		if (!rswitch_ipv6_all_zero(&match.mask->src)) {
-			if (rswitch_ipv6_all_set(&match.mask->src)) {
-				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
-						be32_to_cpu(match.key->src.s6_addr32[0]),
-						be32_to_cpu(match.key->src.s6_addr32[1]),
-						RSWITCH_IPV6_SRC_OFFSET);
-				if (rc)
-					return rc;
-
-				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
-						be32_to_cpu(match.key->src.s6_addr32[2]),
-						be32_to_cpu(match.key->src.s6_addr32[3]),
-						RSWITCH_IPV6_SRC_OFFSET + 8);
-				if (rc)
-					return rc;
-			} else {
-				/* Walk through all 128-bit or until we reach zero mask in addr */
-				for (i = 0; (i < 4) && match.mask->src.s6_addr32[i]; i++) {
-					rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-							be32_to_cpu(match.key->src.s6_addr32[i]),
-							be32_to_cpu(match.mask->src.s6_addr32[i]),
-							RSWITCH_IPV6_SRC_OFFSET + 4 * i);
-					if (rc)
-						return rc;
-				}
+			/* Walk through all 128-bit or until we reach zero mask in addr */
+			for (i = 0; (i < 4) && match.mask->src.s6_addr32[i]; i++) {
+				memcpy(&fv->values[RSWITCH_IPV6_SRC_OFFSET + (4 * i)],
+				       &match.key->src.s6_addr32[i],
+				       sizeof(match.key->src.s6_addr32[i]));
+				memcpy(&fv->masks[RSWITCH_IPV6_SRC_OFFSET + (4 * i)],
+				       &match.mask->src.s6_addr32[i],
+				       sizeof(match.mask->src.s6_addr32[i]));
 			}
 		}
 
 		if (!rswitch_ipv6_all_zero((&match.mask->dst))) {
-			if (rswitch_ipv6_all_set(&match.mask->dst)) {
-				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
-						be32_to_cpu(match.key->dst.s6_addr32[0]),
-						be32_to_cpu(match.key->dst.s6_addr32[1]),
-						RSWITCH_IPV6_DST_OFFSET);
-				if (rc)
-					return rc;
-
-				rc = rswitch_init_expand_pf_entry(&pf_param, PF_FOUR_BYTE,
-						be32_to_cpu(match.key->dst.s6_addr32[2]),
-						be32_to_cpu(match.key->dst.s6_addr32[3]),
-						RSWITCH_IPV6_DST_OFFSET + 8);
-				if (rc)
-					return rc;
-			} else {
-				/* Walk through all 128-bit or until we reach zero mask in addr */
-				for (i = 0; (i < 4) && match.mask->dst.s6_addr32[i]; i++) {
-					rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-							be32_to_cpu(match.key->dst.s6_addr32[i]),
-							be32_to_cpu(match.mask->dst.s6_addr32[i]),
-							RSWITCH_IPV6_DST_OFFSET + 4 * i);
-					if (rc)
-						return rc;
-				}
+			/* Walk through all 128-bit or until we reach zero mask in addr */
+			for (i = 0; (i < 4) && match.mask->dst.s6_addr32[i]; i++) {
+				memcpy(&fv->values[RSWITCH_IPV6_DST_OFFSET + (4 * i)],
+				       &match.key->dst.s6_addr32[i],
+				       sizeof(match.key->dst.s6_addr32[i]));
+				memcpy(&fv->masks[RSWITCH_IPV6_DST_OFFSET + (4 * i)],
+				       &match.mask->dst.s6_addr32[i],
+				       sizeof(match.mask->dst.s6_addr32[i]));
 			}
 		}
 	}
@@ -236,19 +140,17 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 		flow_rule_match_ip(rule, &match);
 
 		if (match.mask->tos) {
-			/* Using one byte in two-byte filter, make offset correction */
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE, match.key->tos,
-					match.mask->tos, RSWITCH_IPV4_TOS_OFFSET - 1);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_IPV4_TOS_OFFSET], &match.key->tos,
+			       sizeof(match.key->tos));
+			memcpy(&fv->masks[RSWITCH_IPV4_TOS_OFFSET], &match.mask->tos,
+			       sizeof(match.mask->tos));
 		}
 
 		if (match.mask->ttl) {
-			/* Using one byte in two-byte filter, make offset correction */
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE, match.key->ttl,
-					match.mask->ttl, RSWITCH_IPV4_TTL_OFFSET - 1);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_IPV4_TTL_OFFSET], &match.key->ttl,
+			       sizeof(match.key->ttl));
+			memcpy(&fv->masks[RSWITCH_IPV4_TTL_OFFSET], &match.mask->ttl,
+			       sizeof(match.mask->ttl));
 		}
 	}
 
@@ -258,19 +160,17 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 		flow_rule_match_ports(rule, &match);
 
 		if (match.mask->src) {
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
-					be16_to_cpu(match.key->src), be16_to_cpu(match.mask->src),
-					RSWITCH_L4_SRC_PORT_OFFSET);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_L4_SRC_PORT_OFFSET], &match.key->src,
+			       sizeof(match.key->src));
+			memcpy(&fv->masks[RSWITCH_L4_SRC_PORT_OFFSET], &match.mask->src,
+			       sizeof(match.mask->src));
 		}
 
 		if (match.mask->dst) {
-			rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE,
-					be16_to_cpu(match.key->dst), be16_to_cpu(match.mask->dst),
-					RSWITCH_L4_DST_PORT_OFFSET);
-			if (rc)
-				return rc;
+			memcpy(&fv->values[RSWITCH_L4_DST_PORT_OFFSET], &match.key->dst,
+			       sizeof(match.key->dst));
+			memcpy(&fv->masks[RSWITCH_L4_DST_PORT_OFFSET], &match.mask->dst,
+			       sizeof(match.mask->dst));
 		}
 	}
 
@@ -302,18 +202,20 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 				return -EOPNOTSUPP;
 
 			if (vlan_mask) {
-				rc = rswitch_init_tag_mask_pf_entry(&pf_param, vlan_tci, vlan_mask,
-							RSWITCH_VLAN_CTAG_OFFSET);
-				if (rc)
-					return rc;
+				memcpy(&fv->vlan_values[RSWITCH_VLAN_CTAG_OFFSET], &vlan_tci,
+				       sizeof(vlan_tci));
+				memcpy(&fv->vlan_masks[RSWITCH_VLAN_CTAG_OFFSET], &vlan_mask,
+				       sizeof(vlan_mask));
+				fv->set_vlan = true;
 			}
 			break;
 		case ETH_P_8021AD:
 			if (vlan_mask) {
-				rc = rswitch_init_tag_mask_pf_entry(&pf_param, vlan_tci, vlan_mask,
-							RSWITCH_VLAN_STAG_OFFSET);
-				if (rc)
-					return rc;
+				memcpy(&fv->vlan_values[RSWITCH_VLAN_STAG_OFFSET], &vlan_tci,
+				       sizeof(vlan_tci));
+				memcpy(&fv->vlan_masks[RSWITCH_VLAN_STAG_OFFSET], &vlan_mask,
+				       sizeof(vlan_mask));
+				fv->set_vlan = true;
 			} else {
 				/*
 				 * We can not verify if traffic has 802.1ad TPID in outer VLAN,
@@ -341,10 +243,11 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 						(cvlan.mask->vlan_priority << VLAN_PRIO_SHIFT);
 
 				if (cvlan_mask) {
-					rc = rswitch_init_tag_mask_pf_entry(&pf_param, cvlan_tci,
-							cvlan_mask, RSWITCH_VLAN_CTAG_OFFSET);
-					if (rc)
-						return rc;
+					memcpy(&fv->vlan_values[RSWITCH_VLAN_CTAG_OFFSET],
+					       &cvlan_tci, sizeof(cvlan_tci));
+					memcpy(&fv->vlan_masks[RSWITCH_VLAN_CTAG_OFFSET],
+					       &cvlan_mask, sizeof(cvlan_mask));
+					fv->set_vlan = true;
 				}
 			}
 			break;
@@ -353,6 +256,22 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 
 		}
 	}
+
+	return 0;
+}
+
+static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
+					 struct flow_rule *rule)
+{
+	struct rswitch_pf_param pf_param = {0};
+	int rc = 0;
+
+	pf_param.rdev = f->rdev;
+	pf_param.all_sources = false;
+
+	rc = rswitch_fill_pf_param(&pf_param, rswitch_flower_gen_fv_callback, rule);
+	if (rc)
+		return rc;
 
 	f->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (f->param.pf_cascade_index < 0)
