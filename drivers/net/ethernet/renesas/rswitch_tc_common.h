@@ -10,11 +10,26 @@
 
 #include "rswitch_tc_filters.h"
 
+#define MAX_MATCH_LEN (256)
+#define MAX_VLAN_MATCH_LEN (4)
+
+struct filtering_vector {
+	u8 values[MAX_MATCH_LEN];
+	u8 masks[MAX_MATCH_LEN];
+	u8 vlan_values[MAX_VLAN_MATCH_LEN];
+	u8 vlan_masks[MAX_VLAN_MATCH_LEN];
+	bool set_vlan;
+};
+
+typedef int (*fv_gen)(struct filtering_vector *, void *);
+
 int rswitch_tc_validate_flow_action(struct rswitch_device *rdev,
 				struct flow_rule *rule);
 
 int rswitch_tc_setup_flow_action(struct rswitch_tc_filter *f,
 				struct flow_rule *rule);
 
+int rswitch_fill_pf_param(struct rswitch_pf_param *pf_param, fv_gen gen_fn,
+			  void *filter_param);
 
 #endif

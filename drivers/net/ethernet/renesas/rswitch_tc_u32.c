@@ -12,6 +12,7 @@
 
 #include "rswitch.h"
 #include "rswitch_tc_filters.h"
+#include "rswitch_tc_common.h"
 
 static void rswitch_init_u32_drop_action(struct rswitch_tc_filter *cfg,
 		struct rswitch_tc_filter *f, struct tc_cls_u32_offload *cls)
@@ -48,6 +49,47 @@ static void rswitch_init_u32_redirect_action(struct rswitch_tc_filter *cfg,
 	}
 }
 
+static int rswitch_u32_gen_fv_callback(struct filtering_vector *fv, void *filter_param)
+{
+	int i, offset;
+	struct tc_cls_u32_offload *cls = filter_param;
+	u16 protocol = cls->common.protocol;
+	u32 val32, mask32, filter_val, filter_mask;
+
+	for (i = 0; i < cls->knode.sel->nkeys; i++) {
+		offset = cls->knode.sel->keys[i].off + RSWITCH_MAC_HEADER_LEN;
+		filter_val = cls->knode.sel->keys[i].val;
+		filter_mask = cls->knode.sel->keys[i].mask;
+
+		if (offset >= MAX_MATCH_LEN)
+			return -E2BIG;
+
+		if (offset < 0) {
+			filter_val = filter_val >> (-offset * 8);
+			filter_mask = filter_mask >> (-offset * 8);
+			offset = 0;
+		}
+
+		memcpy(&val32, &fv->values[offset], sizeof(val32));
+		memcpy(&mask32, &fv->masks[offset], sizeof(mask32));
+		val32 |= filter_val;
+		mask32 |= filter_mask;
+		memcpy(&fv->values[offset], &val32, sizeof(val32));
+		memcpy(&fv->masks[offset], &mask32, sizeof(mask32));
+	}
+
+	/* Add check for ip header if it is not added explicitly
+	 * to prevent spurious match on different than IP protos
+	 */
+	if (!fv->masks[RSWITCH_IP_VERSION_OFFSET] && !fv->masks[RSWITCH_IP_VERSION_OFFSET + 1]) {
+		fv->masks[RSWITCH_IP_VERSION_OFFSET] = 0xff;
+		fv->masks[RSWITCH_IP_VERSION_OFFSET + 1] = 0xff;
+		memcpy(&fv->values[RSWITCH_IP_VERSION_OFFSET], &protocol, sizeof(protocol));
+	}
+
+	return 0;
+}
+
 static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u32_offload *cls)
 {
 	struct rswitch_device *rdev = f->rdev;
@@ -55,7 +97,7 @@ static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u
 	struct rswitch_pf_param pf_param = {0};
 	struct rswitch_tc_filter *tc_u32_cfg = kzalloc(sizeof(*tc_u32_cfg), GFP_KERNEL);
 	u16 protocol = be16_to_cpu(cls->common.protocol);
-	int rc, i;
+	int rc;
 
 	if (!tc_u32_cfg)
 		return -ENOMEM;
@@ -81,20 +123,9 @@ static int rswitch_add_action_knode(struct rswitch_tc_filter *f, struct tc_cls_u
 	pf_param.rdev = rdev;
 	pf_param.all_sources = false;
 
-	/* Check packets EthType to prevent spurious match on different than IP protos */
-	rc = rswitch_init_mask_pf_entry(&pf_param, PF_TWO_BYTE, protocol, 0xffff,
-				RSWITCH_IP_VERSION_OFFSET);
+	rc = rswitch_fill_pf_param(&pf_param, rswitch_u32_gen_fv_callback, cls);
 	if (rc)
 		goto free;
-
-	for (i = 0; i < cls->knode.sel->nkeys; i++) {
-		rc = rswitch_init_mask_pf_entry(&pf_param, PF_FOUR_BYTE,
-				be32_to_cpu(cls->knode.sel->keys[i].val),
-				be32_to_cpu(cls->knode.sel->keys[i].mask),
-				cls->knode.sel->keys[i].off + RSWITCH_MAC_HEADER_LEN);
-		if (rc)
-			goto free;
-	}
 
 	tc_u32_cfg->param.pf_cascade_index = rswitch_setup_pf(&pf_param);
 	if (tc_u32_cfg->param.pf_cascade_index < 0) {
