@@ -4,7 +4,6 @@
  * Copyright (C) 2022 EPAM Systems
  */
 
-#include "linux/err.h"
 #include <linux/etherdevice.h>
 #include <linux/platform_device.h>
 #include <xen/interface/grant_table.h>
