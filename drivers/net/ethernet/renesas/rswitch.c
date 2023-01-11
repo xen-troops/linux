@@ -2429,8 +2429,9 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		skb_tx_timestamp(skb);
 	}
 
-	desc->info1 |= ((u64)rdev->remote_chain << INFO1_CSD1_SHIFT) |
-		((BIT(rdev->port)) << INFO1_DV_SHIFT) | INFO1_FMT;
+	if (!parallel_mode)
+		desc->info1 |= ((u64)rdev->remote_chain << INFO1_CSD1_SHIFT) |
+			((BIT(rdev->port)) << INFO1_DV_SHIFT) | INFO1_FMT;
 
 	dma_wmb();
 
@@ -2830,7 +2831,7 @@ static int rswitch_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 {
 	struct rswitch_device *rdev = ndev_to_rdev(ndev);
 
-	if (rswitch_is_front_dev(rdev))
+	if (rswitch_is_front_dev(rdev) || parallel_mode)
 		return -EOPNOTSUPP;
 
 	switch (type) {
@@ -3686,9 +3687,11 @@ int rswitch_rxdmac_init(struct net_device *ndev, struct rswitch_private *priv,
 		rdev->rx_default_chain = rswitch_gwca_get(priv);
 		if (!rdev->rx_default_chain)
 			return -EBUSY;
-		rdev->rx_learning_chain = rswitch_gwca_get(priv);
-		if (!rdev->rx_learning_chain)
-			goto put_default;
+		if (!parallel_mode) {
+			rdev->rx_learning_chain = rswitch_gwca_get(priv);
+			if (!rdev->rx_learning_chain)
+				goto put_default;
+		}
 	} else {
 		rdev->rx_default_chain = devm_kzalloc(ndev->dev.parent,
 						      sizeof(*rdev->rx_default_chain),
@@ -4345,9 +4348,11 @@ static int rswitch_init(struct rswitch_private *priv)
 		if (err < 0)
 			goto workqueue_destroy;
 
-		err = rswitch_ndev_create(priv, i, true);
-		if (err < 0)
-			goto workqueue_destroy;
+		if (!parallel_mode) {
+			err = rswitch_ndev_create(priv, i, true);
+			if (err < 0)
+				goto workqueue_destroy;
+		}
 	}
 
 	/* TODO: chrdev register */
@@ -4630,18 +4635,22 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	glob_priv = priv;
 
-	register_pernet_subsys(&rswitch_net_ops);
+	if (!parallel_mode) {
+		register_pernet_subsys(&rswitch_net_ops);
 
-	rn = net_generic(&init_net, rswitch_net_id);
-	rn->priv = priv;
+		rn = net_generic(&init_net, rswitch_net_id);
+		rn->priv = priv;
 
-	ret = register_netdevice_notifier(&vlan_notifier_block);
-	if (ret)
-		return ret;
+		ret = register_netdevice_notifier(&vlan_notifier_block);
+		if (ret)
+			return ret;
 
-	priv->fib_nb.notifier_call = rswitch_fib_event;
+		priv->fib_nb.notifier_call = rswitch_fib_event;
 
-	return register_fib_notifier(&init_net, &priv->fib_nb, NULL, NULL);
+		return register_fib_notifier(&init_net, &priv->fib_nb, NULL, NULL);
+	}
+
+	return 0;
 }
 
 static int renesas_eth_sw_remove(struct platform_device *pdev)
@@ -4656,15 +4665,16 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 		pm_runtime_put(&pdev->dev);
 		pm_runtime_disable(&pdev->dev);
 		clk_disable(priv->phy_clk);
+
+		unregister_netdevice_notifier(&vlan_notifier_block);
+		unregister_fib_notifier(&init_net, &priv->fib_nb);
+		destroy_workqueue(priv->rswitch_fib_wq);
 	}
 
 	rtsn_ptp_unregister(priv->ptp_priv);
 	rswitch_desc_free(priv);
 
 	platform_set_drvdata(pdev, NULL);
-	unregister_netdevice_notifier(&vlan_notifier_block);
-	unregister_fib_notifier(&init_net, &priv->fib_nb);
-	destroy_workqueue(priv->rswitch_fib_wq);
 	glob_priv = NULL;
 
 	return 0;
