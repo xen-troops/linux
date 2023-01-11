@@ -13,6 +13,7 @@
 #include <xen/events.h>
 #include <xen/page.h>
 #include "rswitch.h"
+#include "rtsn_ptp.h"
 
 /* TODO: get this from rswitch.c */
 #define RSWITCH_BACK_BASE_INDEX		3
@@ -165,9 +166,21 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 	int err = 0;
 	struct xenbus_transaction xbt;
 	char *type_str = NULL;
+	struct rswitch_vmq_back_info *be;
+	struct rswitch_private *priv;
 
-	struct rswitch_vmq_back_info *be = kzalloc(sizeof(*be), GFP_KERNEL);
+	priv = rswitch_find_priv();
+	if (!priv) {
+		xenbus_dev_fatal(dev, -ENODEV, "Failed to get rswitch priv data");
+		return -ENODEV;
+	}
 
+	if (priv->ptp_priv->parallel_mode) {
+		xenbus_dev_fatal(dev, -ENODEV, "Can't enable VMQ in the parallel mode");
+		return -ENODEV;
+	}
+
+	be = kzalloc(sizeof(*be), GFP_KERNEL);
 	if (!be) {
 		xenbus_dev_fatal(dev, -ENOMEM,
 				 "allocating backend structure");
@@ -175,12 +188,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 	}
 
 	be->dev = dev;
-	be->rswitch_priv = rswitch_find_priv();
-	if (!be->rswitch_priv) {
-		xenbus_dev_fatal(dev, -ENODEV, "Failed to get rswitch priv data");
-		err = -ENODEV;
-		goto fail;
-	}
+	be->rswitch_priv = priv;
 	be->tx_chain = rswitch_gwca_get(be->rswitch_priv);
 	be->rx_chain = rswitch_gwca_get(be->rswitch_priv);
 	if (!be->rx_chain || !be->tx_chain) {
