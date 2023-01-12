@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Cluster taurus device configuration
+#
+# This driver provides support for the
+# Direct Communication between user application and Cr7-Cluster.
+#
+config CLUSTER_DATA_DRV
+	tristate "Support the taurus protocol to communicate with domd applications"
+	depends on ARM || ARM64
+	depends on ARCH_RENESAS || COMPILE_TEST
+	select RCAR_MFIS
+	select RPMSG
+	help
+		Choose this option if you have an R-Car chipset and want to setup
+		the communication between IC and domd applications.
