@@ -2,8 +2,8 @@
 #ifndef R_TAURUS_RVGC_PROTOCOL_H
 #define R_TAURUS_RVGC_PROTOCOL_H
 
-#include "r_taurus_bridge.h"
-#include "r_taurus_protocol_ids.h"
+#include <linux/r_taurus_bridge.h>
+#include <linux/r_taurus_protocol_ids.h>
 
 #ifndef __packed
 #define __packed       __attribute__((__packed__))

@@ -2,11 +2,6 @@
 #ifndef R_TAURUS_BRIDGE_H
 #define R_TAURUS_BRIDGE_H
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* This is file defines the basic command protocol between TAURUS and its guest.
 
    Protocol extensions for concrete peripherals are defines in sub folders of
@@ -132,8 +127,5 @@ typedef struct {
 
 typedef uint32_t R_TAURUS_SignalId_t;
 
-#ifdef __cplusplus
-}
-#endif
-
 #endif /* R_TAURUS_BRIDGE_H */
+
