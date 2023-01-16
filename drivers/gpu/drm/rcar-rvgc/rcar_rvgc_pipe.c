@@ -21,7 +21,7 @@
 
 #include "rcar_rvgc_taurus.h"
 #include "r_taurus_rvgc_protocol.h"
-#include "r_taurus_bridge.h"
+#include <linux/r_taurus_bridge.h>
 
 #if 1
 #pragma GCC optimize ("-Og")
