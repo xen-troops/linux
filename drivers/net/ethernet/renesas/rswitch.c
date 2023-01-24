@@ -4130,59 +4130,62 @@ static int rswitch_ipv4_resolve(struct rswitch_device *rdev, u32 ip, u8 mac[ETH_
 }
 
 /* Should be called with rswitch_priv->ipv4_forward_lock taken */
+#define RSWITCH_FRAME_TYPE_NUM 3
 static void rswitch_add_ipv4_forward_all_types(struct l3_ipv4_fwd_param *param,
 					       struct rswitch_ipv4_route *routing_list)
 {
-	struct l3_ipv4_fwd_param_list *param_list;
+	struct l3_ipv4_fwd_param_list *param_list[RSWITCH_FRAME_TYPE_NUM] = {0};
 	struct rswitch_private *priv = routing_list->dev->priv;
-	const int frame_type_num = 3;
-	int i, j;
+	int i;
 
-	param_list = kcalloc(frame_type_num, sizeof(*param_list), GFP_KERNEL);
-	if (!param_list)
-		return;
-
-	for (i = 0; i < frame_type_num; i++) {
-		param_list[i].param = kcalloc(frame_type_num, sizeof(*param), GFP_KERNEL);
-		if (!param_list[i].param)
+	for (i = 0; i < RSWITCH_FRAME_TYPE_NUM; i++) {
+		param_list[i] = kzalloc(sizeof(**param_list), GFP_ATOMIC);
+		if (!param_list[i])
 			goto free;
-		memcpy(param_list[i].param, param, sizeof(*param));
+
+		param_list[i]->param = kzalloc(sizeof(*param), GFP_ATOMIC);
+		if (!param_list[i]->param)
+			goto free;
+
+		memcpy(param_list[i]->param, param, sizeof(*param));
 	}
 
-	param_list[0].param->frame_type = LTHSLP0v4OTHER;
-	param_list[1].param->frame_type = LTHSLP0v4UDP;
-	param_list[2].param->frame_type = LTHSLP0v4TCP;
+	param_list[0]->param->frame_type = LTHSLP0v4OTHER;
+	param_list[1]->param->frame_type = LTHSLP0v4UDP;
+	param_list[2]->param->frame_type = LTHSLP0v4TCP;
 
 	if (!priv->ipv4_forward_enabled)
 		/* Add these params only to list, not to HW */
 		goto list_add;
 
-	if (rswitch_add_l3fwd(param_list[0].param))
+	if (rswitch_add_l3fwd(param_list[0]->param))
 		goto free;
 
-	if (rswitch_add_l3fwd(param_list[1].param)) {
-		rswitch_remove_l3fwd(param_list[0].param);
+	if (rswitch_add_l3fwd(param_list[1]->param)) {
+		rswitch_remove_l3fwd(param_list[0]->param);
 		goto free;
 	}
 
-	if (rswitch_add_l3fwd(param_list[2].param)) {
-		rswitch_remove_l3fwd(param_list[0].param);
-		rswitch_remove_l3fwd(param_list[1].param);
+	if (rswitch_add_l3fwd(param_list[2]->param)) {
+		rswitch_remove_l3fwd(param_list[0]->param);
+		rswitch_remove_l3fwd(param_list[1]->param);
 		goto free;
 	}
 
 list_add:
-	list_add(&param_list[0].list, &routing_list->param_list);
-	list_add(&param_list[1].list, &routing_list->param_list);
-	list_add(&param_list[2].list, &routing_list->param_list);
+	list_add(&param_list[0]->list, &routing_list->param_list);
+	list_add(&param_list[1]->list, &routing_list->param_list);
+	list_add(&param_list[2]->list, &routing_list->param_list);
 
 	return;
 
 free:
-	for (j = 0; j < i; j++)
-		kfree(param_list[j].param);
-
-	kfree(param_list);
+	for (i = 0; i < RSWITCH_FRAME_TYPE_NUM; i++) {
+		if (param_list[i]) {
+			kfree(param_list[i]->param);
+			kfree(param_list[i]);
+		}
+	}
 }
 
 /* Should be called with rswitch_priv->ipv4_forward_lock taken */
