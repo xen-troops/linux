@@ -397,7 +397,7 @@ static int rswitch_fill_vlan_pf_param(struct rswitch_pf_param *pf_param,
 	if (fv->vlan_masks[0] || fv->vlan_masks[1]) {
 		memcpy(&val16, &fv->vlan_values[0], TWO_B);
 		memcpy(&mask16, &fv->vlan_masks[0], TWO_B);
-		rc = rswitch_init_tag_mask_pf_entry(pf_param, ntohs(val16), ntohs(mask16), 0);
+		rc = rswitch_init_tag_mask_pf_entry(pf_param, val16, mask16, 0);
 		if (rc)
 			return rc;
 		pf_entries->two_byte++;
@@ -406,7 +406,7 @@ static int rswitch_fill_vlan_pf_param(struct rswitch_pf_param *pf_param,
 	if (fv->vlan_masks[2] || fv->vlan_masks[3]) {
 		memcpy(&val16, &fv->vlan_values[2], TWO_B);
 		memcpy(&mask16, &fv->vlan_masks[2], TWO_B);
-		rc = rswitch_init_tag_mask_pf_entry(pf_param, ntohs(val16), ntohs(mask16), 2);
+		rc = rswitch_init_tag_mask_pf_entry(pf_param, val16, mask16, 2);
 		if (rc)
 			return rc;
 		pf_entries->two_byte++;
