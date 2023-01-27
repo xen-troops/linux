@@ -251,12 +251,32 @@ static enum pf_type get_one_or_two_byte_matcher(struct rswitch_private *priv,
 }
 
 static int add_param_entry(struct rswitch_pf_param *param, int offset, struct filtering_vector *fv,
-			   u8 mask_lb, int len, struct used_pf_entries *pf_entries)
+			   int len, struct used_pf_entries *pf_entries)
 {
 	enum pf_type pf_type;
-	u32 val32 = 0, ext_val32 = 0, mask;
+	u32 val32 = 0, ext_val32 = 0, mask32 = 0;
 	struct rswitch_private *priv = param->rdev->priv;
-	int rc;
+	int rc, i, mask_only = 0;
+
+	/* If at least one byte of continues mask is not equal 0xff we have
+	 * to use only mask mode to filter it.
+	 */
+	for (i = 0; i < len; i++) {
+		if (fv->masks[offset + i] != 0xff) {
+			mask_only = 1;
+			break;
+		}
+	}
+
+	/* The maximum length that can be matched by one filter in mask mode is 4 */
+	if (mask_only && (len > FOUR_B)) {
+		rc = add_param_entry(param, offset, fv, FOUR_B, pf_entries);
+		if (!rc) {
+			rc = add_param_entry(param, offset + FOUR_B, fv,
+					     len - FOUR_B, pf_entries);
+		}
+		return rc;
+	}
 
 	switch (len) {
 	case EIGHT_B:
@@ -278,7 +298,7 @@ static int add_param_entry(struct rswitch_pf_param *param, int offset, struct fi
 		break;
 	case FOUR_B:
 		pf_type = get_four_byte_matcher(priv, pf_entries);
-		if (pf_type == PF_TWO_BYTE && mask_lb == 0xff) {
+		if (pf_type == PF_TWO_BYTE && !mask_only) {
 			memcpy(&val32, &fv->values[offset], TWO_B);
 			memcpy(&ext_val32, &fv->values[offset + TWO_B], TWO_B);
 			val32 = ntohs(val32);
@@ -289,9 +309,10 @@ static int add_param_entry(struct rswitch_pf_param *param, int offset, struct fi
 				pf_entries->two_byte++;
 		} else {
 			memcpy(&val32, &fv->values[offset], FOUR_B);
-			mask = ntohl(0xffffff00 | mask_lb);
+			memcpy(&mask32, &fv->masks[offset], FOUR_B);
+			mask32 = ntohl(mask32);
 			val32 = ntohl(val32);
-			rc = rswitch_init_mask_pf_entry(param, PF_FOUR_BYTE, val32, mask, offset);
+			rc = rswitch_init_mask_pf_entry(param, PF_FOUR_BYTE, val32, mask32, offset);
 			if (!rc)
 				pf_entries->four_byte++;
 		}
@@ -299,17 +320,18 @@ static int add_param_entry(struct rswitch_pf_param *param, int offset, struct fi
 	case THREE_B:
 		pf_type = get_three_byte_matcher(priv, pf_entries);
 		memcpy(&val32, &fv->values[offset], THREE_B);
-		mask = ntohl(0xffff00 | mask_lb);
+		memcpy(&mask32, &fv->masks[offset], THREE_B);
 		if (pf_type == PF_FOUR_BYTE) {
 			val32 = ntohl(val32);
-			rc = rswitch_init_mask_pf_entry(param, PF_FOUR_BYTE, val32, mask,
+			mask32 = ntohl(mask32);
+			rc = rswitch_init_mask_pf_entry(param, PF_FOUR_BYTE, val32, mask32,
 							offset);
 			if (!rc)
 				pf_entries->four_byte++;
 		} else {
 			val32 = ntohl(val32) >> 8;
-			mask = mask >> 8;
-			rc = rswitch_init_mask_pf_entry(param, PF_THREE_BYTE, val32, mask, offset);
+			mask32 = ntohl(mask32) >> 8;
+			rc = rswitch_init_mask_pf_entry(param, PF_THREE_BYTE, val32, mask32, offset);
 			if (!rc)
 				pf_entries->three_byte++;
 		}
@@ -317,22 +339,23 @@ static int add_param_entry(struct rswitch_pf_param *param, int offset, struct fi
 	case TWO_B:
 		pf_type = get_one_or_two_byte_matcher(priv, pf_entries);
 		memcpy(&val32, &fv->values[offset], TWO_B);
+		memcpy(&mask32, &fv->masks[offset], TWO_B);
 		if (pf_type == PF_TWO_BYTE) {
 			val32 = ntohs(val32);
-			mask = ntohs(0xff00 | mask_lb);
-			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask, offset);
+			mask32 = ntohs(mask32);
+			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask32, offset);
 			if (!rc)
 				pf_entries->two_byte++;
 		} else if (pf_type == PF_THREE_BYTE) {
 			val32 = ntohl(val32) >> 8;
-			mask = ntohl(0xff00 | mask_lb) >> 8;
-			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask, offset);
+			mask32 = ntohl(mask32) >> 8;
+			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask32, offset);
 			if (!rc)
 				pf_entries->three_byte++;
 		} else {
 			val32 = ntohl(val32);
-			mask = ntohl(0xff00 | mask_lb);
-			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask, offset);
+			mask32 = ntohl(mask32);
+			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask32, offset);
 			if (!rc)
 				pf_entries->four_byte++;
 		}
@@ -340,22 +363,23 @@ static int add_param_entry(struct rswitch_pf_param *param, int offset, struct fi
 	case ONE_B:
 		pf_type = get_one_or_two_byte_matcher(priv, pf_entries);
 		memcpy(&val32, &fv->values[offset], ONE_B);
+		memcpy(&mask32, &fv->masks[offset], ONE_B);
 		if (pf_type == PF_TWO_BYTE) {
 			val32 = ntohs(val32);
-			mask = ntohs(mask_lb);
-			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask, offset);
+			mask32 = ntohs(mask32);
+			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask32, offset);
 			if (!rc)
 				pf_entries->two_byte++;
 		} else if (pf_type == PF_THREE_BYTE) {
 			val32 = ntohl(val32) >> 8;
-			mask = ntohl(mask_lb) >> 8;
-			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask, offset);
+			mask32 = ntohl(mask32) >> 8;
+			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask32, offset);
 			if (!rc)
 				pf_entries->three_byte++;
 		} else {
 			val32 = ntohl(val32);
-			mask = ntohl(mask_lb);
-			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask, offset);
+			mask32 = ntohl(mask32);
+			rc = rswitch_init_mask_pf_entry(param, pf_type, val32, mask32, offset);
 			if (!rc)
 				pf_entries->four_byte++;
 		}
@@ -364,9 +388,9 @@ static int add_param_entry(struct rswitch_pf_param *param, int offset, struct fi
 		/* Can't be matched (e.g. 5 or 7 len) by one filter
 		 * so separate it on two entries
 		 */
-		rc = add_param_entry(param, offset, fv, 0xff, FOUR_B, pf_entries);
+		rc = add_param_entry(param, offset, fv, FOUR_B, pf_entries);
 		if (!rc) {
-			rc = add_param_entry(param, offset + FOUR_B, fv, mask_lb,
+			rc = add_param_entry(param, offset + FOUR_B, fv,
 					     len - FOUR_B, pf_entries);
 		}
 		break;
@@ -434,40 +458,24 @@ int rswitch_fill_pf_param(struct rswitch_pf_param *pf_param, fv_gen gen_fn,
 	}
 
 	for (i = 0; i < MAX_MATCH_LEN; i++) {
-		if (fv.masks[i] == 0xff) {
+		if (fv.masks[i]) {
 			if (!continues_mask)
 				continues_mask = 1;
 
 			/* The maximum length that can be matched by one filter is 8 */
 			if (mask_length >= EIGHT_B) {
 				rc = add_param_entry(pf_param, i - mask_length,
-						     &fv, 0xff, mask_length, &pf_entries);
+						     &fv, mask_length, &pf_entries);
 				if (rc)
 					return rc;
 				mask_length = 0;
 			}
+
 			mask_length++;
 		} else {
-			/* If the last byte of continues mask is not equal 0xff we have
-			 * to use only mask mode to filter this.
-			 */
-			if (fv.masks[i]) {
-				if (mask_length >= FOUR_B) {
-					rc = add_param_entry(pf_param, i - mask_length,
-							     &fv, 0xff, FOUR_B, &pf_entries);
-					if (rc)
-						return rc;
-					mask_length -= FOUR_B;
-				} else {
-					mask_length++;
-				}
-				rc = add_param_entry(pf_param, i - mask_length + 1,
-						     &fv, fv.masks[i], mask_length, &pf_entries);
-				if (rc)
-					return rc;
-			} else if (continues_mask) {
+			if (continues_mask) {
 				rc = add_param_entry(pf_param, i - mask_length,
-						     &fv, 0xff, mask_length, &pf_entries);
+						     &fv, mask_length, &pf_entries);
 				if (rc)
 					return rc;
 			}
@@ -478,7 +486,7 @@ int rswitch_fill_pf_param(struct rswitch_pf_param *pf_param, fv_gen gen_fn,
 	}
 
 	if (continues_mask) {
-		rc = add_param_entry(pf_param, i - mask_length, &fv, fv.masks[i - 1], mask_length,
+		rc = add_param_entry(pf_param, i - mask_length, &fv, mask_length,
 				     &pf_entries);
 		if (rc)
 			return rc;
