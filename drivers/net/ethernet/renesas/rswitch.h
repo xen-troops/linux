@@ -314,6 +314,11 @@ struct rswitch_device {
 	struct list_head tc_u32_list;
 	struct list_head tc_flower_list;
 	struct list_head tc_matchall_list;
+	/* For VLAN devices, kernel constructs ndev and fills needed structures such as dev.parent,
+	 * but for proper chain mapping R-Switch driver requires real device parent. So we need to
+	 * save pointer to ndev->dev.parent and restore it for proper kernel deinit ndev.
+	 */
+	struct device *vlan_parent;
 	bool mondev;
 };
 

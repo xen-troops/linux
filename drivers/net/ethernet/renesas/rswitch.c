@@ -4075,6 +4075,11 @@ static int vlan_dev_register(struct net_device *dev)
 	rdev = kzalloc(sizeof(*rdev), GFP_KERNEL);
 	if (!rdev)
 		return -ENOMEM;
+	/* For VLAN devices, kernel constructs ndev and fills needed structures such as dev.parent,
+	 * but for proper chain mapping R-Switch driver requires real device parent. So we need to
+	 * save pointer to ndev->dev.parent and restore it for proper kernel deinit ndev.
+	 */
+	rdev->vlan_parent = dev->dev.parent;
 	dev->dev.parent = real_dev->dev.parent;
 	rdev->ndev = dev;
 	rdev->priv = priv;
@@ -4123,6 +4128,7 @@ static void vlan_dev_unregister(struct net_device *dev)
 	napi_disable(&rdev->napi);
 
 	list_del(&rdev->list);
+	dev->dev.parent = rdev->vlan_parent;
 }
 
 static int vlan_device_event(struct notifier_block *unused, unsigned long event,
