@@ -1034,14 +1034,14 @@ struct rswitch_device *ndev_to_rdev(const struct net_device *ndev)
 	if (!is_vlan_dev(ndev))
 		return netdev_priv(ndev);
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		if (rdev->ndev == ndev) {
-			mutex_unlock(&priv->rdev_list_lock);
+			read_unlock(&priv->rdev_list_lock);
 			return rdev;
 		}
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	return NULL;
 }
@@ -2290,17 +2290,17 @@ static bool is_l3_exist(struct rswitch_private *priv, u32 src_ip, u32 dst_ip)
 	struct rswitch_ipv4_route *routing_list;
 	struct l3_ipv4_fwd_param_list *l3_param_list;
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list)
 		list_for_each_entry(routing_list, &rdev->routing_list, list)
 			list_for_each_entry(l3_param_list, &routing_list->param_list, list) {
 				if (l3_param_list->param->src_ip == src_ip &&
 				    l3_param_list->param->dst_ip == dst_ip) {
-					mutex_unlock(&priv->rdev_list_lock);
+					read_unlock(&priv->rdev_list_lock);
 					return true;
 				}
 			}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	return false;
 }
@@ -2312,7 +2312,7 @@ static struct rswitch_device *get_dev_by_ip(struct rswitch_private *priv, u32 ip
 	struct rswitch_device *rdev;
 	u32 ip_addr, mask;
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 
 		ip = rdev->ndev->ip_ptr;
@@ -2328,17 +2328,17 @@ static struct rswitch_device *get_dev_by_ip(struct rswitch_private *priv, u32 ip
 			in = in->ifa_next;
 
 			if (use_mask && (ip_search & mask) == (ip_addr & mask)) {
-				mutex_unlock(&priv->rdev_list_lock);
+				read_unlock(&priv->rdev_list_lock);
 				return rdev;
 			}
 
 			if (ip_search == ip_addr) {
-				mutex_unlock(&priv->rdev_list_lock);
+				read_unlock(&priv->rdev_list_lock);
 				return rdev;
 			}
 		}
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	return NULL;
 }
@@ -3796,9 +3796,9 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index, bool rmo
 	INIT_LIST_HEAD(&rdev->tc_flower_list);
 	INIT_LIST_HEAD(&rdev->list);
 	if (!rmon_dev) {
-		mutex_lock(&priv->rdev_list_lock);
+		write_lock(&priv->rdev_list_lock);
 		list_add_tail(&rdev->list, &priv->rdev_list);
-		mutex_unlock(&priv->rdev_list_lock);
+		write_unlock(&priv->rdev_list_lock);
 	} else {
 		priv->rmon_dev[index] = rdev;
 	}
@@ -4185,7 +4185,7 @@ static struct rswitch_ipv4_route *rswitch_get_route(struct rswitch_private *priv
 	struct rswitch_device *rdev;
 	bool default_present = false;
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		list_for_each_entry(routing_list, &rdev->routing_list, list) {
 			/* Handle case, when default route is present; it should be taken last */
@@ -4196,12 +4196,12 @@ static struct rswitch_ipv4_route *rswitch_get_route(struct rswitch_private *priv
 			}
 
 			if (routing_list->subnet == (dst_ip & routing_list->mask)) {
-				mutex_unlock(&priv->rdev_list_lock);
+				read_unlock(&priv->rdev_list_lock);
 				return routing_list;
 			}
 		}
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	if (default_present)
 		return default_route;
@@ -4482,12 +4482,12 @@ static void rswitch_deinit(struct rswitch_private *priv)
 	struct rswitch_device *rdev, *tmp;
 	int i;
 
-	mutex_lock(&priv->rdev_list_lock);
+	write_lock(&priv->rdev_list_lock);
 	list_for_each_entry_safe(rdev, tmp, &priv->rdev_list, list) {
 		rswitch_deinit_rdev(rdev);
 		rswitch_ndev_unregister(rdev, -1);
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	write_unlock(&priv->rdev_list_lock);
 
 	for (i = 0; i < RSWITCH_MAX_RMON_DEV; i++)
 		rswitch_ndev_unregister(priv->rmon_dev[i], i);
@@ -4530,9 +4530,9 @@ static int vlan_dev_register(struct net_device *dev)
 	rdev->etha = NULL;
 	rdev->addr = priv->addr;
 	spin_lock_init(&rdev->lock);
-	mutex_lock(&priv->rdev_list_lock);
+	write_lock(&priv->rdev_list_lock);
 	list_add(&rdev->list, &priv->rdev_list);
-	mutex_unlock(&priv->rdev_list_lock);
+	write_unlock(&priv->rdev_list_lock);
 
 	ret = rswitch_txdmac_init(dev, priv, -1);
 	if (ret)
@@ -4607,7 +4607,7 @@ static void rswitch_netevent_work(struct work_struct *work)
 
 	priv->ipv4_forward_enabled = !!IPV4_DEVCONF_ALL(&init_net, FORWARDING);
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list)
 		list_for_each_entry(routing_list, &rdev->routing_list, list)
 			list_for_each_entry(l3_param_list, &routing_list->param_list, list) {
@@ -4616,7 +4616,7 @@ static void rswitch_netevent_work(struct work_struct *work)
 					rswitch_modify_l3fwd(l3_param_list->param,
 							     !priv->ipv4_forward_enabled);
 			}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 	mutex_unlock(&priv->ipv4_forward_lock);
 
 	kfree(work);
@@ -4668,7 +4668,7 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	spin_lock_init(&priv->lock);
 	INIT_LIST_HEAD(&priv->rdev_list);
-	mutex_init(&priv->rdev_list_lock);
+	rwlock_init(&priv->rdev_list_lock);
 
 	priv->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(priv->clk))
@@ -4808,7 +4808,7 @@ static int __maybe_unused rswitch_suspend(struct device *dev)
 	struct rswitch_private *priv = dev_get_drvdata(dev);
 	struct rswitch_device *rdev;
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		struct net_device *ndev = rdev->ndev;
 
@@ -4824,7 +4824,7 @@ static int __maybe_unused rswitch_suspend(struct device *dev)
 		rswitch_rxdmac_free(ndev, priv);
 		rdev->etha->operated = false;
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	priv->serdes_common_init = false;
 	rtsn_ptp_unregister(priv->ptp_priv);
@@ -4911,7 +4911,7 @@ static int __maybe_unused rswitch_resume(struct device *dev)
 	if (ret)
 		return ret;
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		struct net_device *ndev = rdev->ndev;
 
@@ -4925,7 +4925,7 @@ static int __maybe_unused rswitch_resume(struct device *dev)
 			err++;
 		}
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	if (err == num_ndev) {
 		rswitch_gwca_ts_queue_free(priv);
