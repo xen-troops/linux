@@ -63,9 +63,9 @@ rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
 	rdev = netdev_priv(ndev);
 	rdev->ndev = ndev;
 	rdev->priv = priv;
-	mutex_lock(&priv->rdev_list_lock);
+	write_lock(&priv->rdev_list_lock);
 	list_add(&rdev->list, &priv->rdev_list);
-	mutex_unlock(&priv->rdev_list_lock);
+	write_unlock(&priv->rdev_list_lock);
 	rdev->port = priv->gwca.index;
 	rdev->etha = NULL;
 	rdev->remote_chain = -1;
