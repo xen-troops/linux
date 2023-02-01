@@ -267,7 +267,7 @@ struct rswitch_private {
 
 	struct list_head rdev_list;
 	struct rswitch_device *rmon_dev[RSWITCH_MAX_RMON_DEV];
-	struct mutex rdev_list_lock;
+	rwlock_t rdev_list_lock;
 
 	struct rswitch_gwca gwca;
 	struct rswitch_etha etha[RSWITCH_MAX_NUM_ETHA];
@@ -447,14 +447,14 @@ static inline struct rswitch_device *rswitch_find_rdev_by_port(struct rswitch_pr
 {
 	struct rswitch_device *rdev;
 
-	mutex_lock(&priv->rdev_list_lock);
+	read_lock(&priv->rdev_list_lock);
 	list_for_each_entry(rdev, &priv->rdev_list, list) {
 		if (rdev->port == port) {
-			mutex_unlock(&priv->rdev_list_lock);
+			read_unlock(&priv->rdev_list_lock);
 			return rdev;
 		}
 	}
-	mutex_unlock(&priv->rdev_list_lock);
+	read_unlock(&priv->rdev_list_lock);
 
 	return NULL;
 }
