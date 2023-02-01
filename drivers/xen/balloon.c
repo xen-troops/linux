@@ -71,7 +71,7 @@
 #include <xen/page.h>
 #include <xen/mem-reservation.h>
 
-#if !defined(CONFIG_XT_CMA_HELPER) || defined(CONFIG_XEN_BALLOON_MEMORY_HOTPLUG)
+#if !defined(CONFIG_XT_CMA_HELPER)
 static int xen_hotplug_unpopulated;
 #endif
 
