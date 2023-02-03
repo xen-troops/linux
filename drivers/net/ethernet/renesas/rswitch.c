@@ -4114,6 +4114,29 @@ err_tx:
 	return ret;
 }
 
+static void cleanup_all_routes(struct rswitch_device *rdev)
+{
+	struct list_head *cur, *tmp, *cur_param_list, *tmp_param_list;
+	struct rswitch_ipv4_route *routing_list;
+	struct l3_ipv4_fwd_param_list *param_list;
+
+	mutex_lock(&rdev->priv->ipv4_forward_lock);
+	list_for_each_safe(cur, tmp, &rdev->routing_list) {
+		routing_list = list_entry(cur, struct rswitch_ipv4_route, list);
+		list_for_each_safe(cur_param_list, tmp_param_list, &routing_list->param_list) {
+			param_list =
+				list_entry(cur_param_list, struct l3_ipv4_fwd_param_list, list);
+			rswitch_remove_l3fwd(param_list->param);
+			list_del(cur_param_list);
+			kfree(param_list->param);
+			kfree(param_list);
+		}
+		list_del(&routing_list->list);
+		kfree(routing_list);
+	}
+	mutex_unlock(&rdev->priv->ipv4_forward_lock);
+}
+
 static void vlan_dev_unregister(struct net_device *dev)
 {
 	struct rswitch_device *rdev;
@@ -4126,6 +4149,8 @@ static void vlan_dev_unregister(struct net_device *dev)
 	rswitch_rxdmac_free(dev, priv);
 	rswitch_txdmac_free(dev, priv);
 	napi_disable(&rdev->napi);
+
+	cleanup_all_routes(rdev);
 
 	list_del(&rdev->list);
 	dev->dev.parent = rdev->vlan_parent;
