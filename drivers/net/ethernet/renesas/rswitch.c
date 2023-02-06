@@ -4592,6 +4592,7 @@ static void vlan_dev_unregister(struct net_device *dev)
 	rswitch_rxdmac_free(dev, priv);
 	rswitch_txdmac_free(dev, priv);
 	napi_disable(&rdev->napi);
+	netif_napi_del(&rdev->napi);
 
 	cleanup_all_routes(rdev);
 
