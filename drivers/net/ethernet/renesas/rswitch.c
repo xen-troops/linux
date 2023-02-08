@@ -4598,6 +4598,7 @@ static void vlan_dev_unregister(struct net_device *dev)
 
 	list_del(&rdev->list);
 	dev->dev.parent = rdev->vlan_parent;
+	kfree(rdev);
 }
 
 static int vlan_device_event(struct notifier_block *unused, unsigned long event,
