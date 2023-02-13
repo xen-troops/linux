@@ -237,6 +237,22 @@ void rvgc_crtc_atomic_flush(struct drm_crtc* crtc,
 			__FUNCTION__,
 			rvgc_pipe->display_mapping);
 	}
+
+	if (!rvgc_pipe->vblank_enabled && old_crtc_state->active) {
+		/*
+		 * We will not receive any further vblank events.
+		 * To finish correctly atomic commit we might need to
+		 * send the flip_done event manually.
+		 * old_crtc_state->active == true with disabled vblanks means
+		 * they were disabled during current atomic commit.
+		*/
+		spin_lock_irqsave(&crtc->dev->event_lock, flags);
+		if (rvgc_pipe->event) {
+			drm_crtc_send_vblank_event(crtc, rvgc_pipe->event);
+			rvgc_pipe->event = NULL;
+		}
+		spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+	}
 }
 
 static const struct drm_crtc_helper_funcs rvgc_crtc_helper_funcs = {
