@@ -943,6 +943,7 @@ struct rswitch_ipv4_route {
 	u32 ip;
 	u32 subnet;
 	u32 mask;
+	struct fib_nh *nh;
 	struct rswitch_device *dev;
 	struct list_head param_list;
 	struct list_head list;
@@ -1180,7 +1181,7 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 			skb->dev = ndev;
 		}
 
-		if (learn_chain) {
+		if (learn_chain && rdev->priv->offload_enabled) {
 			struct rswitch_private *priv = rdev->priv;
 			struct iphdr *iphdr;
 			struct ethhdr *ethhdr;
@@ -2742,6 +2743,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 
 	if (!rswitch_add_ipv4_dst_route(new_routing_list, dev, be32_to_cpu(nh->nh_saddr)))
 		nh->fib_nh_flags |= RTNH_F_OFFLOAD;
+	new_routing_list->nh = nh;
 }
 
 static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
@@ -4123,6 +4125,7 @@ static void cleanup_all_routes(struct rswitch_device *rdev)
 	mutex_lock(&rdev->priv->ipv4_forward_lock);
 	list_for_each_safe(cur, tmp, &rdev->routing_list) {
 		routing_list = list_entry(cur, struct rswitch_ipv4_route, list);
+		routing_list->nh->fib_nh_flags &= ~RTNH_F_OFFLOAD;
 		list_for_each_safe(cur_param_list, tmp_param_list, &routing_list->param_list) {
 			param_list =
 				list_entry(cur_param_list, struct l3_ipv4_fwd_param_list, list);
@@ -4237,6 +4240,47 @@ static int rswitch_netevent_cb(struct notifier_block *unused, unsigned long even
 static struct notifier_block netevent_notifier = {
 	.notifier_call = rswitch_netevent_cb,
 };
+
+static ssize_t l3_offload_show(struct device *dev, struct device_attribute *attr,
+			       char *buf)
+{
+	return sysfs_emit(buf, "%d\n", glob_priv->offload_enabled);
+}
+
+static void rswitch_disable_offload(struct rswitch_private *priv)
+{
+	struct rswitch_device *rdev;
+
+	read_lock(&priv->rdev_list_lock);
+	list_for_each_entry(rdev, &priv->rdev_list, list)
+		cleanup_all_routes(rdev);
+	read_unlock(&priv->rdev_list_lock);
+}
+
+static ssize_t l3_offload_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	long new_value;
+
+	if (kstrtol(buf, 10, &new_value))
+		return -EINVAL;
+
+	new_value = !!new_value;
+	if (new_value != glob_priv->offload_enabled) {
+		if (new_value) {
+			register_fib_notifier(&init_net, &glob_priv->fib_nb, NULL, NULL);
+		} else {
+			unregister_fib_notifier(&init_net, &glob_priv->fib_nb);
+			rswitch_disable_offload(glob_priv);
+		}
+
+		glob_priv->offload_enabled = new_value;
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(l3_offload);
 
 static int renesas_eth_sw_probe(struct platform_device *pdev)
 {
@@ -4357,9 +4401,20 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 		ret = register_fib_notifier(&init_net, &priv->fib_nb, NULL, NULL);
 		if (ret)
 			goto unregister_netevent_notifier;
+
+		priv->offload_enabled = true;
+		ret = device_create_file(&pdev->dev, &dev_attr_l3_offload);
+		if (ret) {
+			dev_err(&priv->pdev->dev, "failed to register offload attribute, ret=%d\n",
+				ret);
+			goto unregister_fib_notifier;
+		}
 	}
 
 	return 0;
+
+unregister_fib_notifier:
+	unregister_fib_notifier(&init_net, &priv->fib_nb);
 
 unregister_netevent_notifier:
 	unregister_netevent_notifier(&netevent_notifier);
@@ -4389,6 +4444,7 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 	struct rswitch_private *priv = platform_get_drvdata(pdev);
 
 	if (!parallel_mode) {
+		device_remove_file(&pdev->dev, &dev_attr_l3_offload);
 		unregister_fib_notifier(&init_net, &priv->fib_nb);
 		destroy_workqueue(priv->rswitch_fib_wq);
 		unregister_netevent_notifier(&netevent_notifier);
