@@ -287,6 +287,7 @@ struct rswitch_private {
 	struct workqueue_struct *rswitch_netevent_wq;
 
 	bool ipv4_forward_enabled;
+	bool offload_enabled;
 	struct mutex ipv4_forward_lock;
 	struct workqueue_struct *rswitch_forward_wq;
 };
