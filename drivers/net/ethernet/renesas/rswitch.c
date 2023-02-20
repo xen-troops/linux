@@ -4389,6 +4389,13 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 	struct rswitch_private *priv = platform_get_drvdata(pdev);
 
 	if (!parallel_mode) {
+		unregister_fib_notifier(&init_net, &priv->fib_nb);
+		destroy_workqueue(priv->rswitch_fib_wq);
+		unregister_netevent_notifier(&netevent_notifier);
+		destroy_workqueue(priv->rswitch_netevent_wq);
+		unregister_netdevice_notifier(&vlan_notifier_block);
+		destroy_workqueue(priv->rswitch_forward_wq);
+		unregister_pernet_subsys(&rswitch_net_ops);
 		/* Disable R-Switch clock */
 		rs_write32(RCDC_RCD, priv->addr + RCDC);
 		rswitch_deinit(priv);
@@ -4396,12 +4403,6 @@ static int renesas_eth_sw_remove(struct platform_device *pdev)
 		pm_runtime_put(&pdev->dev);
 		pm_runtime_disable(&pdev->dev);
 		clk_disable(priv->phy_clk);
-
-		unregister_netdevice_notifier(&vlan_notifier_block);
-		unregister_fib_notifier(&init_net, &priv->fib_nb);
-		destroy_workqueue(priv->rswitch_fib_wq);
-		destroy_workqueue(priv->rswitch_netevent_wq);
-		destroy_workqueue(priv->rswitch_forward_wq);
 	}
 
 	rswitch_desc_free(priv);
