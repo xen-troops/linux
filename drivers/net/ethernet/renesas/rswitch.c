@@ -4326,34 +4326,62 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 		clk_enable(priv->phy_clk);
 	}
 
-	rswitch_init(priv);
+	/* In case of error, rswitch_init will free allocated resources by itself */
+	ret = rswitch_init(priv);
+	if (ret)
+		goto disable_clocks;
 
 	device_set_wakeup_capable(&pdev->dev, 1);
 
 	glob_priv = priv;
 
 	if (!parallel_mode) {
-		register_pernet_subsys(&rswitch_net_ops);
+		ret = register_pernet_subsys(&rswitch_net_ops);
+		if (ret)
+			goto disable_clocks;
 
 		rn = net_generic(&init_net, rswitch_net_id);
 		rn->priv = priv;
 
 		ret = register_netdevice_notifier(&vlan_notifier_block);
 		if (ret)
-			return ret;
+			goto unregister_pernet_subsys;
 
 		priv->ipv4_forward_enabled = !!IPV4_DEVCONF_ALL(&init_net, FORWARDING);
 		mutex_init(&priv->ipv4_forward_lock);
 		ret = register_netevent_notifier(&netevent_notifier);
 		if (ret)
-			return ret;
+			goto unregister_vlan_notifier;
 
 		priv->fib_nb.notifier_call = rswitch_fib_event;
-
-		return register_fib_notifier(&init_net, &priv->fib_nb, NULL, NULL);
+		ret = register_fib_notifier(&init_net, &priv->fib_nb, NULL, NULL);
+		if (ret)
+			goto unregister_netevent_notifier;
 	}
 
 	return 0;
+
+unregister_netevent_notifier:
+	unregister_netevent_notifier(&netevent_notifier);
+
+unregister_vlan_notifier:
+	unregister_netdevice_notifier(&vlan_notifier_block);
+
+unregister_pernet_subsys:
+	unregister_pernet_subsys(&rswitch_net_ops);
+
+disable_clocks:
+	if (!parallel_mode) {
+		/* Disable R-Switch clock */
+		rs_write32(RCDC_RCD, priv->addr + RCDC);
+		rswitch_deinit(priv);
+
+		pm_runtime_put(&pdev->dev);
+		pm_runtime_disable(&pdev->dev);
+		clk_disable(priv->phy_clk);
+	}
+
+	return ret;
 }
 
 static int renesas_eth_sw_remove(struct platform_device *pdev)
