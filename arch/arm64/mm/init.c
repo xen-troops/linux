@@ -412,7 +412,7 @@ void __init arm64_memblock_init(void)
 	xt_cma_helper_init();
 #endif
 
-	dma_contiguous_reserve(arm64_dma32_phys_limit);
+	dma_contiguous_reserve(arm64_dma_phys_limit);
 }
 
 void __init bootmem_init(void)
