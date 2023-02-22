@@ -100,14 +100,14 @@ static int rswitch_tc_matchall_destroy(struct net_device *ndev,
 	return -ENOENT;
 }
 
-int rswitch_setup_tc_matchall(struct net_device *dev,
-				  struct tc_cls_matchall_offload *cls_matchall)
+int rswitch_setup_tc_matchall(struct net_device *ndev,
+			      struct tc_cls_matchall_offload *cls_matchall)
 {
 	switch (cls_matchall->command) {
 	case TC_CLSMATCHALL_REPLACE:
-		return rswitch_tc_matchall_replace(dev, cls_matchall);
+		return rswitch_tc_matchall_replace(ndev, cls_matchall);
 	case TC_CLSMATCHALL_DESTROY:
-		return rswitch_tc_matchall_destroy(dev, cls_matchall);
+		return rswitch_tc_matchall_destroy(ndev, cls_matchall);
 	default:
 		return -EOPNOTSUPP;
 	}
