@@ -976,7 +976,7 @@ struct rswitch_ipv4_route {
 	u32 subnet;
 	u32 mask;
 	struct fib_nh *nh;
-	struct rswitch_device *dev;
+	struct rswitch_device *rdev;
 	struct list_head param_list;
 	struct list_head list;
 };
@@ -2791,15 +2791,15 @@ static int rswitch_setup_tc_block_cb(enum tc_setup_type type,
 		void *type_data,
 		void *cb_priv)
 {
-	struct net_device *dev = cb_priv;
+	struct net_device *ndev = cb_priv;
 
 	switch (type) {
 		case TC_SETUP_CLSU32:
-			return rswitch_setup_tc_cls_u32(dev, type_data);
+			return rswitch_setup_tc_cls_u32(ndev, type_data);
 		case TC_SETUP_CLSFLOWER:
-			return rswitch_setup_tc_flower(dev, type_data);
+			return rswitch_setup_tc_flower(ndev, type_data);
 		case TC_SETUP_CLSMATCHALL:
-			return rswitch_setup_tc_matchall(dev, type_data);
+			return rswitch_setup_tc_matchall(ndev, type_data);
 		default:
 			return -EOPNOTSUPP;
 	}
@@ -2922,9 +2922,10 @@ const struct net_device_ops rswitch_netdev_ops = {
 	.ndo_setup_tc           = rswitch_setup_tc,
 };
 
-static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, struct rswitch_device *dev, u32 ip)
+static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list,
+				      struct rswitch_device *rdev, u32 ip)
 {
-	struct rswitch_private *priv = dev->priv;
+	struct rswitch_private *priv = rdev->priv;
 	struct l3_ipv4_fwd_param_list *param_list;
 	struct rswitch_pf_param pf_param = {0};
 	int ret = 0;
@@ -2939,7 +2940,7 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 		goto free_param_list;
 	}
 
-	pf_param.rdev = dev;
+	pf_param.rdev = rdev;
 	pf_param.all_sources = true;
 
 	/* Match only packets with IPv4 EtherType */
@@ -2960,7 +2961,7 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 	param_list->param->priv = priv;
 	param_list->param->dv = BIT(priv->gwca.index);
 	param_list->param->slv = 0x3F;
-	param_list->param->csd = dev->rx_default_chain->index;
+	param_list->param->csd = rdev->rx_default_chain->index;
 	param_list->param->frame_type = LTHSLP0NONE;
 	param_list->param->enable_sub_dst = true;
 	param_list->param->l23_info.priv = priv;
@@ -2968,7 +2969,7 @@ static int rswitch_add_ipv4_dst_route(struct rswitch_ipv4_route *routing_list, s
 	param_list->param->l23_info.update_dst_mac = true;
 	param_list->param->l23_info.routing_port_valid = 0x3F;
 	param_list->param->l23_info.routing_number = rswitch_rn_get(priv);
-	memcpy(param_list->param->l23_info.dst_mac, dev->ndev->dev_addr, ETH_ALEN);
+	memcpy(param_list->param->l23_info.dst_mac, rdev->ndev->dev_addr, ETH_ALEN);
 
 	ret = rswitch_add_l3fwd(param_list->param);
 	if (ret)
@@ -2993,7 +2994,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 {
 	struct fib_entry_notifier_info fen = fib_work->fen_info;
 	struct rswitch_ipv4_route *new_routing_list;
-	struct rswitch_device *dev;
+	struct rswitch_device *rdev;
 	struct fib_nh *nh;
 
 	nh = fib_info_nh(fen.fi, 0);
@@ -3001,9 +3002,9 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 	if (fen.type != RTN_UNICAST)
 		return;
 
-	dev = get_dev_by_ip(fib_work->priv, be32_to_cpu(nh->nh_saddr), false);
+	rdev = get_dev_by_ip(fib_work->priv, be32_to_cpu(nh->nh_saddr), false);
 	/* Do not offload routes, related to VMQs (etha equal to NULL and not vlan device) */
-	if (!dev || (dev->etha == NULL && !is_vlan_dev(dev->ndev)))
+	if (!rdev || (!rdev->etha && !is_vlan_dev(rdev->ndev)))
 		return;
 
 	new_routing_list = kzalloc(sizeof(*new_routing_list), GFP_KERNEL);
@@ -3013,12 +3014,12 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 	new_routing_list->ip = be32_to_cpu(nh->nh_saddr);
 	new_routing_list->mask = be32_to_cpu(inet_make_mask(fen.dst_len));
 	new_routing_list->subnet = fen.dst;
-	new_routing_list->dev = dev;
+	new_routing_list->rdev = rdev;
 	INIT_LIST_HEAD(&new_routing_list->param_list);
 
-	mutex_lock(&dev->priv->ipv4_forward_lock);
-	list_add(&new_routing_list->list, &dev->routing_list);
-	mutex_unlock(&dev->priv->ipv4_forward_lock);
+	mutex_lock(&rdev->priv->ipv4_forward_lock);
+	list_add(&new_routing_list->list, &rdev->routing_list);
+	mutex_unlock(&rdev->priv->ipv4_forward_lock);
 
 	/*
 	 * Route with zeroed subnet is default route. It does not need a PF entry
@@ -3027,7 +3028,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 	if (!new_routing_list->subnet)
 		return;
 
-	if (!rswitch_add_ipv4_dst_route(new_routing_list, dev, be32_to_cpu(nh->nh_saddr)))
+	if (!rswitch_add_ipv4_dst_route(new_routing_list, rdev, be32_to_cpu(nh->nh_saddr)))
 		nh->fib_nh_flags |= RTNH_F_OFFLOAD;
 	new_routing_list->nh = nh;
 }
@@ -3035,7 +3036,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 {
 	struct fib_entry_notifier_info fen = fib_work->fen_info;
-	struct rswitch_device *dev;
+	struct rswitch_device *rdev;
 	struct fib_nh *nh;
 	struct list_head *cur, *tmp;
 	struct rswitch_ipv4_route *routing_list;
@@ -3047,12 +3048,12 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	if (fen.type != RTN_UNICAST)
 		return;
 
-	dev = get_dev_by_ip(fib_work->priv, be32_to_cpu(nh->nh_saddr), false);
-	if (!dev)
+	rdev = get_dev_by_ip(fib_work->priv, be32_to_cpu(nh->nh_saddr), false);
+	if (!rdev)
 		return;
 
-	mutex_lock(&dev->priv->ipv4_forward_lock);
-	list_for_each(cur, &dev->routing_list) {
+	mutex_lock(&rdev->priv->ipv4_forward_lock);
+	list_for_each(cur, &rdev->routing_list) {
 		routing_list = list_entry(cur, struct rswitch_ipv4_route, list);
 		if (routing_list->subnet == fen.dst && routing_list->ip == be32_to_cpu(nh->nh_saddr)) {
 			route_found = true;
@@ -3062,7 +3063,7 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 
 	/* There is nothing to free */
 	if (!route_found) {
-		mutex_unlock(&dev->priv->ipv4_forward_lock);
+		mutex_unlock(&rdev->priv->ipv4_forward_lock);
 		return;
 	}
 
@@ -3075,7 +3076,7 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	}
 
 	list_del(&routing_list->list);
-	mutex_unlock(&dev->priv->ipv4_forward_lock);
+	mutex_unlock(&rdev->priv->ipv4_forward_lock);
 
 	kfree(routing_list);
 }
@@ -4127,7 +4128,7 @@ static void rswitch_add_ipv4_forward_all_types(struct l3_ipv4_fwd_param *param,
 					       struct rswitch_ipv4_route *routing_list)
 {
 	struct l3_ipv4_fwd_param_list *param_list[RSWITCH_FRAME_TYPE_NUM] = {0};
-	struct rswitch_private *priv = routing_list->dev->priv;
+	struct rswitch_private *priv = routing_list->rdev->priv;
 	int i;
 
 	for (i = 0; i < RSWITCH_FRAME_TYPE_NUM; i++) {
@@ -4214,8 +4215,8 @@ static struct rswitch_ipv4_route *rswitch_get_route(struct rswitch_private *priv
 static void rswitch_forward_work(struct work_struct *work)
 {
 	struct rswitch_forward_work *fwd_work;
-	struct rswitch_device *dev;
-	struct rswitch_device *real_dev;
+	struct rswitch_device *rdev;
+	struct rswitch_device *real_rdev;
 	struct net_device *real_ndev;
 	struct rswitch_ipv4_route *routing_list = NULL;
 	struct l3_ipv4_fwd_param param = {0};
@@ -4231,16 +4232,16 @@ static void rswitch_forward_work(struct work_struct *work)
 	if (!routing_list)
 		goto free;
 
-	dev = routing_list->dev;
-	if (rswitch_ipv4_resolve(dev, fwd_work->dst_ip, mac))
+	rdev = routing_list->rdev;
+	if (rswitch_ipv4_resolve(rdev, fwd_work->dst_ip, mac))
 		goto free;
 
-	if (is_vlan_dev(dev->ndev)) {
-		real_ndev = vlan_dev_real_dev(dev->ndev);
-		real_dev = netdev_priv(real_ndev);
-		param.dv = BIT(real_dev->port);
+	if (is_vlan_dev(rdev->ndev)) {
+		real_ndev = vlan_dev_real_dev(rdev->ndev);
+		real_rdev = netdev_priv(real_ndev);
+		param.dv = BIT(real_rdev->port);
 	} else {
-		param.dv = BIT(dev->port);
+		param.dv = BIT(rdev->port);
 	}
 	param.csd = 0;
 	param.enable_sub_dst = false;
@@ -4499,9 +4500,9 @@ static void rswitch_deinit(struct rswitch_private *priv)
 	rswitch_desc_free(priv);
 }
 
-static int vlan_dev_register(struct net_device *dev)
+static int vlan_dev_register(struct net_device *ndev)
 {
-	struct net_device *real_dev;
+	struct net_device *real_rdev;
 	struct rswitch_net *rn;
 	struct rswitch_private *priv;
 	struct rswitch_device *rdev, *parent_rdev;
@@ -4510,12 +4511,12 @@ static int vlan_dev_register(struct net_device *dev)
 	rn = net_generic(&init_net, rswitch_net_id);
 	priv = rn->priv;
 
-	real_dev = vlan_dev_real_dev(dev);
+	real_rdev = vlan_dev_real_dev(ndev);
 
-	if (!ndev_is_tsn_dev(real_dev, priv))
+	if (!ndev_is_tsn_dev(real_rdev, priv))
 		return 0;
 
-	parent_rdev = netdev_priv(real_dev);
+	parent_rdev = netdev_priv(real_rdev);
 
 	rdev = kzalloc(sizeof(*rdev), GFP_KERNEL);
 	if (!rdev)
@@ -4524,9 +4525,9 @@ static int vlan_dev_register(struct net_device *dev)
 	 * but for proper chain mapping R-Switch driver requires real device parent. So we need to
 	 * save pointer to ndev->dev.parent and restore it for proper kernel deinit ndev.
 	 */
-	rdev->vlan_parent = dev->dev.parent;
-	dev->dev.parent = real_dev->dev.parent;
-	rdev->ndev = dev;
+	rdev->vlan_parent = ndev->dev.parent;
+	ndev->dev.parent = real_rdev->dev.parent;
+	rdev->ndev = ndev;
 	rdev->priv = priv;
 	INIT_LIST_HEAD(&rdev->routing_list);
 	INIT_LIST_HEAD(&rdev->tc_u32_list);
@@ -4541,19 +4542,19 @@ static int vlan_dev_register(struct net_device *dev)
 	list_add(&rdev->list, &priv->rdev_list);
 	write_unlock(&priv->rdev_list_lock);
 
-	ret = rswitch_txdmac_init(dev, priv, -1);
+	ret = rswitch_txdmac_init(ndev, priv, -1);
 	if (ret)
 		goto err_tx;
-	ret = rswitch_rxdmac_init(dev, priv, -1);
+	ret = rswitch_rxdmac_init(ndev, priv, -1);
 	if (ret)
 		goto err_rx;
 
-	netif_napi_add(dev, &rdev->napi, rswitch_poll, 64);
-	netdev_info(dev, "MAC address %pMn", dev->dev_addr);
+	netif_napi_add(ndev, &rdev->napi, rswitch_poll, 64);
+	netdev_info(ndev, "MAC address %pMn", ndev->dev_addr);
 	napi_enable(&rdev->napi);
 	return 0;
 err_rx:
-	rswitch_txdmac_free(dev, priv);
+	rswitch_txdmac_free(ndev, priv);
 err_tx:
 	list_del(&rdev->list);
 	return ret;
@@ -4583,7 +4584,7 @@ static void cleanup_all_routes(struct rswitch_device *rdev)
 	mutex_unlock(&rdev->priv->ipv4_forward_lock);
 }
 
-static void vlan_dev_unregister(struct net_device *dev)
+static void vlan_dev_unregister(struct net_device *ndev)
 {
 	struct rswitch_device *rdev;
 	struct rswitch_net *rn;
@@ -4591,33 +4592,33 @@ static void vlan_dev_unregister(struct net_device *dev)
 
 	rn = net_generic(&init_net, rswitch_net_id);
 	priv = rn->priv;
-	rdev = ndev_to_rdev(dev);
-	rswitch_rxdmac_free(dev, priv);
-	rswitch_txdmac_free(dev, priv);
+	rdev = ndev_to_rdev(ndev);
+	rswitch_rxdmac_free(ndev, priv);
+	rswitch_txdmac_free(ndev, priv);
 	napi_disable(&rdev->napi);
 	netif_napi_del(&rdev->napi);
 
 	cleanup_all_routes(rdev);
 
 	list_del(&rdev->list);
-	dev->dev.parent = rdev->vlan_parent;
+	ndev->dev.parent = rdev->vlan_parent;
 	kfree(rdev);
 }
 
 static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 			     void *ptr)
 {
-	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
+	struct net_device *ndev = netdev_notifier_info_to_dev(ptr);
 
-	if (!is_vlan_dev(dev))
+	if (!is_vlan_dev(ndev))
 		return NOTIFY_DONE;
 
 	switch (event) {
 	case NETDEV_REGISTER:
-		vlan_dev_register(dev);
+		vlan_dev_register(ndev);
 		break;
 	case NETDEV_UNREGISTER:
-		vlan_dev_unregister(dev);
+		vlan_dev_unregister(ndev);
 		break;
 	}
 

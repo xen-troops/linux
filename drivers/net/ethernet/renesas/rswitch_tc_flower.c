@@ -280,11 +280,11 @@ static int rswitch_tc_flower_setup_match(struct rswitch_tc_filter *f,
 	return 0;
 }
 
-static int rswitch_tc_flower_replace(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
+static int rswitch_tc_flower_replace(struct net_device *ndev,
+				     struct flow_cls_offload *cls_flower)
 {
 	struct flow_rule *rule = flow_cls_offload_flow_rule(cls_flower);
-	struct rswitch_device *rdev = netdev_priv(dev);
+	struct rswitch_device *rdev = netdev_priv(ndev);
 	struct rswitch_private *priv = rdev->priv;
 	struct rswitch_tc_filter *f;
 	int rc;
@@ -332,10 +332,10 @@ free:
 
 }
 
-static int rswitch_tc_flower_destroy(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
+static int rswitch_tc_flower_destroy(struct net_device *ndev,
+				     struct flow_cls_offload *cls_flower)
 {
-	struct rswitch_device *rdev = netdev_priv(dev);
+	struct rswitch_device *rdev = netdev_priv(ndev);
 	struct rswitch_tc_filter *f = NULL;
 
 	list_for_each_entry(f, &rdev->tc_flower_list, lh) {
@@ -351,22 +351,22 @@ static int rswitch_tc_flower_destroy(struct net_device *dev,
 	return -ENOENT;
 }
 
-static int rswitch_tc_flower_stats(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
+static int rswitch_tc_flower_stats(struct net_device *ndev,
+				   struct flow_cls_offload *cls_flower)
 {
 	return -EOPNOTSUPP;
 }
 
-int rswitch_setup_tc_flower(struct net_device *dev,
-				struct flow_cls_offload *cls_flower)
+int rswitch_setup_tc_flower(struct net_device *ndev,
+			    struct flow_cls_offload *cls_flower)
 {
 	switch (cls_flower->command) {
 	case FLOW_CLS_REPLACE:
-		return rswitch_tc_flower_replace(dev, cls_flower);
+		return rswitch_tc_flower_replace(ndev, cls_flower);
 	case FLOW_CLS_DESTROY:
-		return rswitch_tc_flower_destroy(dev, cls_flower);
+		return rswitch_tc_flower_destroy(ndev, cls_flower);
 	case FLOW_CLS_STATS:
-		return rswitch_tc_flower_stats(dev, cls_flower);
+		return rswitch_tc_flower_stats(ndev, cls_flower);
 	default:
 		return -EOPNOTSUPP;
 	}
