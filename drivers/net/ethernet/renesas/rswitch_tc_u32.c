@@ -282,15 +282,15 @@ static int rswitch_add_knode(struct net_device *ndev, struct tc_cls_u32_offload 
 	return rswitch_add_action_knode(&filter, cls);
 }
 
-int rswitch_setup_tc_cls_u32(struct net_device *dev,
-				 struct tc_cls_u32_offload *cls_u32)
+int rswitch_setup_tc_cls_u32(struct net_device *ndev,
+			     struct tc_cls_u32_offload *cls_u32)
 {
 	switch (cls_u32->command) {
 	case TC_CLSU32_NEW_KNODE:
 	case TC_CLSU32_REPLACE_KNODE:
-		return rswitch_add_knode(dev, cls_u32);
+		return rswitch_add_knode(ndev, cls_u32);
 	case TC_CLSU32_DELETE_KNODE:
-		return rswitch_del_knode(dev, cls_u32);
+		return rswitch_del_knode(ndev, cls_u32);
 	default:
 		return -EOPNOTSUPP;
 	}
