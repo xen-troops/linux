@@ -721,6 +721,14 @@ static int set_format(struct xen_camera_front_v4l2_info *v4l2_info,
 		if (ret == -EIO || ret == -ETIMEDOUT)
 			return ret;
 
+		/*
+		 * XXX Guess the buffer size, otherwise we will get into the trouble
+		 * later on at:
+		 * drivers/media/common/videobuf2/videobuf2-core.c:vb2_core_reqbufs()
+		 * since plane_sizes[0] will be 0.
+		 */
+		v4l2_info->v4l2_buffer_sz = cfg_req.width * cfg_req.height * 4;
+
 		return get_format_helper(v4l2_info, &cfg_resp, f, true);
 	}
 
