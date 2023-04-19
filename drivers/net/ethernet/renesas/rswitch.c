@@ -3185,6 +3185,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 	new_routing_list->mask = be32_to_cpu(inet_make_mask(fen.dst_len));
 	new_routing_list->subnet = fen.dst;
 	new_routing_list->rdev = rdev;
+	new_routing_list->nh = nh;
 	INIT_LIST_HEAD(&new_routing_list->param_list);
 
 	mutex_lock(&rdev->priv->ipv4_forward_lock);
@@ -3200,7 +3201,6 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 
 	if (!rswitch_add_ipv4_dst_route(new_routing_list, rdev, be32_to_cpu(nh->nh_saddr)))
 		nh->fib_nh_flags |= RTNH_F_OFFLOAD;
-	new_routing_list->nh = nh;
 }
 
 static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
