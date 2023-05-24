@@ -476,9 +476,6 @@ static int buffer_prepare(struct vb2_buffer *vb)
 		return ret;
 	}
 
-	mutex_lock(&v4l2_info->bufs_lock);
-	xen_buf->is_queued = true;
-	mutex_unlock(&v4l2_info->bufs_lock);
 	return 0;
 }
 
