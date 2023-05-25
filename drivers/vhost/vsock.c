@@ -80,6 +80,27 @@ static struct vhost_vsock *vhost_vsock_get(u32 guest_cid)
 	return NULL;
 }
 
+#ifdef CONFIG_VHOST_XEN
+static void vhost_vsock_unmap_desc(struct vhost_virtqueue *vq, int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (vq->iov[i].iov_base)
+			vhost_xen_unmap_desc(vq, vq->iov[i].iov_base, vq->iov[i].iov_len);
+	}
+
+	/*
+	 * Alternatively we could unmap *all* mapped at this point descriptors
+	 * (including indirect) in one go instead of unmapping one by one.
+	 * But we must be sure that doing that we won't end up unmapping
+	 * descriptors which are still in use. This depends on the place(s)
+	 * from which current function gets called.
+	 */
+	/*vhost_xen_unmap_desc_all(vq);*/
+}
+#endif
+
 static void
 vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 			    struct vhost_virtqueue *vq)
@@ -154,7 +175,11 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 			break;
 		}
 
+#ifdef CONFIG_VHOST_XEN
+		iov_iter_kvec(&iov_iter, READ, (struct kvec *)&vq->iov[out], in, iov_len);
+#else
 		iov_iter_init(&iov_iter, READ, &vq->iov[out], in, iov_len);
+#endif
 		payload_len = pkt->len - pkt->off;
 
 		/* If the packet is greater than the space available in the
@@ -186,6 +211,10 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		 */
 		virtio_transport_deliver_tap_pkt(pkt);
 
+#ifdef CONFIG_VHOST_XEN
+		/* Descriptors must be unmapped as soon as they are not used */
+		vhost_vsock_unmap_desc(vq, out + in);
+#endif
 		vhost_add_used(vq, head, sizeof(pkt->hdr) + payload_len);
 		added = true;
 
@@ -336,7 +365,11 @@ vhost_vsock_alloc_pkt(struct vhost_virtqueue *vq,
 		return NULL;
 
 	len = iov_length(vq->iov, out);
+#ifdef CONFIG_VHOST_XEN
+	iov_iter_kvec(&iov_iter, WRITE, (struct kvec *)vq->iov, out, len);
+#else
 	iov_iter_init(&iov_iter, WRITE, vq->iov, out, len);
+#endif
 
 	nbytes = copy_from_iter(&pkt->hdr, sizeof(pkt->hdr), &iov_iter);
 	if (nbytes != sizeof(pkt->hdr)) {
@@ -493,6 +526,10 @@ static void vhost_vsock_handle_tx_kick(struct vhost_work *work)
 		else
 			virtio_transport_free_pkt(pkt);
 
+#ifdef CONFIG_VHOST_XEN
+		/* Descriptors must be unmapped as soon as they are not used */
+		vhost_vsock_unmap_desc(vq, out + in);
+#endif
 		len += sizeof(pkt->hdr);
 		vhost_add_used(vq, head, 0);
 		total_len += len;
