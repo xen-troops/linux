@@ -2244,7 +2244,9 @@ static int rswitch_open(struct net_device *ndev)
 	rswitch_enadis_rdev_irqs(rdev, true);
 	spin_unlock_irqrestore(&rdev->priv->lock, flags);
 
-	iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDIE);
+	if (!rswitch_is_front_dev(rdev)) {
+		iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDIE);
+	}
 
 	rdev->priv->chan_running |= BIT(rdev->port);
 out:
@@ -2269,16 +2271,18 @@ static int rswitch_stop(struct net_device *ndev)
 
 	napi_disable(&rdev->napi);
 
-	rdev->priv->chan_running &= ~BIT(rdev->port);
-	if (!rdev->priv->chan_running)
-		iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDID);
+	if (!rswitch_is_front_dev(rdev)) {
+		rdev->priv->chan_running &= ~BIT(rdev->port);
+		if (!rdev->priv->chan_running)
+			iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDID);
 
-	list_for_each_entry_safe(ts_info, ts_info2, &rdev->priv->gwca.ts_info_list, list) {
-		if (ts_info->port != rdev->port)
-			continue;
-		dev_kfree_skb_irq(ts_info->skb);
-		list_del(&ts_info->list);
-		kfree(ts_info);
+		list_for_each_entry_safe(ts_info, ts_info2, &rdev->priv->gwca.ts_info_list, list) {
+			if (ts_info->port != rdev->port)
+				continue;
+			dev_kfree_skb_irq(ts_info->skb);
+			list_del(&ts_info->list);
+			kfree(ts_info);
+		}
 	}
 
 	return 0;
@@ -2397,11 +2401,14 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		desc->info_ds = cpu_to_le16(skb->len);
 	}
 
-	if (!parallel_mode)
-		desc->info1 = cpu_to_le64(INFO1_DV(BIT(rdev->etha->index)) |
+	if (!parallel_mode) {
+		if (rdev->etha != NULL) {
+			desc->info1 = cpu_to_le64(INFO1_DV(BIT(rdev->etha->index)) |
 					  INFO1_IPV(GWCA_IPV_NUM) | INFO1_FMT);
-	else
+		}
+	} else {
 		desc->info1 = cpu_to_le64(INFO1_IPV(GWCA_IPV_NUM));
+	}
 
 	if (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP) {
 		struct rswitch_gwca_ts_info *ts_info;
