@@ -2038,7 +2038,10 @@ static int rswitch_open(struct net_device *ndev)
 	/* Enable interrupt */
 	pr_debug("%s: tx = %d, rx = %d\n", __func__, rdev->tx_chain->index, rdev->rx_default_chain->index);
 	rswitch_enadis_rdev_irqs(rdev, true);
-	iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDIE);
+	
+	if (!rswitch_is_front_dev(rdev)) {
+		iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDIE);
+	}
 
 	rdev->priv->chan_running |= BIT(rdev->port);
 out:
@@ -2063,16 +2066,18 @@ static int rswitch_stop(struct net_device *ndev)
 
 	napi_disable(&rdev->napi);
 
-	rdev->priv->chan_running &= ~BIT(rdev->port);
-	if (!rdev->priv->chan_running)
-		iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDID);
+	if (!rswitch_is_front_dev(rdev)) {
+		rdev->priv->chan_running &= ~BIT(rdev->port);
+		if (!rdev->priv->chan_running)
+			iowrite32(GWCA_TS_IRQ_BIT, rdev->priv->addr + GWTSDID);
 
-	list_for_each_entry_safe(ts_info, ts_info2, &rdev->priv->gwca.ts_info_list, list) {
-		if (ts_info->port != rdev->port)
-			continue;
-		dev_kfree_skb_irq(ts_info->skb);
-		list_del(&ts_info->list);
-		kfree(ts_info);
+		list_for_each_entry_safe(ts_info, ts_info2, &rdev->priv->gwca.ts_info_list, list) {
+			if (ts_info->port != rdev->port)
+				continue;
+			dev_kfree_skb_irq(ts_info->skb);
+			list_del(&ts_info->list);
+			kfree(ts_info);
+		}
 	}
 
 	return 0;
@@ -2170,8 +2175,11 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	desc->dptrh = cpu_to_le32(upper_32_bits(dma_addr));
 	desc->info_ds = cpu_to_le16(skb->len);
 
-	if (!parallel_mode)
-		desc->info1 = (BIT(rdev->etha->index) << 48) | BIT(2);
+	if (!parallel_mode) {
+		if (rdev->etha != NULL) {
+			desc->info1 = (BIT(rdev->etha->index) << 48) | BIT(2);
+		}
+	}
 
 	if (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP) {
 		struct rswitch_gwca_ts_info *ts_info;
@@ -2184,10 +2192,13 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 		skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
 		rdev->ts_tag++;
-		if (!parallel_mode)
-			desc->info1 |= (rdev->ts_tag << 8) | BIT(3);
-		else
+		if (!parallel_mode) {
+			if (rdev->etha != NULL) {
+				desc->info1 |= (rdev->ts_tag << 8) | BIT(3);
+			}
+		} else {
 			desc->info1 = (rdev->ts_tag << 8) | BIT(3);
+		}
 
 		ts_info->skb = skb_get(skb);
 		ts_info->port = rdev->port;
