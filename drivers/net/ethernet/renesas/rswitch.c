@@ -1271,8 +1271,12 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 			else
 				skb_set_network_header(skb, sizeof(*ethhdr));
 
-			iphdr = ip_hdr(skb);
-			rswitch_add_ipv4_forward(priv, be32_to_cpu(iphdr->saddr), be32_to_cpu(iphdr->daddr));
+			/* The L2 broadcast packets shouldn't be routed */
+			if (!is_broadcast_ether_addr(ethhdr->h_dest)) {
+				iphdr = ip_hdr(skb);
+				rswitch_add_ipv4_forward(priv, be32_to_cpu(iphdr->saddr),
+							 be32_to_cpu(iphdr->daddr));
+			}
 		}
 
 		if (!rswitch_is_front_dev(rdev))
