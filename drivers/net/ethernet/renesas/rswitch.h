@@ -292,6 +292,10 @@ struct rswitch_device {
 	u8 remote_chain;
 	struct rswitch_vmq_front_info *front_info;
 	struct list_head routing_list;
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	/* List for L3 multicast routing offload */
+	struct list_head mult_routing_list;
+#endif
 
 	struct list_head tc_u32_list;
 	struct list_head tc_flower_list;

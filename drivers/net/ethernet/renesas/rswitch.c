@@ -34,6 +34,11 @@
 #include <net/arp.h>
 #include <net/switchdev.h>
 #include <net/netevent.h>
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+#include <linux/mroute_base.h>
+#include <linux/mroute.h>
+#include <net/ip.h>
+#endif
 
 #include "rtsn_ptp.h"
 #include "rswitch.h"
@@ -954,6 +959,9 @@ struct rswitch_fib_event_work {
 	union {
 		struct fib_entry_notifier_info fen_info;
 		struct fib_rule_notifier_info fr_info;
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+		struct mfc_entry_notifier_info men_info;
+#endif
 	};
 	struct rswitch_private *priv;
 	unsigned long event;
@@ -981,6 +989,18 @@ struct rswitch_ipv4_route {
 	struct list_head param_list;
 	struct list_head list;
 };
+
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+struct rswitch_ipv4_multi_route {
+	u32 mfc_origin;
+	u32 mfc_mcastgrp;
+	struct mr_mfc *mfc;
+	struct rswitch_device *rdev;
+	struct list_head list;
+	/* UDP and other packets type */
+	struct l3_ipv4_fwd_param params[2];
+};
+#endif
 
 static int num_ndev = 3;
 module_param(num_ndev, int, 0644);
@@ -1166,6 +1186,7 @@ static inline bool skb_is_vlan(struct sk_buff *skb)
 static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch_gwca_chain *c, bool learn_chain)
 {
 	struct rswitch_device *rdev = ndev_to_rdev(ndev);
+	struct rswitch_private *priv = rdev->priv;
 	int boguscnt = c->dirty + c->num_ring - c->cur;
 	int entry = c->cur % c->num_ring;
 	struct rswitch_ext_ts_desc *desc = &c->rx_ring[entry];
@@ -1247,7 +1268,6 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 		}
 
 		if (rdev->mondev) {
-			struct rswitch_private *priv = rdev->priv;
 			int slv;
 
 			slv = ((desc->info1 & L3_SLV_DESC_MASK) >> L3_SLV_DESC_SHIFT);
@@ -1258,31 +1278,40 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 			skb->dev = ndev;
 		}
 
-		if (learn_chain && rdev->priv->offload_enabled) {
-			struct rswitch_private *priv = rdev->priv;
-			struct iphdr *iphdr;
+		if (priv->offload_enabled) {
 			struct ethhdr *ethhdr;
 
 			skb_reset_mac_header(skb);
-			skb_reset_network_header(skb);
-
 			ethhdr = (struct ethhdr*)skb_mac_header(skb);
+			if (learn_chain) {
+				struct iphdr *iphdr;
 
-			if (skb_is_vlan(skb))
-				skb_set_network_header(skb, sizeof(*ethhdr) + VLAN_HEADER_SIZE);
-			else
-				skb_set_network_header(skb, sizeof(*ethhdr));
+				skb_reset_network_header(skb);
+				if (skb_is_vlan(skb)) {
+					skb_set_network_header(skb, sizeof(*ethhdr) +
+							       VLAN_HEADER_SIZE);
+				} else {
+					skb_set_network_header(skb, sizeof(*ethhdr));
+				}
 
-			/* The L2 broadcast packets shouldn't be routed */
-			if (!is_broadcast_ether_addr(ethhdr->h_dest)) {
-				iphdr = ip_hdr(skb);
-				rswitch_add_ipv4_forward(priv, rdev, be32_to_cpu(iphdr->saddr),
-							 be32_to_cpu(iphdr->daddr));
+				/* The L2 broadcast packets shouldn't be routed */
+				if (!is_broadcast_ether_addr(ethhdr->h_dest)) {
+					iphdr = ip_hdr(skb);
+					rswitch_add_ipv4_forward(priv, rdev,
+								 be32_to_cpu(iphdr->saddr),
+								 be32_to_cpu(iphdr->daddr));
+				}
+			} else if (is_multicast_ether_addr(ethhdr->h_dest)) {
+				/* The multicast packets that are forwarded by L3 offload to
+				 * default chain will be forwarded in HW. So we need to mark
+				 * these packets for kernel to avoid double forward by HW and SW.
+				 */
+				skb->offload_l3_fwd_mark = 1;
 			}
 		}
 
 		if (!rswitch_is_front_dev(rdev))
-			get_ts = rdev->priv->ptp_priv->tstamp_rx_ctrl & RTSN_RXTSTAMP_TYPE_V2_L2_EVENT;
+			get_ts = priv->ptp_priv->tstamp_rx_ctrl & RTSN_RXTSTAMP_TYPE_V2_L2_EVENT;
 		if (get_ts) {
 			struct skb_shared_hwtstamps *shhwtstamps;
 			struct timespec64 ts;
@@ -2570,7 +2599,7 @@ static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
 	 * because it will be handled by acquiring from the endpoint
 	 * interface.
 	 */
-	if (param->dv != BIT(priv->gwca.index))
+	if (!(param->dv & BIT(priv->gwca.index)))
 		rs_write32(param->dv | LTHCMEL, priv->addr + FWLTHTL9);
 	else
 		rs_write32(param->dv, priv->addr + FWLTHTL9);
@@ -3094,6 +3123,141 @@ static void rswitch_fib_event_remove(struct rswitch_fib_event_work *fib_work)
 	kfree(routing_list);
 }
 
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+static void rswitch_fibmr_event_add(struct rswitch_fib_event_work *fib_work)
+{
+	struct vif_device *vif;
+	int ct;
+	struct mfc_cache *mr_cache = (struct mfc_cache *)(fib_work->men_info.mfc);
+	struct mr_mfc *mfc = fib_work->men_info.mfc;
+	struct mr_table *mrt = init_net.ipv4.mrt;
+	struct rswitch_device *rdev, *dst_rdev;
+	u32 dv = 0;
+	struct rswitch_ipv4_multi_route *multi_route;
+
+	rdev = get_dev_by_ip(fib_work->priv, be32_to_cpu(mr_cache->mfc_origin), true);
+	/* Do not offload routes, related to VMQs (etha equal to NULL and not vlan device) */
+	if (!rdev || (!rdev->etha && !is_vlan_dev(rdev->ndev)))
+		return;
+
+	for (ct = mfc->mfc_un.res.minvif; ct < mfc->mfc_un.res.maxvif; ct++) {
+		if (VIF_EXISTS(mrt, ct) && mfc->mfc_un.res.ttls[ct] < 255) {
+			vif = &mrt->vif_table[ct];
+			dst_rdev = ndev_to_rdev(vif->dev);
+			if (!dst_rdev)
+				continue;
+			if (!netif_dormant(vif->dev))
+				dv |= BIT(dst_rdev->port);
+		}
+	}
+
+	multi_route = kzalloc(sizeof(*multi_route), GFP_KERNEL);
+	if (!multi_route)
+		return;
+
+	/* Forward traffic to appropriate GWCA chain */
+	dv |= BIT(rdev->priv->gwca.index);
+	multi_route->rdev = rdev;
+	multi_route->mfc = mfc;
+	multi_route->mfc_origin = mr_cache->mfc_origin;
+	multi_route->mfc_mcastgrp = mr_cache->mfc_mcastgrp;
+
+	multi_route->params[0].csd = rdev->rx_default_chain->index;
+	multi_route->params[0].enable_sub_dst = true;
+	multi_route->params[0].slv = BIT(rdev->port);
+	multi_route->params[0].dv = dv;
+	multi_route->params[0].l23_info.priv = fib_work->priv;
+	multi_route->params[0].l23_info.update_ttl = true;
+	multi_route->params[0].l23_info.update_dst_mac = false;
+	multi_route->params[0].l23_info.update_src_mac = false;
+	multi_route->params[0].l23_info.routing_number = rswitch_rn_get(fib_work->priv);
+	multi_route->params[0].l23_info.routing_port_valid = BIT(rdev->port) | dv;
+	multi_route->params[0].priv = fib_work->priv;
+	multi_route->params[0].src_ip = be32_to_cpu(mr_cache->mfc_origin);
+	multi_route->params[0].dst_ip = be32_to_cpu(mr_cache->mfc_mcastgrp);
+	multi_route->params[0].frame_type = LTHSLP0v4OTHER;
+	memcpy(&multi_route->params[1], &multi_route->params[0], sizeof(multi_route->params[1]));
+	multi_route->params[1].frame_type = LTHSLP0v4UDP;
+
+	if (rswitch_add_l3fwd(&multi_route->params[0])) {
+		kfree(multi_route);
+		return;
+	}
+
+	if (rswitch_add_l3fwd(&multi_route->params[1])) {
+		rswitch_remove_l3fwd(&multi_route->params[0]);
+		kfree(multi_route);
+		return;
+	}
+
+	mutex_lock(&rdev->priv->ipv4_forward_lock);
+	list_add(&multi_route->list, &rdev->mult_routing_list);
+	mutex_unlock(&rdev->priv->ipv4_forward_lock);
+	fib_work->men_info.mfc->mfc_flags |= MFC_OFFLOAD;
+}
+
+static void rswitch_fibmr_event_remove(struct rswitch_fib_event_work *fib_work)
+{
+	struct rswitch_device *rdev;
+	struct mfc_cache *mr_cache = (struct mfc_cache *)(fib_work->men_info.mfc);
+	bool route_found = false;
+	struct rswitch_ipv4_multi_route *multi_route;
+	struct list_head *cur;
+
+	rdev = get_dev_by_ip(fib_work->priv, be32_to_cpu(mr_cache->mfc_origin), true);
+	if (!rdev || (!rdev->etha && !is_vlan_dev(rdev->ndev)))
+		return;
+
+	mutex_lock(&rdev->priv->ipv4_forward_lock);
+	list_for_each(cur, &rdev->mult_routing_list) {
+		multi_route = list_entry(cur, struct rswitch_ipv4_multi_route, list);
+		if (multi_route->mfc_origin == mr_cache->mfc_origin &&
+		    multi_route->mfc_mcastgrp == mr_cache->mfc_mcastgrp) {
+			route_found = true;
+			break;
+		}
+	}
+
+	/* There is nothing to free */
+	if (!route_found) {
+		mutex_unlock(&rdev->priv->ipv4_forward_lock);
+		return;
+	}
+
+	rswitch_remove_l3fwd(&multi_route->params[0]);
+	rswitch_remove_l3fwd(&multi_route->params[1]);
+	list_del(&multi_route->list);
+	mutex_unlock(&rdev->priv->ipv4_forward_lock);
+	kfree(multi_route);
+}
+
+static void rswitch_fibmr_event_work(struct work_struct *work)
+{
+	struct rswitch_fib_event_work *fib_work =
+		container_of(work, struct rswitch_fib_event_work, work);
+
+	/* Protect internal structures from changes */
+	rtnl_lock();
+
+	switch (fib_work->event) {
+	case FIB_EVENT_ENTRY_REPLACE:
+		rswitch_fibmr_event_remove(fib_work);
+		fallthrough;
+	case FIB_EVENT_ENTRY_APPEND:
+	case FIB_EVENT_ENTRY_ADD:
+		rswitch_fibmr_event_add(fib_work);
+		break;
+	case FIB_EVENT_ENTRY_DEL:
+		rswitch_fibmr_event_remove(fib_work);
+		break;
+	}
+
+	mr_cache_put(fib_work->men_info.mfc);
+	rtnl_unlock();
+	kfree(fib_work);
+}
+#endif
+
 static void rswitch_fib_event_work(struct work_struct *work)
 {
 	struct rswitch_fib_event_work *fib_work =
@@ -3124,9 +3288,33 @@ static int rswitch_fib_event(struct notifier_block *nb,
 	struct fib_notifier_info *info = ptr;
 	struct rswitch_fib_event_work *fib_work;
 
-	/* Handle only IPv4 routes */
-	if (info->family != AF_INET)
+	/* Handle only IPv4 and IPv4 multicast routes */
+	if (info->family != AF_INET && info->family != RTNL_FAMILY_IPMR)
 		return NOTIFY_DONE;
+
+	switch (event) {
+	case FIB_EVENT_ENTRY_ADD:
+	case FIB_EVENT_ENTRY_APPEND:
+	case FIB_EVENT_ENTRY_DEL:
+	case FIB_EVENT_ENTRY_REPLACE:
+		if (info->family == AF_INET) {
+			struct fib_entry_notifier_info *fen_info = ptr;
+
+			if (fen_info->fi->fib_nh_is_v6) {
+				NL_SET_ERR_MSG_MOD(info->extack,
+						   "IPv6 gateway with IPv4 route is not supported");
+				return notifier_from_errno(-EINVAL);
+			}
+			if (fen_info->fi->nh) {
+				NL_SET_ERR_MSG_MOD(info->extack,
+						   "IPv4 route with nexthop objects is not supported");
+				return notifier_from_errno(-EINVAL);
+			}
+		}
+		break;
+	default:
+		return NOTIFY_DONE;
+	}
 
 	fib_work = kzalloc(sizeof(*fib_work), GFP_ATOMIC);
 	if (WARN_ON(!fib_work))
@@ -3135,34 +3323,35 @@ static int rswitch_fib_event(struct notifier_block *nb,
 	fib_work->event = event;
 	fib_work->priv = priv;
 
-	INIT_WORK(&fib_work->work, rswitch_fib_event_work);
-
-	switch (event) {
+	switch (info->family) {
+	case AF_INET:
+		INIT_WORK(&fib_work->work, rswitch_fib_event_work);
+		memcpy(&fib_work->fen_info, ptr, sizeof(fib_work->fen_info));
+		/* Take referece on fib_info to prevent it from being
+		 * freed while work is queued. Release it afterwards.
+		 */
+		fib_info_hold(fib_work->fen_info.fi);
+		break;
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	case RTNL_FAMILY_IPMR:
+		switch (event) {
 		case FIB_EVENT_ENTRY_ADD:
 		case FIB_EVENT_ENTRY_APPEND:
 		case FIB_EVENT_ENTRY_DEL:
 		case FIB_EVENT_ENTRY_REPLACE:
-			if (info->family == AF_INET) {
-				struct fib_entry_notifier_info *fen_info = ptr;
-
-				if (fen_info->fi->fib_nh_is_v6) {
-					NL_SET_ERR_MSG_MOD(info->extack, "IPv6 gateway with IPv4 route is not supported");
-					kfree(fib_work);
-					return notifier_from_errno(-EINVAL);
-				}
-				if (fen_info->fi->nh) {
-					NL_SET_ERR_MSG_MOD(info->extack, "IPv4 route with nexthop objects is not supported");
-					kfree(fib_work);
-					return notifier_from_errno(-EINVAL);
-				}
-			}
-
-			memcpy(&fib_work->fen_info, ptr, sizeof(fib_work->fen_info));
-			/* Take referece on fib_info to prevent it from being
-			   +		 * freed while work is queued. Release it afterwards.
-			   +		 */
-			fib_info_hold(fib_work->fen_info.fi);
+			INIT_WORK(&fib_work->work, rswitch_fibmr_event_work);
+			memcpy(&fib_work->men_info, ptr, sizeof(fib_work->men_info));
+			mr_cache_hold(fib_work->men_info.mfc);
 			break;
+		default:
+			kfree(fib_work);
+			return NOTIFY_DONE;
+		}
+		break;
+#endif
+	default:
+		kfree(fib_work);
+		return NOTIFY_DONE;
 	}
 
 	queue_work(priv->rswitch_fib_wq, &fib_work->work);
@@ -3807,6 +3996,9 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index, bool rmo
 	rdev->ndev = ndev;
 	rdev->priv = priv;
 	INIT_LIST_HEAD(&rdev->routing_list);
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	INIT_LIST_HEAD(&rdev->mult_routing_list);
+#endif
 	INIT_LIST_HEAD(&rdev->tc_u32_list);
 	INIT_LIST_HEAD(&rdev->tc_matchall_list);
 	INIT_LIST_HEAD(&rdev->tc_flower_list);
@@ -4586,6 +4778,9 @@ static void cleanup_all_routes(struct rswitch_device *rdev)
 	struct list_head *cur, *tmp, *cur_param_list, *tmp_param_list;
 	struct rswitch_ipv4_route *routing_list;
 	struct l3_ipv4_fwd_param_list *param_list;
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	struct rswitch_ipv4_multi_route *multi_route;
+#endif
 
 	mutex_lock(&rdev->priv->ipv4_forward_lock);
 	list_for_each_safe(cur, tmp, &rdev->routing_list) {
@@ -4602,6 +4797,18 @@ static void cleanup_all_routes(struct rswitch_device *rdev)
 		list_del(&routing_list->list);
 		kfree(routing_list);
 	}
+
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	list_for_each_safe(cur, tmp, &rdev->mult_routing_list) {
+		multi_route = list_entry(cur, struct rswitch_ipv4_multi_route, list);
+		rswitch_remove_l3fwd(&multi_route->params[0]);
+		rswitch_remove_l3fwd(&multi_route->params[1]);
+		multi_route->mfc->mfc_flags &= ~MFC_OFFLOAD;
+		list_del(&multi_route->list);
+		kfree(multi_route);
+	}
+#endif
+
 	mutex_unlock(&rdev->priv->ipv4_forward_lock);
 }
 
