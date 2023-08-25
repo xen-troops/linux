@@ -668,6 +668,7 @@ enum rswitch_reg {
 	GWDIS0		= GWRO + 0x1100,
 	GWDIE0		= GWRO + 0x1104,
 	GWDID0		= GWRO + 0x1108,
+	GWDIDS0		= GWRO + 0x110C,
 	GWTSDIS		= GWRO + 0x1180,
 	GWTSDIE		= GWRO + 0x1184,
 	GWTSDID		= GWRO + 0x1188,
@@ -775,6 +776,12 @@ enum rswitch_etha_mode {
 #define GWMDNC_TXDMN(val)	((val & 0x1f) << 8)
 
 #define GWDCC_OFFS(chain)	(GWDCC0 + (chain) * 4)
+
+#define GWCA_IRQ_PRESCALER_MAX	0x7ff
+
+#define GWIDCi(chain)		(GWIDC0 + (chain) * 4)
+#define GWCA_IRQ_DELAY_MASK	0xfff
+
 /* COMA */
 #define RRC_RR		BIT(0)
 #define RRC_RR_CLR	(0)
@@ -1092,7 +1099,7 @@ static void rswitch_get_data_irq_status(struct rswitch_private *priv, u32 *dis)
 	int i;
 
 	for (i = 0; i < RSWITCH_NUM_IRQ_REGS; i++)
-		dis[i] = rs_read32(priv->addr + GWDIS0 + i * 0x10);
+		dis[i] = rs_read32(priv->addr + GWDIDS0 + i * 0x10);
 }
 
 void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, bool enable)
@@ -3106,6 +3113,8 @@ static int rswitch_gwca_hw_init(struct rswitch_private *priv)
 	priv->gwca.speed = 1000;
 	rswitch_gwca_set_rate_limit(priv, priv->gwca.speed);
 
+	rs_write32(GWCA_IRQ_PRESCALER_MAX, priv->addr + GWIDPC);
+
 	err = rswitch_gwca_change_mode(priv, GWMC_OPC_DISABLE);
 	if (err < 0)
 		return err;
@@ -3392,6 +3401,13 @@ void rswitch_gwca_put(struct rswitch_private *priv,
 {
 	if (c)
 		clear_bit(c->index, priv->gwca.used);
+}
+
+void rswitch_gwca_chain_set_irq_delay(struct rswitch_private *priv,
+				      struct rswitch_gwca_chain *chain,
+				      u16 delay)
+{
+	rs_write32(delay & GWCA_IRQ_DELAY_MASK, priv->addr + GWIDCi(chain->index));
 }
 
 int rswitch_txdmac_init(struct net_device *ndev, struct rswitch_private *priv,
