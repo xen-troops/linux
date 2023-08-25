@@ -616,4 +616,7 @@ static inline bool rswitch_ipv6_all_zero(struct in6_addr *addr)
 		   addr->s6_addr32[2] | addr->s6_addr32[3]));
 }
 
+void rswitch_gwca_chain_set_irq_delay(struct rswitch_private *priv,
+				     struct rswitch_gwca_chain *chain,
+				     u16 delay);
 #endif /* __RSWITCH_H__ */

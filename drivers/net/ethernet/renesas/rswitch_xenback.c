@@ -5,6 +5,7 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/module.h>
 #include <linux/platform_device.h>
 #include <xen/interface/grant_table.h>
 #include <xen/grant_table.h>
@@ -44,6 +45,12 @@ struct rswitch_vmq_back_info {
 	uint32_t if_num;
 	enum rswtich_pv_type type;
 };
+
+/* Optimal value between performance and event numbers for front devices */
+static u16 chain_irq_delay = 0x100;
+module_param(chain_irq_delay, ushort, 0);
+MODULE_PARM_DESC(chain_irq_delay,
+		 "Set IRQ status delay for VMQ device RX/TX chains in range 0-0xfff");
 
 static struct rswitch_device*
 rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
@@ -204,6 +211,9 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 	be->osid = xenbus_read_unsigned(dev->otherend, "osid", 255);
 	be->tx_chain->osid = be->osid;
 	be->rx_chain->osid = be->osid;
+
+	rswitch_gwca_chain_set_irq_delay(priv, be->tx_chain, chain_irq_delay);
+	rswitch_gwca_chain_set_irq_delay(priv, be->rx_chain, chain_irq_delay);
 
 	snprintf(be->name, sizeof(be->name) - 1, "rswitch-vmq-osid%d", be->osid);
 
