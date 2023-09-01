@@ -10,6 +10,7 @@
 #include <linux/ptp_clock_kernel.h>
 
 #define PTPTIVC_INIT	0x19000000	/* 320MHz */
+#define PTP_S4_FREQ	320000000ULL
 
 #define GTIVC_INIT	0x50000000	/* 100MHz */
 

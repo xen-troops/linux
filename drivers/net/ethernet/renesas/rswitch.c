@@ -870,6 +870,10 @@ enum rswitch_etha_mode {
 #define FBFILTER_IDX(i) ((i / 2) - PFL_TWBF_N - PFL_THBF_N)
 #define L3_SLV_DESC_SHIFT (36)
 #define L3_SLV_DESC_MASK (0xFUL << L3_SLV_DESC_SHIFT)
+/* Avarage frame size 512 bits (64 bytes) */
+#define AVG_FRAME_SIZE 512
+/* Maximum value of hash collisions */
+#define LTHHMC_MAX_VAL 0x1FF
 
 #define FWPC0(i)                (FWPC00 + (i) * 0x10)
 #define FWPC0_DEFAULT	(FWPC0_LTHTA | FWPC0_IP4UE | FWPC0_IP4TE | \
@@ -4529,7 +4533,7 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	/* Enable Direct Descriptors for GWCA1 */
 	rs_write32(FWPC1_DDE, priv->addr + FWPC10 + (priv->gwca.index * 0x10));
 	/* Set L3 hash maximum unsecure entry to 512 */
-	rs_write32(0x200 << 16, priv->addr + FWLTHHEC);
+	rs_write32(0x200 << 16 | priv->max_collisions, priv->addr + FWLTHHEC);
 	/* Disable hash equation */
 	rs_write32(0, priv->addr + FWSFHEC);
 	/* Enable access from unsecure APB for the first 32 update rules */
@@ -4560,6 +4564,51 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	/* CPU mirroring */
 	rs_write32(priv->mon_rx_chain->index | (RSWITCH_HW_NUM_TO_GWCA_IDX(priv->gwca.index) << 16),
 		   priv->addr + FWCMPTC);
+}
+
+static void rswitch_set_max_hash_collisions(struct rswitch_private *priv)
+{
+	u64 tsn_throughput = 0, max_throughput;
+	struct device_node *ports, *port, *phy = NULL;
+	int err = 0;
+
+	ports = of_get_child_by_name(priv->pdev->dev.of_node, "ports");
+	if (!ports) {
+		/* Set minimum value for collision number */
+		priv->max_collisions = 1;
+		return;
+	}
+
+	for_each_child_of_node(ports, port) {
+		phy = of_parse_phandle(port, "phy-handle", 0);
+		if (phy) {
+			/* 1 GBit*/
+			tsn_throughput += 1000 * 1000 * 1000;
+		} else {
+			if (of_phy_is_fixed_link(port)) {
+				struct device_node *fixed_link;
+				u32 link_speed;
+
+				fixed_link = of_get_child_by_name(port, "fixed-link");
+				err = of_property_read_u32(fixed_link, "speed", &link_speed);
+				if (err)
+					continue;
+
+				tsn_throughput += link_speed * 1000 * 1000;
+			}
+		}
+	}
+
+	of_node_put(ports);
+	max_throughput = tsn_throughput + priv->gwca.speed * 1000 * 1000;
+
+	/* Calculate maximum collisions number using the formula:
+	 * FWLTHHEC.LTHHMC =
+	 * (clk_freq[Hz] * Average_frame_size[bit] / Incoming_throughput[bps] - 4) / 3
+	 */
+	priv->max_collisions = (((PTP_S4_FREQ * AVG_FRAME_SIZE) / (max_throughput)) - 4) / 3;
+	if (priv->max_collisions > LTHHMC_MAX_VAL)
+		priv->max_collisions = LTHHMC_MAX_VAL;
 }
 
 static int rswitch_init(struct rswitch_private *priv)
@@ -4630,6 +4679,7 @@ static int rswitch_init(struct rswitch_private *priv)
 		if (err < 0)
 			goto forward_wq_destroy;
 
+		rswitch_set_max_hash_collisions(priv);
 		rswitch_coma_init(priv);
 		rswitch_fwd_init(priv);
 	}
