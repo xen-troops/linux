@@ -339,6 +339,10 @@ struct rswitch_private {
 	bool offload_enabled;
 	struct mutex ipv4_forward_lock;
 	struct workqueue_struct *rswitch_forward_wq;
+	/* Maximum number of hash collisions for L3 hash forwarding
+	 * table that can guarantee appropriate speed.
+	 */
+	u16 max_collisions;
 
 	u8 chan_running;
 };
