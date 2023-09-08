@@ -32,4 +32,8 @@ int rswitch_tc_setup_flow_action(struct rswitch_tc_filter *f,
 int rswitch_fill_pf_param(struct rswitch_pf_param *pf_param, fv_gen gen_fn,
 			  void *filter_param);
 
+int rswitch_u32_restore_l3(struct rswitch_device *rdev);
+int rswitch_matchall_restore_l3(struct rswitch_device *rdev);
+int rswitch_flower_restore_l3(struct rswitch_device *rdev);
+
 #endif
