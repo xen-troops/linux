@@ -874,6 +874,14 @@ enum rswitch_etha_mode {
 #define AVG_FRAME_SIZE 512
 /* Maximum value of hash collisions */
 #define LTHHMC_MAX_VAL 0x1FF
+#define FWLTHHC_LTHHE_MAX 0x1FF
+#define FWLTHTLR_LTHLCN_MASK 0x3FF0000
+#define FWLTHTLR_LTHLCN_SHIFT 16
+#define L3_LEARN_COLLISSION_NUM(val) (((val) & FWLTHTLR_LTHLCN_MASK) >> FWLTHTLR_LTHLCN_SHIFT)
+/* Initial value for hash equation that was found experimentally.
+ * Default value "1" leads to more freqent hash collisions.
+ */
+#define HE_INITIAL_VALUE 2
 
 #define FWPC0(i)                (FWPC00 + (i) * 0x10)
 #define FWPC0_DEFAULT	(FWPC0_LTHTA | FWPC0_IP4UE | FWPC0_IP4TE | \
@@ -2569,9 +2577,16 @@ static int rswitch_setup_l23_update(struct l23_update_info *l23_info)
 	return rs_read32(l23_info->priv->addr + FWL23URLR);
 }
 
+static void rswitch_reset_l3_table(struct rswitch_private *priv)
+{
+	rs_write32(LTHTIOG, priv->addr + FWLTHTIM);
+	rswitch_reg_wait(priv->addr, FWLTHTIM, LTHTR, LTHTR);
+}
+
 static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
 {
 	struct rswitch_private *priv = param->priv;
+	u32 collision_num, res;
 
 	if (!delete) {
 		if (param->l23_info.update_dst_mac || param->l23_info.update_src_mac ||
@@ -2608,12 +2623,121 @@ static int rswitch_modify_l3fwd(struct l3_ipv4_fwd_param *param, bool delete)
 	else
 		rs_write32(param->dv, priv->addr + FWLTHTL9);
 
-	return rswitch_reg_wait(priv->addr, FWLTHTLR, LTHTL, 0);
+	res = rswitch_reg_wait(priv->addr, FWLTHTLR, LTHTL, 0);
+	if (res)
+		return res;
+
+	res = rs_read32(priv->addr + FWLTHTLR);
+	collision_num = L3_LEARN_COLLISSION_NUM(res);
+	if ((collision_num > priv->max_collisions) && !delete)
+		return -EAGAIN;
+
+	return 0;
 }
 
 int rswitch_add_l3fwd(struct l3_ipv4_fwd_param *param)
 {
 	return rswitch_modify_l3fwd(param, false);
+}
+
+/* Should be called with rswitch_priv->ipv4_forward_lock taken */
+static int rswitch_restore_l3_table(struct rswitch_private *priv)
+{
+	struct list_head *cur, *cur_param_list;
+	struct rswitch_ipv4_route *routing_list;
+	struct l3_ipv4_fwd_param_list *param_list;
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	struct rswitch_ipv4_multi_route *multi_route;
+#endif
+	struct rswitch_device *rdev;
+	int rc = 0;
+
+	read_lock(&priv->rdev_list_lock);
+	list_for_each_entry(rdev, &priv->rdev_list, list) {
+		rc = rswitch_restore_tc_l3_table(rdev);
+		if (rc)
+			goto unlock;
+		list_for_each(cur, &rdev->routing_list) {
+			routing_list = list_entry(cur, struct rswitch_ipv4_route, list);
+			list_for_each(cur_param_list, &routing_list->param_list) {
+				param_list =
+					list_entry(cur_param_list,
+						   struct l3_ipv4_fwd_param_list,
+						   list);
+				rc = rswitch_add_l3fwd(param_list->param);
+				if (rc)
+					goto unlock;
+			}
+		}
+
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+		list_for_each(cur, &rdev->mult_routing_list) {
+			multi_route = list_entry(cur, struct rswitch_ipv4_multi_route, list);
+			rc = rswitch_add_l3fwd(&multi_route->params[0]);
+			if (rc)
+				goto unlock;
+			rc = rswitch_add_l3fwd(&multi_route->params[1]);
+			if (rc)
+				goto unlock;
+		}
+#endif
+	}
+
+unlock:
+	read_unlock(&priv->rdev_list_lock);
+
+	return rc;
+}
+
+/* This function is preferred to use instead of rswitch_add_l3fwd in
+ * case of adding L3 streaming entry. It checks rswitch_add_l3fwd
+ * result and if EAGAIN is returned the function adjusts equation
+ * to reduce the collision number. There is no reason to use it
+ * for perfect filter because in this case, collisions won't happenned.
+ * Should be called with rswitch_priv->ipv4_forward_lock taken.
+ */
+int rswitch_add_l3fwd_adjust_hash(struct l3_ipv4_fwd_param *param)
+{
+	struct rswitch_private *priv = param->priv;
+	int rc;
+	u16 original_equation = priv->hash_equation;
+
+	do {
+		rc = rswitch_add_l3fwd(param);
+		if (rc == -EAGAIN) {
+			do {
+				priv->hash_equation++;
+				/* Try to find appropriate parameters from the beginning again */
+				if (priv->hash_equation > FWLTHHC_LTHHE_MAX)
+					priv->hash_equation = HE_INITIAL_VALUE;
+				/* If we return back to the original state, there are no
+				 * appropriate parameters for current entries and we cannot
+				 * add given entry.
+				 */
+				if (priv->hash_equation == original_equation)
+					rc = -E2BIG;
+
+				rswitch_reset_l3_table(priv);
+				rs_write32(priv->hash_equation, priv->addr + FWLTHHC);
+				rc = rswitch_restore_l3_table(priv);
+			} while (rc == -EAGAIN);
+			if (!rc) {
+				/* Restoring is succeeded, try to add the original entry again */
+				rc = -EAGAIN;
+			} else {
+				/* Some other issue occurred, restoring back
+				 * initial state and return error code.
+				 */
+				priv->hash_equation = original_equation;
+				rswitch_reset_l3_table(priv);
+				rs_write32(priv->hash_equation, priv->addr + FWLTHHC);
+				rswitch_restore_l3_table(priv);
+				return rc;
+			}
+		}
+	} while (rc == -EAGAIN);
+
+	return rc;
 }
 
 static enum pf_type rswitch_get_pf_type_by_num(int num)
@@ -3183,20 +3307,26 @@ static void rswitch_fibmr_event_add(struct rswitch_fib_event_work *fib_work)
 	memcpy(&multi_route->params[1], &multi_route->params[0], sizeof(multi_route->params[1]));
 	multi_route->params[1].frame_type = LTHSLP0v4UDP;
 
-	if (rswitch_add_l3fwd(&multi_route->params[0])) {
+	mutex_lock(&rdev->priv->ipv4_forward_lock);
+	if (rswitch_add_l3fwd_adjust_hash(&multi_route->params[0])) {
+		mutex_unlock(&rdev->priv->ipv4_forward_lock);
 		kfree(multi_route);
 		return;
 	}
 
-	if (rswitch_add_l3fwd(&multi_route->params[1])) {
+	/* Add route to the list after adding the first entry.
+	 * It helps to restore the first one in case of changing hash while
+	 * adding entry to L3 table for UDP.
+	 */
+	list_add(&multi_route->list, &rdev->mult_routing_list);
+	if (rswitch_add_l3fwd_adjust_hash(&multi_route->params[1])) {
+		mutex_unlock(&rdev->priv->ipv4_forward_lock);
 		rswitch_remove_l3fwd(&multi_route->params[0]);
 		kfree(multi_route);
 		return;
 	}
-
-	mutex_lock(&rdev->priv->ipv4_forward_lock);
-	list_add(&multi_route->list, &rdev->mult_routing_list);
 	mutex_unlock(&rdev->priv->ipv4_forward_lock);
+
 	fib_work->men_info.mfc->mfc_flags |= MFC_OFFLOAD;
 }
 
@@ -4356,27 +4486,30 @@ static void rswitch_add_ipv4_forward_all_types(struct l3_ipv4_fwd_param *param,
 	param_list[1]->param->frame_type = LTHSLP0v4UDP;
 	param_list[2]->param->frame_type = LTHSLP0v4TCP;
 
-	if (!priv->ipv4_forward_enabled)
+	if (!priv->ipv4_forward_enabled) {
 		/* Add these params only to list, not to HW */
-		goto list_add;
+		list_add(&param_list[0]->list, &routing_list->param_list);
+		list_add(&param_list[1]->list, &routing_list->param_list);
+		list_add(&param_list[2]->list, &routing_list->param_list);
+		return;
+	}
 
-	if (rswitch_add_l3fwd(param_list[0]->param))
+	if (rswitch_add_l3fwd_adjust_hash(param_list[0]->param))
 		goto free;
 
-	if (rswitch_add_l3fwd(param_list[1]->param)) {
+	list_add(&param_list[0]->list, &routing_list->param_list);
+	if (rswitch_add_l3fwd_adjust_hash(param_list[1]->param)) {
 		rswitch_remove_l3fwd(param_list[0]->param);
 		goto free;
 	}
 
-	if (rswitch_add_l3fwd(param_list[2]->param)) {
+	list_add(&param_list[1]->list, &routing_list->param_list);
+	if (rswitch_add_l3fwd_adjust_hash(param_list[2]->param)) {
 		rswitch_remove_l3fwd(param_list[0]->param);
 		rswitch_remove_l3fwd(param_list[1]->param);
 		goto free;
 	}
 
-list_add:
-	list_add(&param_list[0]->list, &routing_list->param_list);
-	list_add(&param_list[1]->list, &routing_list->param_list);
 	list_add(&param_list[2]->list, &routing_list->param_list);
 
 	return;
@@ -4545,9 +4678,7 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	/* Init parameters for IPv4/v6 hash extract */
 	rs_write32(BIT(22) | BIT(23), priv->addr + FWIP4SC);
 	/* Reset L3 table */
-	rs_write32(LTHTIOG, priv->addr + FWLTHTIM);
-	/* TODO: Check result */
-	rswitch_reg_wait(priv->addr, FWLTHTIM, LTHTR, 1);
+	rswitch_reset_l3_table(priv);
 	/* Reset L2/3 update table */
 	rs_write32(LTHTIOG, priv->addr + FWL23UTIM);
 	/* TODO: Check result */
@@ -4564,6 +4695,9 @@ static void rswitch_fwd_init(struct rswitch_private *priv)
 	/* CPU mirroring */
 	rs_write32(priv->mon_rx_chain->index | (RSWITCH_HW_NUM_TO_GWCA_IDX(priv->gwca.index) << 16),
 		   priv->addr + FWCMPTC);
+
+	priv->hash_equation = HE_INITIAL_VALUE;
+	rs_write32(priv->hash_equation, priv->addr + FWLTHHC);
 }
 
 static void rswitch_set_max_hash_collisions(struct rswitch_private *priv)

@@ -494,3 +494,18 @@ int rswitch_fill_pf_param(struct rswitch_pf_param *pf_param, fv_gen gen_fn,
 
 	return 0;
 }
+
+int rswitch_restore_tc_l3_table(struct rswitch_device *rdev)
+{
+	int rc;
+
+	rc = rswitch_u32_restore_l3(rdev);
+	if (rc)
+		return rc;
+
+	rc = rswitch_matchall_restore_l3(rdev);
+	if (rc)
+		return rc;
+
+	return rswitch_flower_restore_l3(rdev);
+}

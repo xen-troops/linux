@@ -114,3 +114,19 @@ int rswitch_setup_tc_matchall(struct net_device *ndev,
 
 	return -EOPNOTSUPP;
 }
+
+int rswitch_matchall_restore_l3(struct rswitch_device *rdev)
+{
+	struct rswitch_tc_filter *cfg;
+	struct list_head *cur;
+	int rc;
+
+	list_for_each(cur, &rdev->tc_matchall_list) {
+		cfg = list_entry(cur, struct rswitch_tc_filter, lh);
+		rc = rswitch_add_l3fwd(&cfg->param);
+		if (rc)
+			return rc;
+	}
+
+	return 0;
+}

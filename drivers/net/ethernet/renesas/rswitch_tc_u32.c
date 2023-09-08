@@ -297,3 +297,19 @@ int rswitch_setup_tc_cls_u32(struct net_device *ndev,
 
 	return -EOPNOTSUPP;
 }
+
+int rswitch_u32_restore_l3(struct rswitch_device *rdev)
+{
+	struct rswitch_tc_filter *tc_u32_cfg;
+	struct list_head *cur;
+	int rc;
+
+	list_for_each(cur, &rdev->tc_u32_list) {
+		tc_u32_cfg = list_entry(cur, struct rswitch_tc_filter, lh);
+		rc = rswitch_add_l3fwd(&tc_u32_cfg->param);
+		if (rc)
+			return rc;
+	}
+
+	return 0;
+}

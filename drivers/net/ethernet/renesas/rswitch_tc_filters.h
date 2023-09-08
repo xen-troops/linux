@@ -53,4 +53,6 @@ int rswitch_setup_tc_cls_u32(struct net_device *ndev,
 int rswitch_setup_tc_matchall(struct net_device *ndev,
 			      struct tc_cls_matchall_offload *cls_matchall);
 
+int rswitch_restore_tc_l3_table(struct rswitch_device *rdev);
+
 #endif /* __RSWITCH_TC_FILTERS_H__ */
