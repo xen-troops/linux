@@ -371,3 +371,19 @@ int rswitch_setup_tc_flower(struct net_device *ndev,
 		return -EOPNOTSUPP;
 	}
 }
+
+int rswitch_flower_restore_l3(struct rswitch_device *rdev)
+{
+	struct rswitch_tc_filter *filter;
+	struct list_head *cur;
+	int rc;
+
+	list_for_each(cur, &rdev->tc_flower_list) {
+		filter = list_entry(cur, struct rswitch_tc_filter, lh);
+		rc = rswitch_add_l3fwd(&filter->param);
+		if (rc)
+			return rc;
+	}
+
+	return 0;
+}

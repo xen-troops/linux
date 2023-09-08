@@ -343,6 +343,7 @@ struct rswitch_private {
 	 * table that can guarantee appropriate speed.
 	 */
 	u16 max_collisions;
+	u16 hash_equation;
 
 	u8 chan_running;
 };
