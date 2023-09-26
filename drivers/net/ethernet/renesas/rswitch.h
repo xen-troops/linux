@@ -346,6 +346,7 @@ struct rswitch_private {
 	u16 hash_equation;
 
 	u8 chan_running;
+	spinlock_t lock;	/* lock interrupt registers' control */
 };
 
 enum pf_type {
