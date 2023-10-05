@@ -74,6 +74,12 @@ properties:
 
       - items:
           - enum:
+              - renesas,scif-x5h          # R-Car X5H
+          - const: renesas,rcar-gen5-scif # R-Car Gen5
+          - const: renesas,scif           # generic SCIF compatible UART
+
+      - items:
+          - enum:
               - renesas,scif-r9a07g044      # RZ/G2{L,LC}
 
       - items:
@@ -168,6 +174,7 @@ if:
           - renesas,rcar-gen2-scif
           - renesas,rcar-gen3-scif
           - renesas,rcar-gen4-scif
+          - renesas,rcar-gen5-scif
           - renesas,scif-r9a07g044
 then:
   required:
