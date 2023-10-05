@@ -45,6 +45,7 @@ enum rcanfd_chip_id {
 	RENESAS_RCAR_GEN3 = 0,
 	RENESAS_RZG2L,
 	RENESAS_R8A779A0,
+	GEN5,
 };
 
 /* Global register bits */
@@ -497,7 +498,7 @@ enum rcanfd_chip_id {
 #define RCANFD_FIFO_DEPTH		8	/* Tx FIFO depth */
 #define RCANFD_NAPI_WEIGHT		8	/* Rx poll quota */
 
-#define RCANFD_NUM_CHANNELS		8	/* Eight channels max */
+#define RCANFD_NUM_CHANNELS		16	/* 16 channels max */
 #define RCANFD_CHANNELS_MASK		BIT((RCANFD_NUM_CHANNELS) - 1)
 
 #define RCANFD_GAFL_PAGENUM(entry)	((entry) / 16)
@@ -593,7 +594,7 @@ static const struct can_bittiming_const rcar_canfd_bittiming_const = {
 /* Helper functions */
 static inline bool is_v3u(struct rcar_canfd_global *gpriv)
 {
-	return gpriv->chip_id == RENESAS_R8A779A0;
+	return (gpriv->chip_id == RENESAS_R8A779A0) || (gpriv->chip_id == GEN5);
 }
 
 static inline u32 reg_v3u(struct rcar_canfd_global *gpriv,
@@ -669,7 +670,7 @@ static void rcar_canfd_tx_failure_cleanup(struct net_device *ndev)
 
 static void rcar_canfd_set_mode(struct rcar_canfd_global *gpriv)
 {
-	if (is_v3u(gpriv)) {
+	if (is_v3u(gpriv) || gpriv->chip_id == GEN5) {
 		if (gpriv->fdmode)
 			rcar_canfd_set_bit(gpriv->base, RCANFD_V3U_CFDCFG,
 					   RCANFD_FDCFG_FDOE);
@@ -783,7 +784,10 @@ static void rcar_canfd_configure_afl_rules(struct rcar_canfd_global *gpriv,
 	} else {
 		/* Get number of Channel 0 rules and adjust */
 		cfg = rcar_canfd_read(gpriv->base, RCANFD_GAFLCFG(ch));
-		start = RCANFD_GAFLCFG_GETRNC(gpriv, 0, cfg);
+		if (gpriv->chip_id == GEN5)
+			start = ch * num_rules;
+		else
+			start = RCANFD_GAFLCFG_GETRNC(gpriv, 0, cfg);
 	}
 
 	/* Enable write access to entry */
@@ -1828,17 +1832,17 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	bool fdmode = true;			/* CAN FD only mode - default */
 	enum rcanfd_chip_id chip_id;
 	int max_channels;
-	char name[9] = "channelX";
+	char name[17] = "channelX";
 	int i;
 
 	chip_id = (uintptr_t)of_device_get_match_data(&pdev->dev);
-	max_channels = chip_id == RENESAS_R8A779A0 ? 8 : 2;
+	max_channels = (chip_id == RENESAS_R8A779A0) ? 8 : ((chip_id == GEN5) ? 16 : 2);
 
 	if (of_property_read_bool(pdev->dev.of_node, "renesas,no-can-fd"))
 		fdmode = false;			/* Classical CAN only mode */
 
 	for (i = 0; i < max_channels; ++i) {
-		name[7] = '0' + i;
+		name[15] = '0' + i;
 		of_child = of_get_child_by_name(pdev->dev.of_node, name);
 		if (of_child && of_device_is_available(of_child))
 			channels_mask |= BIT(i);
@@ -2086,6 +2090,7 @@ static const __maybe_unused struct of_device_id rcar_canfd_of_table[] = {
 	{ .compatible = "renesas,rcar-gen3-canfd", .data = (void *)RENESAS_RCAR_GEN3 },
 	{ .compatible = "renesas,rzg2l-canfd", .data = (void *)RENESAS_RZG2L },
 	{ .compatible = "renesas,r8a779a0-canfd", .data = (void *)RENESAS_R8A779A0 },
+	{ .compatible = "renesas,x5h-canfd", .data = (void *)GEN5 },
 	{ }
 };
 
