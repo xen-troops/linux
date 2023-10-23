@@ -4704,7 +4704,7 @@ static void rswitch_set_max_hash_collisions(struct rswitch_private *priv)
 {
 	u64 tsn_throughput = 0, max_throughput;
 	struct device_node *ports, *port, *phy = NULL;
-	int err = 0;
+	int err = 0, gwca_speed;
 
 	ports = of_get_child_by_name(priv->pdev->dev.of_node, "ports");
 	if (!ports) {
@@ -4731,10 +4731,24 @@ static void rswitch_set_max_hash_collisions(struct rswitch_private *priv)
 				tsn_throughput += link_speed * 1000 * 1000;
 			}
 		}
+
+		err = of_get_phy_mode(port, &priv->etha->phy_interface);
+		if (err < 0) {
+			printk(KERN_INFO "not find any phy interface \n");
+		}
+
+		switch (priv->etha->phy_interface) {
+			case PHY_INTERFACE_MODE_5GBASER:
+				gwca_speed = 2500;
+				break;
+			default:
+				gwca_speed = 1000;
+				break;
+		}
 	}
 
 	of_node_put(ports);
-	max_throughput = tsn_throughput + priv->gwca.speed * 1000 * 1000;
+	max_throughput = tsn_throughput + gwca_speed * 1000 * 1000;
 
 	/* Calculate maximum collisions number using the formula:
 	 * FWLTHHEC.LTHHMC =
