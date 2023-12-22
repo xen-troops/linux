@@ -212,9 +212,6 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 	be->tx_chain->osid = be->osid;
 	be->rx_chain->osid = be->osid;
 
-	rswitch_gwca_chain_set_irq_delay(priv, be->tx_chain, chain_irq_delay);
-	rswitch_gwca_chain_set_irq_delay(priv, be->rx_chain, chain_irq_delay);
-
 	snprintf(be->name, sizeof(be->name) - 1, "rswitch-vmq-osid%d", be->osid);
 
 	be->if_num = xenbus_read_unsigned(dev->otherend, "if-num", 255);
@@ -232,6 +229,8 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 					 err);
 			goto fail;
 		}
+		rswitch_gwca_chain_set_irq_delay(priv, be->tx_chain, chain_irq_delay);
+		rswitch_gwca_chain_set_irq_delay(priv, be->rx_chain, chain_irq_delay);
 	}
 	else if (strcmp(type_str, "tsn") == 0) {
 		struct rswitch_device *rdev = rswitch_find_rdev_by_port(be->rswitch_priv,
@@ -249,6 +248,8 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 			err = -ENODEV;
 			goto fail;
 		}
+		rswitch_gwca_chain_set_irq_delay(priv, be->tx_chain, 0);
+		rswitch_gwca_chain_set_irq_delay(priv, be->rx_chain, 0);
 
 		be->type = RSWITCH_PV_TSN;
 		netif_dormant_on(rdev->ndev);
