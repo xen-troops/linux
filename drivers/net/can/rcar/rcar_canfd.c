@@ -498,7 +498,7 @@ enum rcanfd_chip_id {
 #define RCANFD_FIFO_DEPTH		8	/* Tx FIFO depth */
 #define RCANFD_NAPI_WEIGHT		8	/* Rx poll quota */
 
-#define RCANFD_NUM_CHANNELS		16	/* 16 channels max */
+#define RCANFD_NUM_CHANNELS		8	/* 8 channels max */
 #define RCANFD_CHANNELS_MASK		BIT((RCANFD_NUM_CHANNELS) - 1)
 
 #define RCANFD_GAFL_PAGENUM(entry)	((entry) / 16)
@@ -1832,17 +1832,17 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	bool fdmode = true;			/* CAN FD only mode - default */
 	enum rcanfd_chip_id chip_id;
 	int max_channels;
-	char name[17] = "channelX";
+	char name[9] = "channelX";
 	int i;
 
 	chip_id = (uintptr_t)of_device_get_match_data(&pdev->dev);
-	max_channels = (chip_id == RENESAS_R8A779A0) ? 8 : ((chip_id == GEN5) ? 16 : 2);
+	max_channels = (chip_id == RENESAS_R8A779A0 || chip_id == GEN5) ? 8 : 2;
 
 	if (of_property_read_bool(pdev->dev.of_node, "renesas,no-can-fd"))
 		fdmode = false;			/* Classical CAN only mode */
 
 	for (i = 0; i < max_channels; ++i) {
-		name[15] = '0' + i;
+		name[7] = '0' + i;
 		of_child = of_get_child_by_name(pdev->dev.of_node, name);
 		if (of_child && of_device_is_available(of_child))
 			channels_mask |= BIT(i);
@@ -2090,7 +2090,7 @@ static const __maybe_unused struct of_device_id rcar_canfd_of_table[] = {
 	{ .compatible = "renesas,rcar-gen3-canfd", .data = (void *)RENESAS_RCAR_GEN3 },
 	{ .compatible = "renesas,rzg2l-canfd", .data = (void *)RENESAS_RZG2L },
 	{ .compatible = "renesas,r8a779a0-canfd", .data = (void *)RENESAS_R8A779A0 },
-	{ .compatible = "renesas,x5h-canfd", .data = (void *)GEN5 },
+	{ .compatible = "renesas,r8a78000-canfd", .data = (void *)GEN5 },
 	{ }
 };
 
