@@ -232,8 +232,7 @@ struct rswitch_gwca {
 	struct rswitch_gwca_chain ts_queue;
 	struct list_head ts_info_list;
 	DECLARE_BITMAP(used, RSWITCH_MAX_NUM_CHAINS);
-	u32 tx_irq_bits[RSWITCH_NUM_IRQ_REGS];
-	u32 rx_irq_bits[RSWITCH_NUM_IRQ_REGS];
+	u32 registered_irqs[RSWITCH_NUM_IRQ_REGS];
 	int speed;
 };
 

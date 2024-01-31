@@ -1113,27 +1113,6 @@ static void rswitch_modify(void __iomem *addr, enum rswitch_reg reg, u32 clear, 
 	rs_write32((rs_read32(addr + reg) & ~clear) | set, addr + reg);
 }
 
-static bool __maybe_unused rswitch_is_any_data_irq(struct rswitch_private *priv, u32 *dis, bool tx)
-{
-	int i;
-	u32 *mask = tx ? priv->gwca.tx_irq_bits : priv->gwca.rx_irq_bits;
-
-	for (i = 0; i < RSWITCH_NUM_IRQ_REGS; i++) {
-		if (dis[i] & mask[i])
-			return true;
-	}
-
-	return false;
-}
-
-static void rswitch_get_data_irq_status(struct rswitch_private *priv, u32 *dis)
-{
-	int i;
-
-	for (i = 0; i < RSWITCH_NUM_IRQ_REGS; i++)
-		dis[i] = rs_read32(priv->addr + GWDIDS0 + i * 0x10);
-}
-
 void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, bool enable)
 {
 	u32 offs = (enable ? GWDIE0 : GWDID0) + (index / 32) * 0x10;
@@ -3806,10 +3785,7 @@ void rswitch_gwca_chain_register(struct rswitch_private *priv,
 	if (!priv->addr)
 		return;
 
-	if (c->dir_tx)
-		priv->gwca.tx_irq_bits[index] |= bit;
-	else
-		priv->gwca.rx_irq_bits[index] |= bit;
+	priv->gwca.registered_irqs[index] |= bit;
 
 	/* FIXME: GWDCC_DCP */
 	rs_write32(GWDCC_BALR | (c->dir_tx ? GWDCC_DQT : 0) |
@@ -3977,8 +3953,16 @@ struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
 void rswitch_gwca_put(struct rswitch_private *priv,
 		      struct rswitch_gwca_chain *c)
 {
-	if (c)
-		clear_bit(c->index, priv->gwca.used);
+	int index, bit;
+
+	if (!c)
+		return;
+
+	index = c->index / 32;
+	bit = BIT(c->index % 32);
+	priv->gwca.registered_irqs[index] &= ~bit;
+
+	clear_bit(c->index, priv->gwca.used);
 }
 
 void rswitch_gwca_chain_set_irq_delay(struct rswitch_private *priv,
@@ -4311,40 +4295,43 @@ static void rswitch_queue_interrupt(struct rswitch_device *rdev)
 	}
 }
 
-static irqreturn_t __maybe_unused rswitch_data_irq(struct rswitch_private *priv, u32 *dis)
-{
-	struct rswitch_gwca_chain *c;
-	int i;
-	int index, bit;
-
-	for_each_set_bit(i, priv->gwca.used, priv->gwca.num_chains) {
-		c = &priv->gwca.chains[i];
-		index = c->index / 32;
-		bit = BIT(c->index % 32);
-		if (!(dis[index] & bit) || !(test_bit(i, priv->gwca.used)))
-			continue;
-
-		rswitch_ack_data_irq(priv, c->index);
-		if (!c->back_info)
-			rswitch_queue_interrupt(c->rdev);
-		else
-			rswitch_vmq_back_data_irq(c);
-	}
-
-	return IRQ_HANDLED;
-}
-
 static irqreturn_t rswitch_irq(int irq, void *dev_id)
 {
-	struct rswitch_private *priv = dev_id;
+	int i;
 	irqreturn_t ret = IRQ_NONE;
-	u32 dis[RSWITCH_NUM_IRQ_REGS];
+	struct rswitch_private *priv = dev_id;
 
-	rswitch_get_data_irq_status(priv, dis);
+	for (i = 0; i < RSWITCH_NUM_IRQ_REGS; i++) {
+		u32 dis;
+		int j, reg_size = BITS_PER_TYPE(u32);
+		unsigned long active_irqs = 0;
+		struct rswitch_gwca_chain *c;
 
-	if (rswitch_is_any_data_irq(priv, dis, true) ||
-	    rswitch_is_any_data_irq(priv, dis, false))
-		ret = rswitch_data_irq(priv, dis);
+		dis = rs_read32(priv->addr + GWDIDS0 + i * 0x10);
+		/* Select only assigned IRQs, if none - go to next reg */
+		active_irqs = dis & priv->gwca.registered_irqs[i];
+		if (!active_irqs)
+			continue;
+
+		for_each_set_bit(j, &active_irqs, reg_size) {
+			/* Calculate IRQ index, it's common for all bit fields */
+			int index = i * reg_size + j;
+
+			if (!test_bit(index, priv->gwca.used))
+				continue;
+
+			rswitch_ack_data_irq(priv, index);
+
+			c = &priv->gwca.chains[index];
+			if (!c->back_info)
+				rswitch_queue_interrupt(c->rdev);
+			else
+				rswitch_vmq_back_data_irq(c);
+
+			ret = IRQ_HANDLED;
+		}
+	}
+
 
 	return ret;
 }
