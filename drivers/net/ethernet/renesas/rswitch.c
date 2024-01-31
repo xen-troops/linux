@@ -1186,6 +1186,7 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 	struct rswitch_device *rdev = ndev_to_rdev(ndev);
 	struct rswitch_private *priv = rdev->priv;
 	int boguscnt = c->dirty + c->num_ring - c->cur;
+	int rx_counter = 0;
 	int entry = c->cur % c->num_ring;
 	struct rswitch_ext_ts_desc *desc = &c->rx_ring[entry];
 	int limit;
@@ -1193,6 +1194,7 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 	struct sk_buff *skb;
 	dma_addr_t dma_addr;
 	u32 get_ts;
+	u64 rxed = 0;
 
 	boguscnt = min(boguscnt, *quota);
 	limit = boguscnt;
@@ -1329,6 +1331,9 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 		rdev->ndev->stats.rx_bytes += pkt_len;
 
 next:
+		if (rdev->rdev_type == RSWITCH_VMQ_BACK_DEV ||
+		    rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV)
+			rx_counter++;
 		c->rx_bufs[entry] = NULL;
 		entry = (++c->cur) % c->num_ring;
 		desc = &c->rx_ring[entry];
@@ -1357,6 +1362,16 @@ next:
 		}
 		dma_wmb();
 		desc->die_dt = DT_FEMPTY | DIE;
+	}
+
+	if (rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) {
+		rxed = READ_ONCE(rdev->vmq_info->front_rx);
+		rxed += rx_counter;
+		WRITE_ONCE(rdev->vmq_info->front_rx, rxed);
+	} else if (rdev->rdev_type == RSWITCH_VMQ_BACK_DEV) {
+		rxed = READ_ONCE(rdev->vmq_info->back_rx);
+		rxed += rx_counter;
+		WRITE_ONCE(rdev->vmq_info->back_rx, rxed);
 	}
 
 	*quota -= limit - (++boguscnt);
@@ -2391,6 +2406,8 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	unsigned long flags;
 	struct rswitch_gwca_chain *c = rdev->tx_chain;
 	int i, num_desc, pkt_len, size;
+	int rx_chain_free;
+	u64 txed;
 
 	spin_lock_irqsave(&rdev->lock, flags);
 
@@ -2400,6 +2417,23 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		netif_stop_subqueue(ndev, 0);
 		ret = NETDEV_TX_BUSY;
 		goto out;
+	}
+
+	if (rdev->rdev_type == RSWITCH_VMQ_BACK_DEV || rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) {
+		if (rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) {
+			rx_chain_free = READ_ONCE(rdev->vmq_info->rx_back_ring_size) -
+					(READ_ONCE(rdev->vmq_info->front_tx) -
+					READ_ONCE(rdev->vmq_info->back_rx));
+		} else {
+			rx_chain_free = READ_ONCE(rdev->vmq_info->rx_front_ring_size) -
+					(READ_ONCE(rdev->vmq_info->back_tx) -
+					READ_ONCE(rdev->vmq_info->front_rx));
+		}
+		if (num_desc > rx_chain_free) {
+			netif_stop_subqueue(ndev, 0);
+			ret = NETDEV_TX_BUSY;
+			goto out;
+		}
 	}
 
 	if (skb_put_padto(skb, ETH_ZLEN))
@@ -2485,6 +2519,16 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 	dma_wmb();
 
+	if (rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) {
+		txed = READ_ONCE(rdev->vmq_info->front_tx);
+		txed += num_desc;
+		WRITE_ONCE(rdev->vmq_info->front_tx, txed);
+	} else if (rdev->rdev_type == RSWITCH_VMQ_BACK_DEV) {
+		txed = READ_ONCE(rdev->vmq_info->back_tx);
+		txed += num_desc;
+		WRITE_ONCE(rdev->vmq_info->back_tx, txed);
+	}
+
 	c->cur += num_desc;
 	rswitch_trigger_chain(rdev->priv, c);
 
@@ -2492,6 +2536,11 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	 * it's better to stop tx subqueue now without returning error.
 	 */
 	if (unlikely(c->cur - c->dirty >= c->num_ring))
+		netif_stop_subqueue(ndev, 0);
+
+	if (unlikely((rdev->rdev_type == RSWITCH_VMQ_BACK_DEV ||
+		      rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) &&
+		      (rx_chain_free - num_desc) < 1))
 		netif_stop_subqueue(ndev, 0);
 out:
 	spin_unlock_irqrestore(&rdev->lock, flags);
