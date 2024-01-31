@@ -24,6 +24,7 @@ struct rswitch_vmq_front_info {
 	int tx_irq;
 	struct net_device *ndev;
 	struct xenbus_device *xbdev;
+	int gref;
 };
 
 /* Global state to hold some data like LINKFIX table */
@@ -297,11 +298,47 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 		goto err_unbind_tx_irq;
 	}
 
+	if (strcmp(type, "vmq") == 0) {
+		rdev->vmq_info =
+			(struct rswitch_vmq_status *)__get_free_page(GFP_KERNEL | __GFP_ZERO);
+		if (!rdev->vmq_info) {
+			dev_err(&np->xbdev->dev, "failed to get free kernel page for gnttab\n");
+			goto err_unbind_tx_irq;
+		}
+
+		np->gref = gnttab_grant_foreign_access(np->xbdev->otherend_id,
+						       virt_to_gfn(rdev->vmq_info), 0);
+		if (np->gref < 0) {
+			dev_err(&np->xbdev->dev, "failed to grant access for gnttab\n");
+			goto err_free_shared_page;
+		}
+
+		WRITE_ONCE(rdev->vmq_info->version, VMQ_INFO_VERSION);
+		WRITE_ONCE(rdev->vmq_info->front_tx, 0);
+		WRITE_ONCE(rdev->vmq_info->front_rx, 0);
+		WRITE_ONCE(rdev->vmq_info->tx_front_ring_size, RX_RING_SIZE);
+		WRITE_ONCE(rdev->vmq_info->rx_front_ring_size, TX_RING_SIZE);
+
+		err = xenbus_printf(XBT_NIL, np->xbdev->nodename, "gref",
+				    "%u", np->gref);
+		if (err) {
+			xenbus_dev_fatal(np->xbdev, err,
+					 "Failed to write gref: %d\n", err);
+			goto err_end_foreign_access;
+		}
+	} else {
+		rdev->vmq_info = NULL;
+	}
+
 	kfree(mac_str);
 	kfree(type);
 
 	return 0;
 
+err_end_foreign_access:
+	gnttab_end_foreign_access(np->gref, 0, 0);
+err_free_shared_page:
+	free_page((unsigned long)rdev->vmq_info);
 err_unbind_tx_irq:
 	unbind_from_irqhandler(np->tx_irq, rdev);
 	np->tx_irq = 0;
@@ -414,6 +451,10 @@ static int rswitch_vmq_front_remove(struct xenbus_device *dev)
 
 	xenbus_close(dev);
 	rswitch_vmq_front_disconnect_backend(np);
+	if (rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) {
+		gnttab_end_foreign_access(np->gref, 0, 0);
+		free_page((unsigned long)rdev->vmq_info);
+	}
 	unbind_from_irqhandler(np->tx_irq, rdev);
 	unbind_from_irqhandler(np->rx_irq, rdev);
 	xenbus_free_evtchn(np->xbdev, np->tx_evtchn);
