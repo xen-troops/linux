@@ -82,6 +82,9 @@ rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
 	spin_lock_init(&rdev->lock);
 
 	INIT_LIST_HEAD(&rdev->routing_list);
+#if IS_ENABLED(CONFIG_IP_MROUTE)
+	INIT_LIST_HEAD(&rdev->mult_routing_list);
+#endif
 
 	ndev->features = NETIF_F_RXCSUM;
 	ndev->hw_features = NETIF_F_RXCSUM;
