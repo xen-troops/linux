@@ -216,7 +216,7 @@ struct rswitch_gwca_chain {
 #define RSWITCH_MAX_CTAG_PCP	7
 #define MAX_MTU_SZ		9000
 #define MAX_DESC_SZ		2048
-#define VMQ_INFO_VERSION	1
+#define VMQ_INFO_VERSION	2
 
 struct rswitch_gwca_ts_info {
 	struct sk_buff *skb;
@@ -289,6 +289,7 @@ struct rswitch_vmq_status {
 	u64 back_tx, back_rx;
 	u64 tx_front_ring_size, rx_front_ring_size;
 	u64 tx_back_ring_size, rx_back_ring_size;
+	bool scheduled_tx;
 };
 
 struct rswitch_device {

@@ -1144,10 +1144,24 @@ void rswitch_enadis_rdev_irqs(struct rswitch_device *rdev, bool enable)
 void rswitch_trigger_chain(struct rswitch_private *priv,
 			   struct rswitch_gwca_chain *chain)
 {
-	if (!rswitch_is_front_priv(priv))
+	if (!rswitch_is_front_priv(priv)) {
 		rswitch_modify(priv->addr, GWTRC0, 0, BIT(chain->index));
-	else
-		rswitch_vmq_front_trigger_tx(chain->rdev);
+	} else {
+		struct rswitch_device *rdev = chain->rdev;
+
+		if (rdev->rdev_type == RSWITCH_VMQ_FRONT_DEV) {
+			if (!READ_ONCE(rdev->vmq_info->scheduled_tx)) {
+				u64 back_rx, front_tx;
+
+				back_rx = READ_ONCE(rdev->vmq_info->back_rx);
+				front_tx = READ_ONCE(rdev->vmq_info->front_tx);
+				if (back_rx < front_tx)
+					rswitch_vmq_front_trigger_tx(rdev);
+			}
+		} else {
+			rswitch_vmq_front_trigger_tx(rdev);
+		}
+	}
 }
 
 static void rswitch_ack_data_irq(struct rswitch_private *priv, int index)

@@ -318,6 +318,7 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 		WRITE_ONCE(rdev->vmq_info->front_rx, 0);
 		WRITE_ONCE(rdev->vmq_info->tx_front_ring_size, RX_RING_SIZE);
 		WRITE_ONCE(rdev->vmq_info->rx_front_ring_size, TX_RING_SIZE);
+		WRITE_ONCE(rdev->vmq_info->scheduled_tx, false);
 
 		err = xenbus_printf(XBT_NIL, np->xbdev->nodename, "gref",
 				    "%u", np->gref);
