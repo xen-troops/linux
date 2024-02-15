@@ -406,7 +406,7 @@ static int rswitch_vmq_back_connect(struct xenbus_device *dev)
 		be->name, be);
 	if (err < 0) {
 		xenbus_dev_fatal(dev, err, "Failed to bind rx_evt IRQ: %d", err);
-		return err;
+		goto err_unbind_tx_evt;
 	}
 	be->rx_irq = err;
 
@@ -417,6 +417,10 @@ static int rswitch_vmq_back_connect(struct xenbus_device *dev)
 	case RSWITCH_PV_VMQ:
 		be->rdev->remote_chain = be->rx_chain->index;
 		err = register_netdev(be->rdev->ndev);
+		if (err) {
+			dev_err(&dev->dev, "failed to register ndev\n");
+			goto err_unbind_rx_evt;
+		}
 		break;
 	case RSWITCH_PV_TSN:
 		rswitch_mfwd_set_port_based(be->rswitch_priv, be->if_num, be->rx_chain);
@@ -427,6 +431,15 @@ static int rswitch_vmq_back_connect(struct xenbus_device *dev)
 		err = -ENODEV;
 		break;
 	}
+
+	return err;
+
+err_unbind_rx_evt:
+	unbind_from_irqhandler(be->rx_irq, be);
+	be->rx_irq = 0;
+err_unbind_tx_evt:
+	unbind_from_irqhandler(be->tx_irq, be);
+	be->tx_irq = 0;
 
 	return err;
 }
