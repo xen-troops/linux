@@ -153,6 +153,18 @@ out_rxdmac:
 	return err;
 }
 
+static void rswitch_vmq_front_ndev_unregister(struct rswitch_device *rdev)
+{
+	struct net_device *ndev = rdev->ndev;
+
+	rswitch_txdmac_free(ndev, rdev->priv);
+	rswitch_rxdmac_free(ndev, rdev->priv);
+
+	unregister_netdev(ndev);
+	netif_napi_del(&rdev->napi);
+	free_netdev(ndev);
+}
+
 static irqreturn_t rswitch_vmq_front_rx_interrupt(int irq, void *dev_id)
 {
 	struct rswitch_device *rdev = dev_id;
@@ -207,56 +219,43 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 					   "remote-chain-id", 0);
 	index = xenbus_read_unsigned(np->xbdev->nodename, "if-num", ~0U);
 
-	type = xenbus_read(XBT_NIL, np->xbdev->nodename, "type", NULL);
-	mac_str = xenbus_read(XBT_NIL, np->xbdev->otherend, "mac", NULL);
-
-	if (IS_ERR(mac_str))
-		mac_str = NULL;
-
-	if (mac_str)
-		if (!mac_pton(mac_str, mac)) {
-			dev_info(&np->xbdev->dev, "Failed to parse MAC %s\n", mac_str);
-			kfree(type);
-			return -ENODEV;
-		};
-
 	if (!tx_chain_id || !rx_chain_id) {
 		dev_info(&np->xbdev->dev, "backend did not supplied chain id\n");
-		kfree(type);
-		kfree(mac_str);
 		return -ENODEV;
 	}
 
+	type = xenbus_read(XBT_NIL, np->xbdev->nodename, "type", NULL);
 	if (!type) {
 		dev_info(&np->xbdev->dev, "toolstack did not supplied type\n");
-		kfree(type);
-		kfree(mac_str);
 		return -ENODEV;
+	}
+
+	mac_str = xenbus_read(XBT_NIL, np->xbdev->otherend, "mac", NULL);
+	if (IS_ERR(mac_str)) {
+		mac_str = NULL;
+	} else if (!mac_pton(mac_str, mac)) {
+		dev_info(&np->xbdev->dev, "Failed to parse MAC %s\n", mac_str);
+		err = -ENODEV;
+		goto err_free_mac;
 	}
 
 	err = rswitch_vmq_front_ndev_register(rdev, type, index, tx_chain_id,
 					      rx_chain_id, mac_str ? mac : NULL);
-	kfree(type);
-
-	if (mac_str)
-		kfree(mac_str);
-
 	if (err)
-		return err;
+		goto err_free_mac;
 
-	/* TODO: Add error handling */
 	err = xenbus_alloc_evtchn(np->xbdev, &np->rx_evtchn);
 	if (err) {
 		xenbus_dev_fatal(np->xbdev, err,
 				 "Failed to allocate RX event channel: %d\n", err);
-		return err;
+		goto err_ndev_unregister;
 	}
 
 	err = xenbus_alloc_evtchn(np->xbdev, &np->tx_evtchn);
 	if (err) {
 		xenbus_dev_fatal(np->xbdev, err,
 				 "Failed to allocate TX event channel: %d\n", err);
-		return err;
+		goto err_free_rx_evch;
 	}
 
 	err = bind_evtchn_to_irqhandler(np->rx_evtchn,
@@ -265,7 +264,7 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 	if (err < 0) {
 		xenbus_dev_fatal(np->xbdev, err,
 				 "Failed to bind RX event channel: %d\n", err);
-		return err;
+		goto err_free_tx_evch;
 	}
 	np->rx_irq = err;
 
@@ -275,7 +274,7 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 	if (err < 0) {
 		xenbus_dev_fatal(np->xbdev, err,
 				 "Failed to bind TX event channel: %d\n", err);
-		return err;
+		goto err_unbind_rx_irq;
 	}
 	np->tx_irq = err;
 
@@ -285,17 +284,40 @@ static int rswitch_vmq_front_connect(struct net_device *dev)
 	if (err) {
 		xenbus_dev_fatal(np->xbdev, err,
 				 "Failed to write RX event channel id: %d\n", err);
-		return err;
+		goto err_unbind_tx_irq;
 	}
 
 	err = xenbus_printf(XBT_NIL, np->xbdev->nodename, "tx-evtch", "%u", np->tx_evtchn);
 	if (err) {
 		xenbus_dev_fatal(np->xbdev, err,
 				 "Failed to write TX event channel id: %d\n", err);
-		return err;
+		goto err_unbind_tx_irq;
 	}
 
+	kfree(mac_str);
+	kfree(type);
+
 	return 0;
+
+err_unbind_tx_irq:
+	unbind_from_irqhandler(np->tx_irq, rdev);
+	np->tx_irq = 0;
+err_unbind_rx_irq:
+	unbind_from_irqhandler(np->rx_irq, rdev);
+	np->rx_irq = 0;
+err_free_tx_evch:
+	xenbus_free_evtchn(np->xbdev, np->tx_evtchn);
+	np->tx_evtchn = 0;
+err_free_rx_evch:
+	xenbus_free_evtchn(np->xbdev, np->rx_evtchn);
+	np->rx_evtchn = 0;
+err_ndev_unregister:
+	rswitch_vmq_front_ndev_unregister(rdev);
+err_free_mac:
+	kfree(mac_str);
+	kfree(type);
+
+	return err;
 }
 
 static int rswitch_vmq_front_probe(struct xenbus_device *dev,
@@ -389,14 +411,11 @@ static int rswitch_vmq_front_remove(struct xenbus_device *dev)
 
 	xenbus_close(dev);
 	rswitch_vmq_front_disconnect_backend(np);
-
-
-	rswitch_txdmac_free(np->ndev, rdev->priv);
-	rswitch_rxdmac_free(np->ndev, rdev->priv);
-
-	unregister_netdev(np->ndev);
-	netif_napi_del(&rdev->napi);
-	free_netdev(np->ndev);
+	unbind_from_irqhandler(np->tx_irq, rdev);
+	unbind_from_irqhandler(np->rx_irq, rdev);
+	xenbus_free_evtchn(np->xbdev, np->tx_evtchn);
+	xenbus_free_evtchn(np->xbdev, np->rx_evtchn);
+	rswitch_vmq_front_ndev_unregister(rdev);
 
 	return 0;
 }
