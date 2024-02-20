@@ -58,7 +58,7 @@ static int tx_trigger_time_nsec = 200 * 1000;
 static u16 chain_irq_delay = 0x100;
 module_param(chain_irq_delay, ushort, 0);
 MODULE_PARM_DESC(chain_irq_delay,
-		 "Set IRQ status delay for VMQ device RX/TX chains in range 0-0xfff");
+		 "Set IRQ status delay for VMQ device RX chain in range 0-0xfff");
 
 static struct rswitch_device*
 rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
@@ -251,7 +251,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 					 err);
 			goto fail;
 		}
-		rswitch_gwca_chain_set_irq_delay(priv, be->tx_chain, chain_irq_delay);
+		rswitch_gwca_chain_set_irq_delay(priv, be->tx_chain, 0);
 		rswitch_gwca_chain_set_irq_delay(priv, be->rx_chain, chain_irq_delay);
 	}
 	else if (strcmp(type_str, "tsn") == 0) {
