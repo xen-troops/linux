@@ -55,7 +55,7 @@ struct rswitch_vmq_back_info {
 /* Optimal value to periodically trigger of DomU TX chain */
 static int tx_trigger_time_nsec = 200 * 1000;
 /* Optimal value between performance and event numbers for front devices */
-static u16 chain_irq_delay = 0x100;
+static u16 chain_irq_delay = 0x40;
 module_param(chain_irq_delay, ushort, 0);
 MODULE_PARM_DESC(chain_irq_delay,
 		 "Set IRQ status delay for VMQ device RX chain in range 0-0xfff");
