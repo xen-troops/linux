@@ -2468,8 +2468,6 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		desc->info1 |= ((u64)rdev->remote_chain << INFO1_CSD1_SHIFT) |
 			((BIT(rdev->port)) << INFO1_DV_SHIFT) | INFO1_FMT;
 
-	dma_wmb();
-
 	if (num_desc > 1) {
 		for (i = num_desc - 1; i >= 0; i--) {
 			desc = &c->tx_ring[(entry + i) % c->num_ring];
@@ -2484,6 +2482,8 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		desc = &c->tx_ring[entry];
 		desc->die_dt = DT_FSINGLE | DIE;
 	}
+
+	dma_wmb();
 
 	c->cur += num_desc;
 	rswitch_trigger_chain(rdev->priv, c);
