@@ -951,6 +951,7 @@
 
 			power-domains = <&gcc EMAC_GDSC>;
 			resets = <&gcc GCC_EMAC_BCR>;
+			resets-names = "emac";
 
 			iommus = <&apps_smmu 0x3c0 0x0>;
 
