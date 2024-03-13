@@ -1265,7 +1265,7 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 			skb_put(skb, pkt_len);
 		}
 
-		if (rdev->mondev) {
+		if (rdev->rdev_type == RSWITCH_MON_DEV) {
 			int slv;
 
 			slv = ((desc->info1 & L3_SLV_DESC_MASK) >> L3_SLV_DESC_SHIFT);
@@ -4170,11 +4170,11 @@ static int rswitch_ndev_create(struct rswitch_private *priv, int index, bool rmo
 		snprintf(ndev->name, IFNAMSIZ, "tsn%d", index);
 		ndev->ethtool_ops = &rswitch_ethtool_ops;
 		rswitch_set_mac_address(rdev);
-		rdev->mondev = false;
+		rdev->rdev_type = RSWITCH_TSN_DEV;
 	} else {
 		snprintf(ndev->name, IFNAMSIZ, "rmon%d", index);
 		eth_hw_addr_random(ndev);
-		rdev->mondev = true;
+		rdev->rdev_type = RSWITCH_MON_DEV;
 	}
 	ndev->netdev_ops = &rswitch_netdev_ops;
 
@@ -4240,7 +4240,7 @@ void rswitch_ndev_unregister(struct rswitch_device *rdev, int index)
 	rswitch_rxdmac_free(ndev, priv);
 	unregister_netdev(ndev);
 	netif_napi_del(&rdev->napi);
-	if (!rdev->mondev) {
+	if (rdev->rdev_type != RSWITCH_MON_DEV) {
 		list_del(&rdev->list);
 		free_netdev(ndev);
 	} else {
@@ -4268,7 +4268,7 @@ static void rswitch_coma_init(struct rswitch_private *priv)
 
 static void rswitch_queue_interrupt(struct rswitch_device *rdev)
 {
-	if (!rdev->mondev) {
+	if (rdev->rdev_type != RSWITCH_MON_DEV) {
 		if (napi_schedule_prep(&rdev->napi)) {
 			spin_lock(&rdev->priv->lock);
 			rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index, false);
@@ -4956,6 +4956,7 @@ static int vlan_dev_register(struct net_device *ndev)
 	rdev->port = -1;
 	rdev->etha = NULL;
 	rdev->addr = priv->addr;
+	rdev->rdev_type = RSWITCH_VLAN_DEV;
 	spin_lock_init(&rdev->lock);
 	write_lock(&priv->rdev_list_lock);
 	list_add(&rdev->list, &priv->rdev_list);
