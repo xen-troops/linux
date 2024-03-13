@@ -111,10 +111,13 @@ static int rswitch_vmq_front_ndev_register(struct rswitch_device *rdev,
 
 	snprintf(ndev->name, IFNAMSIZ, "%s%d", type, index);
 
-	if (strcmp(type, "tsn") == 0)
+	if (strcmp(type, "tsn") == 0) {
 		rdev->port = index;
-	else
+		rdev->rdev_type = RSWITCH_TSN_DEV;
+	} else {
+		rdev->rdev_type = RSWITCH_VMQ_FRONT_DEV;
 		rdev->port = rdev->priv->gwca.index;
+	}
 
 	netif_napi_add(ndev, &rdev->napi, rswitch_poll, 64);
 

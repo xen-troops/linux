@@ -76,7 +76,7 @@ rswitch_vmq_back_ndev_register(struct rswitch_private *priv, int index)
 	rdev->port = priv->gwca.index;
 	rdev->etha = NULL;
 	rdev->remote_chain = -1;
-
+	rdev->rdev_type = RSWITCH_VMQ_BACK_DEV;
 	rdev->addr = priv->addr;
 
 	spin_lock_init(&rdev->lock);

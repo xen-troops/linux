@@ -274,6 +274,14 @@ struct rswitch_filters {
 	DECLARE_BITMAP(cascade, PFL_CADF_N);
 };
 
+enum rdev_type {
+	RSWITCH_TSN_DEV,
+	RSWITCH_VMQ_BACK_DEV,
+	RSWITCH_VMQ_FRONT_DEV,
+	RSWITCH_VLAN_DEV,
+	RSWITCH_MON_DEV,
+};
+
 struct rswitch_device {
 	struct list_head list;
 	struct rswitch_private *priv;
@@ -306,6 +314,7 @@ struct rswitch_device {
 	 */
 	struct device *vlan_parent;
 	bool mondev;
+	enum rdev_type rdev_type;
 };
 
 struct rswitch_private {
