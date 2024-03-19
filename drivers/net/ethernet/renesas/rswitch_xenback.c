@@ -256,6 +256,7 @@ static int rswitch_vmq_back_probe(struct xenbus_device *dev,
 
 		be->type = RSWITCH_PV_TSN;
 		netif_dormant_on(rdev->ndev);
+		be->rdev = rdev;
 	} else {
 		xenbus_dev_fatal(dev, err, "Unknown device type: %s ", type_str);
 		err = -ENODEV;
