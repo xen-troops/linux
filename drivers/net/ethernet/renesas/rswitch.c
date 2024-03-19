@@ -2488,6 +2488,11 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	c->cur += num_desc;
 	rswitch_trigger_chain(rdev->priv, c);
 
+	/* We won't have enough free descriptors on the next call, so
+	 * it's better to stop tx subqueue now without returning error.
+	 */
+	if (unlikely(c->cur - c->dirty >= c->num_ring))
+		netif_stop_subqueue(ndev, 0);
 out:
 	spin_unlock_irqrestore(&rdev->lock, flags);
 
