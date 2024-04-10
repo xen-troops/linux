@@ -159,6 +159,9 @@ static void rcar_vcon_crtc_wait_page_flip(struct rcar_vcon_crtc *rcrtc)
 
 static void rcar_vcon_crtc_setup(struct rcar_vcon_crtc *rcrtc)
 {
+	/* Set video signal input from VSPD */
+	rcar_vcon_crtc_write(rcrtc, ISEL, ISEL_INSEL_VSPD);
+
 	/* Configure display timings */
 	rcar_vcon_crtc_set_display_timing(rcrtc);
 

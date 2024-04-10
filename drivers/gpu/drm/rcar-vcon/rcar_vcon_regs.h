@@ -18,6 +18,9 @@
 #define IRQ_STA			0x0014
 #define IRQ_STA_VSYNC		BIT(0)
 
+#define ISEL			0x0020
+#define ISEL_INSEL_VSPD		0x0001
+
 #define HTOTAL			0x0030
 #define VTOTAL			0x0034
 #define HACT_START		0x0038
