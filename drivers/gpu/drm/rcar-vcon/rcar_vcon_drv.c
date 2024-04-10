@@ -24,7 +24,7 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_probe_helper.h>
-#include <drm/rcar_du_drm.h>
+#include <drm/rcar_vcon_drm.h>
 
 #include <media/vsp1.h>
 
@@ -38,8 +38,8 @@
  */
 
 static const struct drm_ioctl_desc rcar_vcon_ioctls[] = {
-	DRM_IOCTL_DEF_DRV(RCAR_DU_SET_VMUTE, rcar_vcon_set_vmute, DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RCAR_DU_SCRSHOT, rcar_vcon_vsp_write_back, DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(RCAR_VCON_SET_VMUTE, rcar_vcon_set_vmute, DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(RCAR_VCON_SCRSHOT, rcar_vcon_vsp_write_back, DRM_UNLOCKED),
 };
 
 DEFINE_DRM_GEM_CMA_FOPS(rcar_vcon_fops);
