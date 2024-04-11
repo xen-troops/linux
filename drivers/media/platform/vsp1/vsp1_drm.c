@@ -10,6 +10,7 @@
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/slab.h>
+#include <linux/delay.h>
 
 #include <media/media-entity.h>
 #include <media/v4l2-subdev.h>
@@ -1022,11 +1023,17 @@ EXPORT_SYMBOL_GPL(vsp1_du_setup_wb);
 
 int vsp1_du_wait_wb(struct device *dev, u32 count, unsigned int pipe_index)
 {
-	struct vsp1_device *vsp1 = dev_get_drvdata(dev);
-	struct vsp1_drm_pipeline *drm_pipe = &vsp1->drm->pipe[pipe_index];
-	struct vsp1_pipeline *pipe = &drm_pipe->pipe;
-	int tmp_wb;
+	//struct vsp1_device *vsp1 = dev_get_drvdata(dev);
+	//struct vsp1_drm_pipeline *drm_pipe = &vsp1->drm->pipe[pipe_index];
+	//struct vsp1_pipeline *pipe = &drm_pipe->pipe;
+	//int tmp_wb;
 
+	/* FIXME: In the VDK, it appears that wait_event_interruptible_timeout()
+	 * hangs when executed. As a temporary solution, it is being
+	 * replaced by delay().
+	 */
+
+	/*
 	wait_event_interruptible_timeout(pipe->event_wait,
 					 ((tmp_wb = pipe->output->write_back)
 					 <= count), HZ / 10);
@@ -1036,6 +1043,10 @@ int vsp1_du_wait_wb(struct device *dev, u32 count, unsigned int pipe_index)
 			"State transition fail, because high load.\n");
 		return -1;
 	}
+	*/
+
+	mdelay(5);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vsp1_du_wait_wb);
