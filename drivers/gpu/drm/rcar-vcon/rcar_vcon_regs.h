@@ -30,6 +30,11 @@
 #define AVW			0x0048
 #define AVH			0x004c
 
+#define VIDEO_FORMAT		0x0080
+#define VIDEO_FORMAT_RGB	0x0000
+#define VIDEO_FORMAT_YCBCR422	BIT(0)
+#define VIDEO_FORMAT_YCBCR444	(BIT(0) | BIT(8))
+
 #define PIX_CLK_NUME		0x0084
 #define PIX_CLK_DENO		0x0088
 #define NUME_MIN		3

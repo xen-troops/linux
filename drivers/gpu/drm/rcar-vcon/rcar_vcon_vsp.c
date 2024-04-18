@@ -118,6 +118,47 @@ static const u32 rcar_vcon_vsp_formats[] = {
 	DRM_FORMAT_Y210,
 };
 
+static void rcar_vcon_vsp_set_format(struct rcar_vcon_crtc *rcrtc, u32 fourcc)
+{
+	switch (fourcc) {
+	case DRM_FORMAT_RGB332:
+	case DRM_FORMAT_ARGB4444:
+	case DRM_FORMAT_XRGB4444:
+	case DRM_FORMAT_ARGB1555:
+	case DRM_FORMAT_XRGB1555:
+	case DRM_FORMAT_RGB565:
+	case DRM_FORMAT_BGR888:
+	case DRM_FORMAT_RGB888:
+	case DRM_FORMAT_BGRA8888:
+	case DRM_FORMAT_BGRX8888:
+	case DRM_FORMAT_ARGB8888:
+	case DRM_FORMAT_XRGB8888:
+	case DRM_FORMAT_XRGB2101010:
+	case DRM_FORMAT_ARGB2101010:
+	case DRM_FORMAT_RGBA1010102:
+		rcar_vcon_crtc_set_format(rcrtc, RCAR_VCON_RGB);
+		break;
+	case DRM_FORMAT_UYVY:
+	case DRM_FORMAT_YUYV:
+	case DRM_FORMAT_YVYU:
+	case DRM_FORMAT_NV12:
+	case DRM_FORMAT_NV21:
+	case DRM_FORMAT_NV16:
+	case DRM_FORMAT_NV61:
+	case DRM_FORMAT_YUV420:
+	case DRM_FORMAT_YVU420:
+	case DRM_FORMAT_YUV422:
+	case DRM_FORMAT_YVU422:
+	case DRM_FORMAT_Y210:
+		rcar_vcon_crtc_set_format(rcrtc, RCAR_VCON_YCBCR422);
+		break;
+	case DRM_FORMAT_YUV444:
+	case DRM_FORMAT_YVU444:
+		rcar_vcon_crtc_set_format(rcrtc, RCAR_VCON_YCBCR444);
+		break;
+	}
+}
+
 static void rcar_vcon_vsp_plane_setup(struct rcar_vcon_vsp_plane *plane)
 {
 	struct rcar_vcon_vsp_plane_state *state = to_rcar_vsp_plane_state(plane->plane.state);
@@ -149,6 +190,7 @@ static void rcar_vcon_vsp_plane_setup(struct rcar_vcon_vsp_plane *plane)
 		cfg.mem[i] = sg_dma_address(state->sg_tables[i].sgl) + fb->offsets[i];
 
 	format = rcar_vcon_format_info(state->format->fourcc);
+	rcar_vcon_vsp_set_format(crtc, state->format->fourcc);
 	cfg.pixelformat = format->v4l2;
 
 	vsp1_du_atomic_update(plane->vsp->vsp, crtc->vsp_pipe, plane->index, &cfg);

@@ -100,6 +100,21 @@ static void rcar_vcon_crtc_set_display_timing(struct rcar_vcon_crtc *rcrtc)
 	rcar_vcon_crtc_write(rcrtc, AVH, mode->vdisplay);
 }
 
+void rcar_vcon_crtc_set_format(struct rcar_vcon_crtc *rcrtc, enum rcar_vcon_format format)
+{
+	switch (format) {
+	case RCAR_VCON_RGB:
+		rcar_vcon_crtc_write(rcrtc, VIDEO_FORMAT, VIDEO_FORMAT_RGB);
+		break;
+	case RCAR_VCON_YCBCR422:
+		rcar_vcon_crtc_write(rcrtc, VIDEO_FORMAT, VIDEO_FORMAT_YCBCR422);
+		break;
+	case RCAR_VCON_YCBCR444:
+		rcar_vcon_crtc_write(rcrtc, VIDEO_FORMAT, VIDEO_FORMAT_YCBCR444);
+		break;
+	}
+}
+
 /* -----------------------------------------------------------------------------
  * Page Flip
  */
