@@ -35,12 +35,36 @@ struct rcar_dw_dp {
 	struct drm_connector connector;
 
 	struct drm_display_mode display_mode;
+
+	int con_status;
 };
 
 /* For simulating connector */
-static int con_status;
-module_param(con_status, int, 0644);
-MODULE_PARM_DESC(con_status, "DP connector status");
+
+static ssize_t con_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct rcar_dw_dp *dw_dp = dev_get_drvdata(dev);
+
+	if (dw_dp->con_status)
+		return snprintf(buf, PAGE_SIZE, "connected\n");
+	else
+		return snprintf(buf, PAGE_SIZE, "disconnected\n");
+}
+
+static ssize_t con_status_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct rcar_dw_dp *dw_dp = dev_get_drvdata(dev);
+	int ret;
+
+	ret = kstrtoint(buf, 0, &dw_dp->con_status);
+	if (ret)
+		return ret;
+
+	return count;
+}
+
+static struct device_attribute con_status_attribute = __ATTR_RW(con_status);
 
 /* -----------------------------------------------------------------------------
  * Connector
@@ -68,7 +92,9 @@ static struct drm_connector_helper_funcs rcar_dw_dp_connector_helper_funcs = {
 static enum drm_connector_status rcar_dw_dp_connector_detect(struct drm_connector *connector,
 							     bool force)
 {
-	if (con_status) {
+	struct rcar_dw_dp *dw_dp = connector_to_rcar_dw_dp(connector);
+
+	if (dw_dp->con_status) {
 		drm_add_modes_noedid(connector, 4096, 2160);
 		return connector_status_connected;
 	}
@@ -160,6 +186,7 @@ static int rcar_dw_dp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct rcar_dw_dp *dw_dp;
+	int ret;
 
 	dw_dp = devm_kzalloc(&pdev->dev, sizeof(*dw_dp), GFP_KERNEL);
 	if (!dw_dp)
@@ -176,6 +203,11 @@ static int rcar_dw_dp_probe(struct platform_device *pdev)
 
 	drm_bridge_add(&dw_dp->bridge);
 
+	/* For simulating hotplug cable*/
+	ret = device_create_file(dev, &con_status_attribute);
+	if (ret)
+		return ret;
+
 	return 0;
 }
 
@@ -184,6 +216,8 @@ static int rcar_dw_dp_remove(struct platform_device *pdev)
 	struct rcar_dw_dp *dw_dp = platform_get_drvdata(pdev);
 
 	drm_bridge_remove(&dw_dp->bridge);
+
+	device_remove_file(&pdev->dev, &con_status_attribute);
 
 	return 0;
 }
