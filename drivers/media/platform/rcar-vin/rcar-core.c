@@ -28,7 +28,6 @@
 
 #include "rcar-vin.h"
 
-#define SKIPRESETCONTROL
 #define SOCX5H
 
 /*
@@ -1598,23 +1597,23 @@ static int rcar_vin_probe(struct platform_device *pdev)
 	}
 	INIT_DELAYED_WORK(&vin->rvin_resume, rvin_resume_start_streaming);
 
-#ifndef SKIPRESETCONTROL
-	vin->rstc = devm_reset_control_get(&pdev->dev, NULL);
-	if (IS_ERR(vin->rstc)) {
-		dev_err(&pdev->dev, "failed to get cpg reset %s\n",
-			dev_name(vin->dev));
-		ret = PTR_ERR(vin->rstc);
-		goto error_destroy_workqueue;
-	}
+	if (!(vin->chip_info & RCAR_VIN_R8A78000_FEATURE)) {
+		vin->rstc = devm_reset_control_get(&pdev->dev, NULL);
+		if (IS_ERR(vin->rstc)) {
+			dev_err(&pdev->dev, "failed to get cpg reset %s\n",
+				dev_name(vin->dev));
+			ret = PTR_ERR(vin->rstc);
+			goto error_destroy_workqueue;
+		}
 
-	vin->clk = devm_clk_get(&pdev->dev, NULL);
-	if (IS_ERR(vin->clk)) {
-		dev_err(&pdev->dev, "failed to get clock%s\n",
-			dev_name(vin->dev));
-		ret = PTR_ERR(vin->clk);
-		goto error_destroy_workqueue;
+		vin->clk = devm_clk_get(&pdev->dev, NULL);
+		if (IS_ERR(vin->clk)) {
+			dev_err(&pdev->dev, "failed to get clock%s\n",
+				dev_name(vin->dev));
+			ret = PTR_ERR(vin->clk);
+			goto error_destroy_workqueue;
+		}
 	}
-#endif
 
 	return 0;
 

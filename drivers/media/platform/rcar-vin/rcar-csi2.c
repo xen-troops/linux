@@ -23,10 +23,7 @@
 #include <media/v4l2-mc.h>
 #include <media/v4l2-subdev.h>
 
-#define SKIPRESETCONTROL
-#define GENERICCIS2CAMERA
-#define NINTERRUPT
-#define VDKWORKAROUND
+#include "rcar-vin.h"
 
 struct rcar_csi2;
 
@@ -179,7 +176,6 @@ struct rcar_csi2;
 #define V4M_PHTR		0x02064
 #define PHTR_TESTDOUT_CODE(n)		(((n) & 0xff) << 16)
 #define V4M_PHTC		0x02068
-#define RCAR_CSI2_R8A779H0_FEATURE	BIT(1)
 
 #define ST_PHYST		0x2814
 #define ST_PHY_READY	BIT(31)
@@ -270,8 +266,6 @@ struct rcar_csi2;
 
 #define CORE_DIG_CLANE_2_RW_LP_0				0x2A880
 #define CORE_DIG_CLANE_2_RW_HS_RX(n)			(0x2A900 + (n * 2)) /* n = 0 ~ 6 */
-
-#define RCAR_CSI2_R8A779G0_FEATURE	BIT(0)
 
 #define CSI1300		1
 
@@ -922,25 +916,23 @@ static void rcsi2_modify16(struct rcar_csi2 *priv, unsigned int reg, u16 data, u
 
 static void rcsi2_enter_standby(struct rcar_csi2 *priv)
 {
-	if (!(priv->info->features & RCAR_CSI2_R8A779G0_FEATURE)) {
+	if (!(priv->info->features & RCAR_VIN_R8A779G0_FEATURE)) {
 		rcsi2_write(priv, PHYCNT_REG, 0);
 		rcsi2_write(priv, PHTC_REG, PHTC_TESTCLR);
 	}
 
-#ifndef SKIPRESETCONTROL
-	reset_control_assert(priv->rstc);
-#endif
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE))
+		reset_control_assert(priv->rstc);
+
 	usleep_range(100, 150);
 	pm_runtime_put(priv->dev);
 }
 
 static void rcsi2_exit_standby(struct rcar_csi2 *priv)
 {
-
 	pm_runtime_get_sync(priv->dev);
-#ifndef SKIPRESETCONTROL
-	reset_control_deassert(priv->rstc);
-#endif
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE))
+		reset_control_deassert(priv->rstc);
 }
 
 static int rcsi2_wait_phy_start(struct rcar_csi2 *priv,
@@ -948,12 +940,15 @@ static int rcsi2_wait_phy_start(struct rcar_csi2 *priv,
 {
 	unsigned int timeout;
 
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
+		return 0;
+
 	/* Wait for the clock and data lanes to enter LP-11 state. */
 	for (timeout = 0; timeout <= 20; timeout++) {
 		const u32 lane_mask = (1 << lanes) - 1;
 
 		if ((rcsi2_read(priv, PHCLM_REG) & PHCLM_STOPSTATECKL)  &&
-		    (rcsi2_read(priv, PHDLM_REG) & lane_mask) == lane_mask)
+			(rcsi2_read(priv, PHDLM_REG) & lane_mask) == lane_mask)
 			return 0;
 
 		usleep_range(1000, 2000);
@@ -988,7 +983,7 @@ static int rcsi2_set_phypll(struct rcar_csi2 *priv, unsigned int mbps)
 	    ((mbps - hsfreq_prev->mbps) <= (hsfreq->mbps - mbps)))
 		hsfreq = hsfreq_prev;
 
-	if (priv->info->features & RCAR_CSI2_R8A779H0_FEATURE)
+	if (priv->info->features & RCAR_VIN_R8A779H0_FEATURE)
 		rcsi2_write(priv, V4M_PHYPLL, PHYPLL_HSFREQRANGE(hsfreq->reg));
 	else
 		rcsi2_write(priv, PHYPLL_REG, PHYPLL_HSFREQRANGE(hsfreq->reg));
@@ -1031,27 +1026,27 @@ static int rcsi2_calc_mbps(struct rcar_csi2 *priv, unsigned int bpp,
 	u64 mbps;
 
 	mbps = 7423000000;
-#ifndef GENERICCIS2CAMERA
-	if (!priv->remote)
-		return -ENODEV;
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+		if (!priv->remote)
+			return -ENODEV;
 
-	source = priv->remote;
+		source = priv->remote;
 
-	/* Read the pixel rate control from remote. */
-	ctrl = v4l2_ctrl_find(source->ctrl_handler, V4L2_CID_PIXEL_RATE);
-	if (!ctrl) {
-		dev_err(priv->dev, "no pixel rate control in subdev %s\n",
-			source->name);
-		return -EINVAL;
+		/* Read the pixel rate control from remote. */
+		ctrl = v4l2_ctrl_find(source->ctrl_handler, V4L2_CID_PIXEL_RATE);
+		if (!ctrl) {
+			dev_err(priv->dev, "no pixel rate control in subdev %s\n",
+				source->name);
+			return -EINVAL;
+		}
+
+		/*
+		 * Calculate the phypll in mbps.
+		 * link_freq = (pixel_rate * bits_per_sample) / (2 * nr_of_lanes)
+		 * bps = link_freq * 2
+		 */
+		mbps = v4l2_ctrl_g_ctrl_int64(ctrl) * bpp;
 	}
-
-	/*
-	 * Calculate the phypll in mbps.
-	 * link_freq = (pixel_rate * bits_per_sample) / (2 * nr_of_lanes)
-	 * bps = link_freq * 2
-	 */
-	mbps = v4l2_ctrl_g_ctrl_int64(ctrl) * bpp;
-#endif
 	do_div(mbps, lanes * 1000000);
 
 	return mbps;
@@ -1066,44 +1061,44 @@ static int rcsi2_get_active_lanes(struct rcar_csi2 *priv,
 
 	*lanes = priv->lanes;
 
-#ifndef GENERICCIS2CAMERA
-	ret = v4l2_subdev_call(priv->remote, pad, get_mbus_config,
-			       priv->remote_pad, &mbus_config);
-	if (ret == -ENOIOCTLCMD) {
-		dev_dbg(priv->dev, "No remote mbus configuration available\n");
-		return 0;
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+		ret = v4l2_subdev_call(priv->remote, pad, get_mbus_config,
+								priv->remote_pad, &mbus_config);
+		if (ret == -ENOIOCTLCMD) {
+			dev_dbg(priv->dev, "No remote mbus configuration available\n");
+			return 0;
+		}
+
+		if (ret) {
+			dev_err(priv->dev, "Failed to get remote mbus configuration\n");
+			return ret;
+		}
+
+		if (mbus_config.type != V4L2_MBUS_CSI2_DPHY &&
+			mbus_config.type != V4L2_MBUS_CSI2_CPHY) {
+			dev_err(priv->dev, "Unsupported media bus type %u\n",
+				mbus_config.type);
+			return -EINVAL;
+		}
+
+		if (mbus_config.flags & V4L2_MBUS_CSI2_1_LANE)
+			num_lanes = 1;
+		else if (mbus_config.flags & V4L2_MBUS_CSI2_2_LANE)
+			num_lanes = 2;
+		else if (mbus_config.flags & V4L2_MBUS_CSI2_3_LANE)
+			num_lanes = 3;
+		else if (mbus_config.flags & V4L2_MBUS_CSI2_4_LANE)
+			num_lanes = 4;
+
+		if (num_lanes > priv->lanes) {
+			dev_err(priv->dev,
+				"Unsupported mbus config: too many data lanes %u\n",
+				num_lanes);
+			return -EINVAL;
+		}
+
+		*lanes = num_lanes;
 	}
-
-	if (ret) {
-		dev_err(priv->dev, "Failed to get remote mbus configuration\n");
-		return ret;
-	}
-
-	if (mbus_config.type != V4L2_MBUS_CSI2_DPHY &&
-		mbus_config.type != V4L2_MBUS_CSI2_CPHY) {
-		dev_err(priv->dev, "Unsupported media bus type %u\n",
-			mbus_config.type);
-		return -EINVAL;
-	}
-
-	if (mbus_config.flags & V4L2_MBUS_CSI2_1_LANE)
-		num_lanes = 1;
-	else if (mbus_config.flags & V4L2_MBUS_CSI2_2_LANE)
-		num_lanes = 2;
-	else if (mbus_config.flags & V4L2_MBUS_CSI2_3_LANE)
-		num_lanes = 3;
-	else if (mbus_config.flags & V4L2_MBUS_CSI2_4_LANE)
-		num_lanes = 4;
-
-	if (num_lanes > priv->lanes) {
-		dev_err(priv->dev,
-			"Unsupported mbus config: too many data lanes %u\n",
-			num_lanes);
-		return -EINVAL;
-	}
-
-	*lanes = num_lanes;
-#endif
 
 	return 0;
 }
@@ -1592,10 +1587,10 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 	/* Start CSI PHY */
 	rcsi2_exit_standby(priv);
 
-	if (priv->info->features & RCAR_CSI2_R8A779G0_FEATURE)
+	if (priv->info->features & RCAR_VIN_R8A779G0_FEATURE)
 		/* init V4H PHY */
 		ret = rcsi2_start_receiver_v4h(priv);
-	else if (priv->info->features & RCAR_CSI2_R8A779H0_FEATURE)
+	else if (priv->info->features & RCAR_VIN_R8A779H0_FEATURE)
 		/* init V4M PHY */
 		ret = rcsi2_start_receiver_v4m(priv);
 	else
@@ -1606,26 +1601,26 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 			return ret;
 	}
 
-#ifndef GENERICCIS2CAMERA
-	/* Start camera side device */
-	ret = v4l2_subdev_call(priv->remote, video, s_stream, 1);
-	if (ret) {
-		rcsi2_enter_standby(priv);
-		return ret;
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+		/* Start camera side device */
+		ret = v4l2_subdev_call(priv->remote, video, s_stream, 1);
+		if (ret) {
+			rcsi2_enter_standby(priv);
+			return ret;
+		}
 	}
-#endif
 
 	/* Confirmation of CSI PHY */
-	if (priv->info->features & RCAR_CSI2_R8A779G0_FEATURE ||
-	    priv->info->features & RCAR_CSI2_R8A779H0_FEATURE)
+	if (priv->info->features & RCAR_VIN_R8A779G0_FEATURE ||
+	    priv->info->features & RCAR_VIN_R8A779H0_FEATURE)
 		rcsi2_wait_phy_start_v4h(priv);
 
 	/* Step T8: De-assert FRXM */
-	if (priv->info->features & RCAR_CSI2_R8A779G0_FEATURE) {
+	if (priv->info->features & RCAR_VIN_R8A779G0_FEATURE) {
 		read32 = rcsi2_read(priv, FRXM);
 		rcsi2_write(priv, FRXM, read32 & ~(FRXM_FORCERXMODE_DCK | FRXM_FORCERXMODE_0
 					| FRXM_FORCERXMODE_1 | FRXM_FORCERXMODE_2));
-	} else if (priv->info->features & RCAR_CSI2_R8A779H0_FEATURE) {
+	} else if (priv->info->features & RCAR_VIN_R8A779H0_FEATURE) {
 		read32 = rcsi2_read(priv, FRXM);
 		rcsi2_write(priv, FRXM, read32 & ~(FRXM_FORCERXMODE_0
 					| FRXM_FORCERXMODE_1 | FRXM_FORCERXMODE_2));
@@ -1636,9 +1631,8 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 static void rcsi2_stop(struct rcar_csi2 *priv)
 {
 	rcsi2_enter_standby(priv);
-#ifndef GENERICCIS2CAMERA
-	v4l2_subdev_call(priv->remote, video, s_stream, 0);
-#endif
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE))
+		v4l2_subdev_call(priv->remote, video, s_stream, 0);
 }
 
 static int rcsi2_s_stream(struct v4l2_subdev *sd, int enable)
@@ -1648,12 +1642,12 @@ static int rcsi2_s_stream(struct v4l2_subdev *sd, int enable)
 
 	mutex_lock(&priv->lock);
 
-#ifndef GENERICCIS2CAMERA
-	if (!priv->remote) {
-		ret = -ENODEV;
-		goto out;
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+		if (!priv->remote) {
+			ret = -ENODEV;
+			goto out;
+		}
 	}
-#endif
 
 	if (enable && priv->stream_count == 0) {
 		ret = rcsi2_start(priv);
@@ -1755,7 +1749,6 @@ static irqreturn_t rcsi2_irq_thread(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-#ifndef GENERICCIS2CAMERA
 /* -----------------------------------------------------------------------------
  * Async handling and registration of subdevices and links.
  */
@@ -1800,7 +1793,6 @@ static const struct v4l2_async_notifier_operations rcar_csi2_notify_ops = {
 	.bound = rcsi2_notify_bound,
 	.unbind = rcsi2_notify_unbind,
 };
-#endif
 
 static int rcsi2_parse_v4l2(struct rcar_csi2 *priv,
 			    struct v4l2_fwnode_endpoint *vep)
@@ -1819,22 +1811,18 @@ static int rcsi2_parse_v4l2(struct rcar_csi2 *priv,
 
 	priv->lanes = vep->bus.mipi_csi2.num_data_lanes;
 	if (vep->bus_type == V4L2_MBUS_CSI2_DPHY) {
-#ifndef GENERICCIS2CAMERA
 		if (priv->lanes != 1 && priv->lanes != 2 && priv->lanes != 4) {
 			dev_err(priv->dev, "Unsupported number of data-lanes: %u\n",
 				priv->lanes);
 			return -EINVAL;
 		}
-#endif
 		priv->cphy_connection = false;
 	} else {
-#ifndef GENERICCIS2CAMERA
 		if (priv->lanes != 3) {
 			dev_err(priv->dev, "Unsupported number of data-lanes: %u\n",
 				priv->lanes);
 			return -EINVAL;
 		}
-#endif
 		priv->cphy_connection = true;
 	}
 
@@ -1913,7 +1901,9 @@ static int rcsi2_parse_dt(struct rcar_csi2 *priv)
 			priv->pin_swap_rx_order[i] = ABC;
 	}
 
-#ifndef GENERICCIS2CAMERA
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
+		return 0;
+
 	fwnode = fwnode_graph_get_remote_endpoint(of_fwnode_handle(ep));
 	of_node_put(ep);
 
@@ -1934,8 +1924,6 @@ static int rcsi2_parse_dt(struct rcar_csi2 *priv)
 		v4l2_async_notifier_cleanup(&priv->notifier);
 
 	return ret;
-#endif
-	return 0;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1952,11 +1940,12 @@ static int rcsi2_phtw_write(struct rcar_csi2 *priv, u16 data, u16 code)
 		    PHTW_DWEN | PHTW_TESTDIN_DATA(data) |
 		    PHTW_CWEN | PHTW_TESTDIN_CODE(code));
 
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
+		return 0;
+
 	/* Wait for DWEN and CWEN to be cleared by hardware. */
 	for (timeout = 0; timeout <= 20; timeout++) {
-#ifndef VDKWORKAROUND
 		if (!(rcsi2_read(priv, PHTW_REG) & (PHTW_DWEN | PHTW_CWEN)))
-#endif
 			return 0;
 
 		usleep_range(1000, 2000);
@@ -2252,7 +2241,6 @@ static int rcsi2_probe_resources(struct rcar_csi2 *priv,
 	if (IS_ERR(priv->base))
 		return PTR_ERR(priv->base);
 
-#ifndef NINTERRUPT
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
@@ -2262,14 +2250,12 @@ static int rcsi2_probe_resources(struct rcar_csi2 *priv,
 					KBUILD_MODNAME, priv);
 	if (ret)
 		return ret;
-#endif
 
-#ifndef SKIPRESETCONTROL
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
+		return 0;
+
 	priv->rstc = devm_reset_control_get(&pdev->dev, NULL);
-
 	return PTR_ERR_OR_ZERO(priv->rstc);
-#endif
-	return 0;
 }
 
 static const struct rcar_csi2_info rcar_csi2_info_r8a7795 = {
@@ -2327,7 +2313,7 @@ static const struct rcar_csi2_info rcar_csi2_info_r8a77990 = {
 };
 
 static const struct rcar_csi2_info rcar_csi2_info_r8a779g0 = {
-	.features = RCAR_CSI2_R8A779G0_FEATURE,
+	.features = RCAR_VIN_R8A779G0_FEATURE,
 	.num_channels = 16,
 };
 
@@ -2342,7 +2328,7 @@ static const struct rcar_csi2_info rcar_csi2_info_r8a779a0 = {
 };
 
 static const struct rcar_csi2_info rcar_csi2_info_r8a779h0 = {
-	.features = RCAR_CSI2_R8A779H0_FEATURE,
+	.features = RCAR_VIN_R8A779H0_FEATURE,
 	.init_phtw = rcsi2_init_phtw_v4m,
 	.hsfreqrange = hsfreqrange_v4m,
 	.csi0clkfreqrange = 0x0C,
@@ -2351,6 +2337,7 @@ static const struct rcar_csi2_info rcar_csi2_info_r8a779h0 = {
 };
 
 static const struct rcar_csi2_info rcar_csi2_info_r8a78000 = {
+	.features = RCAR_VIN_R8A78000_FEATURE,
 	.init_phtw = rcsi2_init_phtw_v3u,
 	.hsfreqrange = hsfreqrange_v3u,
 	.csi0clkfreqrange = 0x20,
@@ -2502,10 +2489,10 @@ static int rcsi2_probe(struct platform_device *pdev)
 	return 0;
 
 error:
-#ifndef GENERICCIS2CAMERA
-	v4l2_async_notifier_unregister(&priv->notifier);
-	v4l2_async_notifier_cleanup(&priv->notifier);
-#endif
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+		v4l2_async_notifier_unregister(&priv->notifier);
+		v4l2_async_notifier_cleanup(&priv->notifier);
+	}
 
 	return ret;
 }
@@ -2514,9 +2501,9 @@ static int rcsi2_remove(struct platform_device *pdev)
 {
 	struct rcar_csi2 *priv = platform_get_drvdata(pdev);
 
-#ifndef GENERICCIS2CAMERA
-	v4l2_async_notifier_unregister(&priv->notifier);
-#endif
+	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE))
+		v4l2_async_notifier_unregister(&priv->notifier);
+
 	v4l2_async_unregister_subdev(&priv->subdev);
 
 	pm_runtime_disable(&pdev->dev);
