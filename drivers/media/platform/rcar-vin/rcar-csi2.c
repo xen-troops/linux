@@ -1754,6 +1754,7 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 		rcsi2_enter_standby(priv);
 			return ret;
 	}
+	dev_dbg(priv->dev, "Set the Link and PHY of CSI-2 module registers\n");
 
 	/* Start camera side device */
 	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
@@ -1781,6 +1782,8 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 		rcsi2_write(priv, FRXM, read32 & ~(FRXM_FORCERXMODE_0
 					| FRXM_FORCERXMODE_1 | FRXM_FORCERXMODE_2));
 	}
+	dev_dbg(priv->dev, "Confirmed PHY of CSI-2 module starts.\n");
+
 	return 0;
 }
 
