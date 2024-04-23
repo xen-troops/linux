@@ -24,6 +24,7 @@
 #include <media/v4l2-subdev.h>
 
 #include "rcar-vin.h"
+#include "snps-csi2camera.h"
 
 struct rcar_csi2;
 
@@ -869,6 +870,9 @@ struct rcar_csi2 {
 	bool pin_swap;
 	unsigned int pin_swap_rx_order[4];
 	unsigned int hs_receive_eq[4];
+#ifdef CONFIG_VIDEO_SNPS_CSI2_CAMERA
+	struct csi2cam *cam;
+#endif
 };
 
 static int rcsi2_phtw_write_array(struct rcar_csi2 *priv,
@@ -1601,13 +1605,15 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 			return ret;
 	}
 
-	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE)) {
-		/* Start camera side device */
+	/* Start camera side device */
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
+		ret = csi2cam_start(priv->cam);
+	else
 		ret = v4l2_subdev_call(priv->remote, video, s_stream, 1);
-		if (ret) {
-			rcsi2_enter_standby(priv);
-			return ret;
-		}
+
+	if (ret) {
+		rcsi2_enter_standby(priv);
+		return ret;
 	}
 
 	/* Confirmation of CSI PHY */
@@ -1631,7 +1637,9 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 static void rcsi2_stop(struct rcar_csi2 *priv)
 {
 	rcsi2_enter_standby(priv);
-	if (!(priv->info->features & RCAR_VIN_R8A78000_FEATURE))
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
+		csi2cam_stop(priv->cam);
+	else
 		v4l2_subdev_call(priv->remote, video, s_stream, 0);
 }
 
@@ -1848,6 +1856,8 @@ static int rcsi2_parse_dt(struct rcar_csi2 *priv)
 	struct v4l2_fwnode_endpoint v4l2_ep = { .bus_type = 0 };
 	int ret, rval, i;
 	unsigned int hs_arr[4], order_arr[4];
+	struct device_node *remote_ep;
+	struct platform_device *pdev;
 
 	if (of_find_property(priv->dev->of_node, "pin-swap", NULL))
 		priv->pin_swap = true;
@@ -1901,27 +1911,42 @@ static int rcsi2_parse_dt(struct rcar_csi2 *priv)
 			priv->pin_swap_rx_order[i] = ABC;
 	}
 
-	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
-		return 0;
+	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE) {
+		/* Synopsys CSI-2 Camera */
+		remote_ep = of_graph_get_remote_node(priv->dev->of_node, 0, 0);
+		if (!remote_ep) {
+			pr_err("Failed to find remote endpoint in the device tree\n");
+			return -ENODEV;
+		}
+		dev_dbg(priv->dev, "Found '%pOF'\n", remote_ep);
 
-	fwnode = fwnode_graph_get_remote_endpoint(of_fwnode_handle(ep));
-	of_node_put(ep);
+		pdev = of_find_device_by_node(remote_ep);
+		of_node_put(remote_ep);
+		if (!pdev)
+			return -ENOMEM;
 
-	dev_dbg(priv->dev, "Found '%pOF'\n", to_of_node(fwnode));
+		priv->cam = platform_get_drvdata(pdev);
+		platform_device_put(pdev);
+	} else {
+		fwnode = fwnode_graph_get_remote_endpoint(of_fwnode_handle(ep));
+		of_node_put(ep);
 
-	v4l2_async_notifier_init(&priv->notifier);
-	priv->notifier.ops = &rcar_csi2_notify_ops;
+		dev_dbg(priv->dev, "Found '%pOF'\n", to_of_node(fwnode));
 
-	asd = v4l2_async_notifier_add_fwnode_subdev(&priv->notifier, fwnode,
-						    sizeof(*asd));
-	fwnode_handle_put(fwnode);
-	if (IS_ERR(asd))
-		return PTR_ERR(asd);
+		v4l2_async_notifier_init(&priv->notifier);
+		priv->notifier.ops = &rcar_csi2_notify_ops;
 
-	ret = v4l2_async_subdev_notifier_register(&priv->subdev,
-						  &priv->notifier);
-	if (ret)
-		v4l2_async_notifier_cleanup(&priv->notifier);
+		asd = v4l2_async_notifier_add_fwnode_subdev(&priv->notifier, fwnode,
+								sizeof(*asd));
+		fwnode_handle_put(fwnode);
+		if (IS_ERR(asd))
+			return PTR_ERR(asd);
+
+		ret = v4l2_async_subdev_notifier_register(&priv->subdev,
+							  &priv->notifier);
+		if (ret)
+			v4l2_async_notifier_cleanup(&priv->notifier);
+	}
 
 	return ret;
 }
