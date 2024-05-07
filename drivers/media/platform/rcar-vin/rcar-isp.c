@@ -22,7 +22,10 @@
 #include <media/rcar-isp.h>
 #include <media/v4l2-device.h>
 
+#include "rcar-vin.h"
+
 struct rcar_isp_info {
+	int features;
 	int ch_start;
 	int ch_end;
 };
@@ -66,6 +69,29 @@ static DEFINE_MUTEX(isp_lock);
 
 #define ISPCS_FILTER_ID_CH(n)		(0x3000 + (0x0100 * n))
 #define ISPCS_LC_MODULO_CH(n)		(0x3004 + (0x100 * n))
+
+/* X5H */
+#define ISPCS_FILTER_SEL_CH(n)				(0x3000 + (0x100 * n))
+#define ISPCS_FILTER_VC_EN_CH(n)			(0x3014 + (0x100 * n))
+#define ISPCS_LUT_FILTER_CTRL_CH(n)			(0x3040 + (0x100 * n))
+#define CPLX							BIT(31)
+#define FRAME_FILTER_LUT_LENGTH_MINUS1	GENMASK(30, 24)
+#define LINE_FILTER_LUT_LENGTH_MINUS1	GENMASK(22, 16)
+#define ENABLE_FRAME_FILTER				BIT(13)
+#define ENABLE_LINE_FILTER				BIT(12)
+#define PIXEL_FILTER_LUT_LENGTH_MINUS1	GENMASK(8, 0)
+
+#define ISPCS_FRAME_COUNT_SET_CH(n)		(0x3048 + (0x100 * n))
+#define ISPCS_FRAME_COUNT_MONITOR_CH(n)	(0x304C + (0x100 * n))
+#define ISPCS_LINE_FILTER_LUT_CH(r, n)	((0x3050 + (0x100 * n)) + (0x4 * r)) /* r = 0-3 */
+#define LINE_FILTER_LUT					GENMASK(31, 0)
+
+#define ISPCS_FRAME_FILTER_LUT_CH(r, n)	((0x3060 + (0x100 * n)) + (0x4 * r)) /* r = 0-3 */
+#define FRAME_FILTER_LUT				GENMASK(31, 0)
+
+#define ISPCS_PIXEL_FILTER_LUT_CH(p, n)	((0x3080 + (0x100 * n)) + (0x4 * p)) /* p = 0-15 */
+#define PIXEL_FILTER_LUT				GENMASK(31, 0)
+/**/
 
 #define ISPCS_DT_CODE03_CH(n)		(0x3008 + (0x100 * n))
 #define DT_CODE03_EN0			BIT(7)
@@ -189,9 +215,11 @@ int rcar_isp_enable(struct rcar_isp_device *isp)
 	if (ret < 0)
 		return ret;
 
-	srstclr6_reg = ioremap(SRSTCLR6, 0x04);
-	writel((0x01 << (isp->id + SR_REG_OFFSET)), srstclr6_reg);
-	iounmap(srstclr6_reg);
+	if (!(isp->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+		srstclr6_reg = ioremap(SRSTCLR6, 0x04);
+		writel((0x01 << (isp->id + SR_REG_OFFSET)), srstclr6_reg);
+		iounmap(srstclr6_reg);
+	}
 
 	return 0;
 }
@@ -207,11 +235,13 @@ EXPORT_SYMBOL_GPL(rcar_isp_enable);
 void rcar_isp_disable(struct rcar_isp_device *isp)
 {
 	if (isp) {
-		void __iomem *srcr6_reg;
+		if (!(isp->info->features & RCAR_VIN_R8A78000_FEATURE)) {
+			void __iomem *srcr6_reg;
 
-		srcr6_reg = ioremap(SRCR6, 0x04);
-		writel((0x01 << (isp->id + SR_REG_OFFSET)), srcr6_reg);
-		iounmap(srcr6_reg);
+			srcr6_reg = ioremap(SRCR6, 0x04);
+			writel((0x01 << (isp->id + SR_REG_OFFSET)), srcr6_reg);
+			iounmap(srcr6_reg);
+		}
 		pm_runtime_put(isp->dev);
 	}
 }
@@ -278,8 +308,12 @@ static void rcar_isp_pre_init(struct rcar_isp_device *isp,
 	int i;
 	u32 dt_code_val = 0;
 
-	isp_write(isp, (0x01 << vc), ISPCS_FILTER_ID_CH(ch));
-	isp_write(isp, 0x00000000, ISPCS_LC_MODULO_CH(ch));
+	if (isp->info->features & RCAR_VIN_R8A78000_FEATURE) {
+		isp_write(isp, (0x01 << vc), ISPCS_FILTER_VC_EN_CH(ch));
+	} else {
+		isp_write(isp, (0x01 << vc), ISPCS_FILTER_ID_CH(ch));
+		isp_write(isp, 0x00000000, ISPCS_LC_MODULO_CH(ch));
+	}
 
 	dt_code_val = (data_type << 24) | (data_type << 16) |
 		      (data_type << 8) | data_type;
@@ -288,12 +322,18 @@ static void rcar_isp_pre_init(struct rcar_isp_device *isp,
 	/* Filer slot4,5,6,7 are not used */
 	isp_write(isp, 0x00000000, ISPCS_DT_CODE47_CH(ch));
 
+	/* 42.3.2.4 Stage 4 LUT based Line filter. */
+
 	/* Set default value */
 	for (i = 0; i < 4; i++) {
 		isp_write(isp, 0x0fff0000, ISPCS_H_CLIP_DT_CODE_CH(i, ch));
 		isp_write(isp, 0x0fff0000, ISPCS_V_CLIP_DT_CODE_CH(i, ch));
 	}
 	/* Don't set ISPCS_OUTPUT_MODE_CHn for selecting channel selector */
+
+	/* 42.3.2.7 Stage 7 LUT based Pixel Filter */
+
+	/* 42.3.2.8 Stage 8 LUT based Frame Filter */
 
 	return;
 }
@@ -329,6 +369,7 @@ int rcar_isp_init(struct rcar_isp_device *isp, u32 mbus_code)
 
 	isp_write(isp, FIFOCTRL_FIFO_PUSH_CSI, ISPFIFOCTRL);
 	isp_write(isp, ISPSTART_START_ISP, ISPSTART);
+	dev_dbg(isp->dev, "Set the ISP module registers\n");
 
 	return 0;
 }
@@ -420,6 +461,7 @@ static const struct rcar_isp_info rcar_isp_info_r8a779h0 = {
 };
 
 static const struct rcar_isp_info rcar_isp_info_r8a78000 = {
+	.features = RCAR_VIN_R8A78000_FEATURE,
 	.ch_start = 4,
 	.ch_end = 28,
 };
