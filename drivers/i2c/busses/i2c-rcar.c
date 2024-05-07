@@ -305,6 +305,7 @@ static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv)
 		break;
 	case I2C_RCAR_GEN2:
 	case I2C_RCAR_GEN3:
+	case I2C_RCAR_GEN5:
 		cdf_width = 3;
 		break;
 	default:
@@ -1190,6 +1191,8 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 
 	/* R-Car Gen3+ needs a reset before every transfer */
 	if (priv->devtype >= I2C_RCAR_GEN3) {
+		if (priv->devtype == I2C_RCAR_GEN5)
+			irqflags |= IRQF_SHARED;
 		priv->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
 		if (IS_ERR(priv->rstc)) {
 			ret = PTR_ERR(priv->rstc);
