@@ -2886,11 +2886,11 @@ static int rswitch_request_irqs(struct rswitch_private *priv)
 	int irq, err;
 
 	/* FIXME: other queues */
-	irq = platform_get_irq_byname(priv->pdev, "gwca1_rxtx0");
+	irq = platform_get_irq_byname(priv->pdev, "gwca1_gwdis");
 	if (irq < 0)
 		goto out;
 
-	err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca1_rxtx0", priv);
+	err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca1_gwdis", priv);
 	if (err < 0)
 		goto out;
 
@@ -2902,7 +2902,7 @@ static int rswitch_free_irqs(struct rswitch_private *priv)
 {
 	int irq;
 
-	irq = platform_get_irq_byname(priv->pdev, "gwca1_rxtx0");
+	irq = platform_get_irq_byname(priv->pdev, "gwca1_gwdis");
 	if (irq < 0)
 		return irq;
 
