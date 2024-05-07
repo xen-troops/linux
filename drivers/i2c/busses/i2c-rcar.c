@@ -127,6 +127,7 @@ enum rcar_i2c_type {
 	I2C_RCAR_GEN1,
 	I2C_RCAR_GEN2,
 	I2C_RCAR_GEN3,
+	I2C_RCAR_GEN5,
 };
 
 struct rcar_i2c_priv {
@@ -292,6 +293,7 @@ static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv)
 		break;
 	case I2C_RCAR_GEN2:
 	case I2C_RCAR_GEN3:
+	case I2C_RCAR_GEN5:
 		cdf_width = 3;
 		break;
 	default:
@@ -1018,7 +1020,7 @@ static const struct of_device_id rcar_i2c_dt_ids[] = {
 	{ .compatible = "renesas,rcar-gen2-i2c", .data = (void *)I2C_RCAR_GEN2 },
 	{ .compatible = "renesas,rcar-gen3-i2c", .data = (void *)I2C_RCAR_GEN3 },
 	{ .compatible = "renesas,rcar-gen4-i2c", .data = (void *)I2C_RCAR_GEN3 },
-	{ .compatible = "renesas,rcar-gen5-i2c", .data = (void *)I2C_RCAR_GEN3 },
+	{ .compatible = "renesas,rcar-gen5-i2c", .data = (void *)I2C_RCAR_GEN5 },
 	{},
 };
 MODULE_DEVICE_TABLE(of, rcar_i2c_dt_ids);
@@ -1063,12 +1065,10 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	adap->quirks = &rcar_i2c_quirks;
 	i2c_set_adapdata(adap, priv);
 	strlcpy(adap->name, pdev->name, sizeof(adap->name));
-
 	/* Init DMA */
 	sg_init_table(&priv->sg, 1);
 	priv->dma_direction = DMA_NONE;
 	priv->dma_rx = priv->dma_tx = ERR_PTR(-EPROBE_DEFER);
-
 	/* Activate device for clock calculation */
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
@@ -1083,9 +1083,9 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	if (priv->devtype < I2C_RCAR_GEN3) {
 		irqflags |= IRQF_NO_THREAD;
 		irqhandler = rcar_i2c_gen2_irq;
-	}
-
-	if (priv->devtype == I2C_RCAR_GEN3) {
+	} else if (priv->devtype == I2C_RCAR_GEN5) {
+		irqflags |= IRQF_SHARED;
+	} else if (priv->devtype == I2C_RCAR_GEN3) {
 		priv->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
 		if (!IS_ERR(priv->rstc)) {
 			ret = reset_control_status(priv->rstc);
