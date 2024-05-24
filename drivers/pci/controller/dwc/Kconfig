@@ -312,24 +312,6 @@ config PCIE_AL
 	  required only for DT-based platforms. ACPI platforms with the
 	  Annapurna Labs PCIe controller don't need to enable this.
 
-config PCIE_RENESAS
-	bool "Renesas R-Car PCIe v4.0 Host controller"
-	depends on ARCH_RENESAS || COMPILE_TEST
-	depends on PCI_MSI_IRQ_DOMAIN
-	select PCIE_DW_HOST
-	help
-	  Say Y here if you want PCIe host controller support on R-Car V3U SoCs.
-	  This uses the DesignWare core.
-
-config PCIE_RENESAS_EP
-	bool "Renesas R-Car PCIe 4.0 Endpoint controller"
-	depends on ARCH_RENESAS || COMPILE_TEST
-	depends on PCI_ENDPOINT
-	select PCIE_DW_EP
-	help
-	  Say Y here if you want PCIe endpoint controller support on R-Car V3U
-	  and Gen4 SoCs. This uses the DesignWare core.
-
 config PCIE_RCAR_GEN4
 	tristate "Renesas R-Car Gen4 PCIe Host controller"
 	depends on ARCH_RENESAS || COMPILE_TEST
@@ -347,5 +329,37 @@ config PCIE_RCAR_GEN4_EP
 	help
 	  Say Y here if you want PCIe endpoint controller support on R-Car Gen4
 	  SoCs. This uses the DesignWare core.
+
+config PCIE6_DW_PLAT
+	bool
+
+config PCIE6_DW_HOST
+	bool "Renesas R-Car Gen5 based DesignWare PCIe 6.0 Controller - Host mode"
+	depends on PCI && PCI_MSI_IRQ_DOMAIN
+	select PCIE_DW_HOST
+	select PCIE6_DW_PLAT
+	help
+	  Enables support for the PCIe 6.0 controller in the Designware IP to
+	  work in host mode. There are two instances of PCIe 6.0 controller in
+	  Designware IP.
+	  This controller can work either as EP or RC. In order to enable
+	  host-specific features PCIE6_DW_HOST must be selected and in
+	  order to enable device-specific features PCIE6_DW_EP must be
+	  selected.
+
+config PCIE6_DW_EP
+	bool "Renesas R-Car Gen5 based DesignWare PCIe 6.0 Controller - Endpoint mode"
+	depends on PCI && PCI_MSI_IRQ_DOMAIN
+	depends on PCI_ENDPOINT
+	select PCIE_DW_EP
+	select PCIE6_DW_PLAT
+	help
+	  Enables support for the PCIe 6.0 controller in the Designware IP to
+	  work in endpoint mode. There are two instances of PCIe 6.0 controller
+	  in Designware IP.
+	  This controller can work either as EP or RC. In order to enable
+	  host-specific features PCIE6_DW_HOST must be selected and in
+	  order to enable device-specific features PCIE6_DW_EP must be
+	  selected.
 
 endmenu
