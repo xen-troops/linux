@@ -13,4 +13,6 @@ obj-$(CONFIG_RCAR_GEN4_PTP) += rcar_gen4_ptp.o
 
 obj-$(CONFIG_RENESAS_ETHER_SWITCH) += rswitch.o
 
+obj-$(CONFIG_RENESAS_ETHER_SWITCH3) += rswitch3.o
+
 obj-$(CONFIG_RTSN) += rtsn.o

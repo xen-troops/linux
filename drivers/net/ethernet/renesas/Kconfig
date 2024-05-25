@@ -71,6 +71,20 @@ config RENESAS_ETHER_SWITCH
 
 	  To compile this driver as a module, choose M here.
 
+config RENESAS_ETHER_SWITCH3
+        tristate "Renesas Ethernet Switch3 support"
+        depends on ARCH_RENESAS || COMPILE_TEST
+        select CRC32
+        select MII
+        select PHYLIB
+        select RCAR_GEN4_PTP
+        help
+          Renesas Ethernet Switch3 device driver.
+          This driver supports the following SoCs:
+                - R8A78000.
+
+          To compile this driver as a module, choose M here.
+
 config RTSN
 	tristate "Renesas Ethernet-TSN support"
 	depends on ARCH_RENESAS || COMPILE_TEST
