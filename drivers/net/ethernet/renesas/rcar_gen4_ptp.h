@@ -18,6 +18,7 @@ enum rcar_gen4_ptp_reg_layout {
 };
 
 #define RCAR_GEN4_PTP_CLOCK_S4		PTPTIVC_INIT_320MHZ
+#define RCAR_GEN4_PTP_CLOCK_X5H		PTPTIVC_INIT_320MHZ
 #define RCAR_GEN4_PTP_CLOCK_V4H		PTPTIVC_INIT_200MHZ
 
 /* driver's definitions */
