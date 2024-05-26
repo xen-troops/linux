@@ -342,8 +342,9 @@ static bool rswitch_agent_clock_is_enabled(void __iomem *base_addr, int port)
 {
 	u32 val = rs_read32(base_addr + RCEC);
 
+	/* fixed: hardcoded GWCA1 settings BIT(14) for now */
 	if (val & RCEC_RCE)
-		return (val & BIT(port)) ? true : false;
+		return (val & BIT(14)) ? true : false;
 	else
 		return false;
 }
@@ -352,12 +353,13 @@ static void rswitch_agent_clock_ctrl(void __iomem *base_addr, int port, int enab
 {
 	u32 val;
 
+	/* fixed: hardcoded GWCA1 settings BIT(14) for now */
 	if (enable) {
 		val = rs_read32(base_addr + RCEC);
-		rs_write32(val | RCEC_RCE | BIT(port), base_addr + RCEC);
+		rs_write32(val | RCEC_RCE | BIT(14), base_addr + RCEC);
 	} else {
 		val = rs_read32(base_addr + RCDC);
-		rs_write32(val | BIT(port), base_addr + RCDC);
+		rs_write32(val | BIT(14), base_addr + RCDC);
 	}
 }
 
@@ -1500,10 +1502,10 @@ static void rswitch_reset(struct rswitch_private *priv)
 		int count;
 
 		if (priv->gwca.index == RSWITCH_GWCA_IDX_TO_HW_NUM(0)) {
-			gwca_idx = 1;
+			gwca_idx = 14;
 			gwro_offset = RSWITCH_GWCA1_OFFSET;
 		} else {
-			gwca_idx = 0;
+			gwca_idx = 13;
 			gwro_offset = RSWITCH_GWCA0_OFFSET;
 		}
 
@@ -2113,11 +2115,11 @@ static int rswitch_request_irqs(struct rswitch_private *priv)
 	int irq, err;
 
 	/* FIXME: other queues */
-	irq = platform_get_irq_byname(priv->pdev, "gwca1_rxtx0");
+	irq = platform_get_irq_byname(priv->pdev, "gwca1_gwdis");
 	if (irq < 0)
 		goto out;
 
-	err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca1_rxtx0", priv);
+	err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca1_gwdis", priv);
 	if (err < 0)
 		goto out;
 
@@ -2129,7 +2131,7 @@ static int rswitch_free_irqs(struct rswitch_private *priv)
 {
 	int irq;
 
-	irq = platform_get_irq_byname(priv->pdev, "gwca1_rxtx0");
+	irq = platform_get_irq_byname(priv->pdev, "gwca1_gwdis");
 	if (irq < 0)
 		return irq;
 
@@ -2419,7 +2421,7 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	}
 
 	/* Fixed to use GWCA1 */
-	priv->gwca.index = 4;
+	priv->gwca.index = 14;
 	priv->gwca.num_chains = num_ndev * NUM_CHAINS_PER_NDEV;
 	priv->gwca.chains = devm_kcalloc(&pdev->dev, priv->gwca.num_chains,
 					 sizeof(*priv->gwca.chains), GFP_KERNEL);
