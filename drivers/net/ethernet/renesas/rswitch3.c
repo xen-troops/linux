@@ -1489,12 +1489,14 @@ static void rswitch_reset(struct rswitch_private *priv)
 			reset_control_deassert(priv->sd_rst);
 		}
 
-		/* There is a slight difference in SerDes hardware behavior between
-		 * each version after resetting. This step is to ensure the stable
-		 * condition of initialization, especially for R-Car S4 v1.1.
-		 */
-		mdelay(1);
-		rs_write32(0, priv->serdes_addr + RSWITCH_SERDES_LOCAL_OFFSET);
+		if (!priv->vpf_mode) {
+			/* There is a slight difference in SerDes hardware behavior between
+			 * each version after resetting. This step is to ensure the stable
+			 * condition of initialization, especially for R-Car S4 v1.1.
+			 */
+			mdelay(1);
+			rs_write32(0, priv->serdes_addr + RSWITCH_SERDES_LOCAL_OFFSET);
+		}
 	} else {
 		int gwca_idx;
 		u32 gwro_offset;
