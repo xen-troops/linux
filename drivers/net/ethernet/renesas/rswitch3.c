@@ -1158,14 +1158,14 @@ static int rswitch_open(struct net_device *ndev)
 		phy_start(ndev->phydev);
 		phy_started = true;
 
-		if (!rdev->priv->serdes_common_init) {
+		if (!rdev->priv->serdes_common_init && !rdev->priv->vpf_mode) {
 			err = rswitch_serdes_common_init(rdev->etha);
 			if (err < 0)
 				goto error;
 			rdev->priv->serdes_common_init = true;
 		}
 
-		if (!rdev->etha->operated) {
+		if (!rdev->etha->operated && !rdev->priv->vpf_mode) {
 			err = rswitch_serdes_chan_init(rdev->etha);
 			if (err < 0)
 				goto error;
