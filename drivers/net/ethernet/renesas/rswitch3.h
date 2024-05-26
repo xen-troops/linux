@@ -1177,6 +1177,9 @@ struct rswitch_private {
 
 	spinlock_t lock;	/* lock interrupt registers' control */
 	struct clk *clk;
+
+	/* Parameter for VPF environment which can config in dts file */
+	bool   vpf_mode;
 };
 
 static int num_ndev = 3;

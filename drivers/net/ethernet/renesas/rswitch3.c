@@ -2332,6 +2332,11 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->clk))
 		return PTR_ERR(priv->clk);
 
+	if (of_find_property(pdev->dev.of_node, "vpf_mode", NULL))
+		priv->vpf_mode = true;
+	else
+		priv->vpf_mode = false;
+
 	priv->ptp_priv = rcar_gen4_ptp_alloc(pdev);
 	if (!priv->ptp_priv)
 		return -ENOMEM;
