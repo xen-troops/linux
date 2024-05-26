@@ -37,8 +37,8 @@
 
 #define RSWITCH_MAX_CTAG_PCP		7
 
-#define GWCA_TS_IRQ_RESOURCE_NAME       "gwca1_rxts0"
-#define GWCA_TS_IRQ_NAME                "rswitch: gwca1_rxts0"
+#define GWCA_TS_IRQ_RESOURCE_NAME       "gwca1_gwtsdis"
+#define GWCA_TS_IRQ_NAME                "rswitch: gwca1_gwtsdis"
 #define GWCA_TS_IRQ_BIT                 BIT(0)
 #define GWCA_IPV_NUM            0
 
