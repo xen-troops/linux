@@ -430,6 +430,14 @@ static void rswitch_rmac_setting(struct rswitch_etha *etha, const u8 *mac)
 		val = MPIC_LSC_2_5G;
 		rswitch_etha_write(etha, MPIC_PIS_XGMII | val, MPIC);
 		break;
+	case 5000:
+		val = MPIC_LSC_5G;
+		rswitch_etha_write(etha, MPIC_PIS_XGMII | val, MPIC);
+		break;
+	case 10000:
+		val = MPIC_LSC_10G;
+		rswitch_etha_write(etha, MPIC_PIS_XGMII | val, MPIC);
+		break;
 	default:
 		return;
 	}
@@ -561,6 +569,7 @@ static int rswitch_serdes_chan_setting(struct rswitch_etha *etha)
 	void __iomem *addr = etha->serdes_addr;
 	int ret;
 
+	/* TODO: Support 10Gbps, SerDes not suported in VPF */
 	switch (etha->phy_interface) {
 	case PHY_INTERFACE_MODE_SGMII:
 		rswitch_serdes_write32(addr, VR_XS_PCS_DIG_CTRL1, BANK_380, 0x2000);
@@ -653,6 +662,7 @@ static int rswitch_serdes_set_chan_speed(struct rswitch_etha *etha)
 {
 	void __iomem *addr = etha->serdes_addr;
 
+	/* TODO: Support 10Gbps, SerDes not suported in VPF */
 	switch (etha->phy_interface) {
 	case PHY_INTERFACE_MODE_SGMII:
 		if (etha->speed == 1000)
@@ -972,9 +982,11 @@ static struct device_node *rswitch_get_phy_node(struct rswitch_device *rdev)
 			case PHY_INTERFACE_MODE_SGMII:
 				rdev->etha->speed = 1000;
 				break;
-			case PHY_INTERFACE_MODE_USXGMII:
 			case PHY_INTERFACE_MODE_5GBASER:
 				rdev->etha->speed = 2500;
+				break;
+			case PHY_INTERFACE_MODE_USXGMII:
+				rdev->etha->speed = 10000;
 				break;
 			default:
 				break;
