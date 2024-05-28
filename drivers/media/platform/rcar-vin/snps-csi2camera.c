@@ -75,19 +75,30 @@ static int csi2cam_remove(struct platform_device *pdev)
 	return 0;
 }
 
-int csi2cam_start(struct csi2cam *priv)
+int csi2cam_start(struct csi2cam *priv, unsigned int width, unsigned int height, unsigned int bus_fmt)
 {
 	unsigned int timeout;
 	u32 frame_count;
 
-	csi2cam_modify(priv, SIZE_REG, 640, SIZE_WIDTH);
-	csi2cam_modify(priv, SIZE_REG, 480, SIZE_HEIGHT);
+	csi2cam_modify(priv, SIZE_REG, width, SIZE_WIDTH);
+	csi2cam_modify(priv, SIZE_REG, height, SIZE_HEIGHT);
 	csi2cam_write(priv, FRAMES_PER_SECOND, 0x1e); /* 30fps */
 	csi2cam_write(priv, MAX_FRAMES, 0x2);
 	csi2cam_modify(priv, DOL_CONFIG, 0x1, DOL_CONFIG_DOL);
-	csi2cam_modify(priv, DOL_CONFIG, 0x1, DOL_CONFIG_ENABLED);
-	csi2cam_modify(priv, IMAGE_CONFIG_INPUT, 0xf, IMAGE_CONFIG_INPUT_FORMAT);
-	csi2cam_modify(priv, IMAGE_CONFIG_OUTPUT, 0x2b, IMAGE_CONFIG_OUTPUT_DATA_TYPE);	/* RAW_10 */
+	csi2cam_modify(priv, DOL_CONFIG, 0x0, DOL_CONFIG_ENABLED);
+	if (bus_fmt == MEDIA_BUS_FMT_RGB888_1X24) {
+		/* RGB */
+		csi2cam_modify(priv, IMAGE_CONFIG_INPUT, 0xf, IMAGE_CONFIG_INPUT_FORMAT);
+		csi2cam_modify(priv, IMAGE_CONFIG_OUTPUT, 0x24, IMAGE_CONFIG_OUTPUT_DATA_TYPE);
+	} else if (bus_fmt == MEDIA_BUS_FMT_Y10_1X10) {
+		/* UYVY */
+		csi2cam_modify(priv, IMAGE_CONFIG_INPUT, 0x5, IMAGE_CONFIG_INPUT_FORMAT);
+		csi2cam_modify(priv, IMAGE_CONFIG_OUTPUT, 0x2b, IMAGE_CONFIG_OUTPUT_DATA_TYPE);
+		/* ODD_RGRG_EVEN_GBGB (for RAW only) */
+		csi2cam_modify(priv, IMAGE_CONFIG_OUTPUT, 0x0, IMAGE_CONFIG_OUTPUT_RAW_FORMAT);
+	} else {
+		return -EINVAL;
+	}
 	csi2cam_modify(priv, CONTROL_REG, 0x1, CONTROL_EN);	/* Start camera */
 
 	for (timeout = 0; timeout <= 10; timeout++) {
