@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+# Copyright (C) 2022 Renesas Electronics Corp.
+%YAML 1.2
+---
+title: Renesas R-Car Gen5 PCIe 6.0 Host
+
+maintainers:
+  - Tin Tran <tin.tran.xk@renesas.com>
+
+allOf:
+  - $ref: snps,dw-pcie.yaml#
+
+properties:
+  compatible:
+    items:
+      - const: renesas,rcar-gen5-pcie6  # R-Car X5H
+
+  interrupts:
+    maxItems: 4
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/r8a779f0-cpg-mssr.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    #include <dt-bindings/power/r8a779f0-sysc.h>
+
+    soc {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        pcie6: pcie6@0xDC000000 {
+            compatible = "renesas,rcar-gen5-pcie6";
+            bus-range = <0 0xff>;
+            reg = <0x0 0xDC000000 0x0 0x1000000>, <0 0xDA000000 0 0x100000>;
+            reg-names = "ctrlreg", "config";
+            #address-cells = <3>;
+            #size-cells = <2>;
+            device_type = "pci";
+            ranges = <  0x02000000 0x0 0xFCE00000 0x0  0xFCE00000 0x0 0x200000>;
+            interrupts = <0 348 4>,
+                         <0 349 4>,
+                         <0 350 4>,
+                         <0 354 4>,
+                         <0 355 4>,
+                         <0 355 4>,
+                         <0 355 4>,
+                         <0 355 4>,
+                         <0 356 4>;
+            interrupt-map-mask = <0 0 0 7>;
+            interrupt-map = <0 0 0 1 &gic 0 0x38000000 0 348 4
+                             0 0 0 2 &gic 0 0x38000000 0 349 4
+                             0 0 0 3 &gic 0 0x38000000 0 350 4
+                             0 0 0 4 &gic 0 0x38000000 0 354 4
+                             0 0 0 4 &gic 0 0x38000000 0 355 4
+                             0 0 0 4 &gic 0 0x38000000 0 355 4
+                             0 0 0 4 &gic 0 0x38000000 0 355 4
+                             0 0 0 4 &gic 0 0x38000000 0 355 4
+                             0 0 0 4 &gic 0 0x38000000 0 356 4>;
+            #interrupt-cells = <1>;
+            num-lanes = <1>;
+            #stream-id-cells = <1>;
+        };
+    };
+
