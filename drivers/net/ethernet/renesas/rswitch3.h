@@ -11,12 +11,12 @@
 #include <linux/platform_device.h>
 #include "rcar_gen4_ptp.h"
 
-#define RSWITCH_NUM_HW			5
+#define RSWITCH_NUM_HW		10
 #define RSWITCH_MAX_NUM_NDEV	8
-#define RSWITCH_MAX_NUM_ETHA	13
+#define RSWITCH_MAX_NUM_ETHA	8
 #define RSWITCH_MAX_NUM_CHAINS	128
 
-#define RSWITCH_SERDES_NUM	3
+#define RSWITCH_SERDES_NUM	8
 
 #define RSWITCH_GWCA_IDX_TO_HW_NUM(i)	((i) + RSWITCH_MAX_NUM_ETHA)
 #define RSWITCH_HW_NUM_TO_GWCA_IDX(i)	((i) - RSWITCH_MAX_NUM_ETHA)
@@ -1182,11 +1182,11 @@ struct rswitch_private {
 	bool   vpf_mode;
 };
 
-static int num_ndev = 3;
+static int num_ndev = 8;
 module_param(num_ndev, int, 0644);
 MODULE_PARM_DESC(num_ndev, "Number of creating network devices");
 
-static int num_etha_ports = 3;
+static int num_etha_ports = 8;
 module_param(num_etha_ports, int, 0644);
 MODULE_PARM_DESC(num_etha_ports, "Number of using ETHA ports");
 
