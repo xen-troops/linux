@@ -64,15 +64,7 @@ enum rcar_vcon_output {
 	RCAR_VCON_OUTPUT_MAX,
 };
 
-enum rcar_vcon_format {
-	RCAR_VCON_RGB,
-	RCAR_VCON_YCBCR422,
-	RCAR_VCON_YCBCR444,
-};
-
 int rcar_vcon_crtc_create(struct rcar_vcon_device *rvcon, unsigned int index);
-
-void rcar_vcon_crtc_set_format(struct rcar_vcon_crtc *rcrtc, enum rcar_vcon_format format);
 
 void rcar_vcon_crtc_finish_page_flip(struct rcar_vcon_crtc *rcrtc);
 
