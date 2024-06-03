@@ -15,6 +15,7 @@
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
+#include <linux/media-bus-format.h>
 
 #ifdef DEBUG
 #define CSI2CAMERA_DBG(fmt, args...) \
@@ -76,7 +77,7 @@ struct csi2cam {
 	void __iomem *base;
 };
 
-int csi2cam_start(struct csi2cam *priv);
+int csi2cam_start(struct csi2cam *priv, unsigned int width, unsigned int height, unsigned int bus_fmt);
 int csi2cam_stop(struct csi2cam *priv);
 int advancedcsi2cam_start(struct csi2cam *priv);
 int advancedcsi2cam_stop(struct csi2cam *priv);

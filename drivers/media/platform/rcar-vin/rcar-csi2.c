@@ -1758,7 +1758,7 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 
 	/* Start camera side device */
 	if (priv->info->features & RCAR_VIN_R8A78000_FEATURE)
-		ret = csi2cam_start(priv->cam);
+		ret = csi2cam_start(priv->cam, priv->mf.width, priv->mf.height, priv->mf.code);
 	else
 		ret = v4l2_subdev_call(priv->remote, video, s_stream, 1);
 
