@@ -45,3 +45,6 @@ obj-$(CONFIG_SYSC_RMOBILE)	+= rmobile-sysc.o
 
 # EMS for R-Car Gen3
 obj-$(CONFIG_RCAR_THERMAL_EMS)	+= rcar_ems_ctrl.o
+
+# WCRC for R-Car Gen5
+obj-y += crc-drv.o kcrc-drv.o crc-wrapper.o
