@@ -179,6 +179,7 @@ static int rcar_rvgc_probe(struct rpmsg_device* rpdev) {
 	struct rcar_rvgc_device* rcrvgc;
 	struct drm_device* ddev;
 	struct device_node* rvgc_node;
+        struct rpmsg_channel_info ci;
 	int ret = 0;
 
 	printk(KERN_ERR "%s():%d\n", __FUNCTION__, __LINE__);
@@ -205,6 +206,23 @@ static int rcar_rvgc_probe(struct rpmsg_device* rpdev) {
 
 	init_waitqueue_head(&rcrvgc->vblank_pending_wait_queue);
 
+	strncpy(ci.name, rpdev->id.name, RPMSG_NAME_SIZE);
+
+	ci.src = rpdev->src;
+	ci.dst = rpdev->dst;
+
+	rpdev->ept= rpmsg_create_ept(rpdev, rcar_rvgc_cb, NULL, ci);
+
+	if(!rpdev->ept)
+	{
+		dev_err(&rpdev->dev,
+			"Cannot create endpoint %s with src %d , dst %d \n",
+			rpdev->id.name,
+			rpdev->src,
+			rpdev->dst);
+		ret = -ENOMEM;
+		goto error;
+	}
 	/* Init device memory.
 	 *
 	 * The underlying device for this driver is of type struct
@@ -281,7 +299,6 @@ static struct rpmsg_driver taurus_rvgc_client = {
 	.drv.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	.id_table	= taurus_driver_rvgc_id_table,
 	.probe		= rcar_rvgc_probe,
-	.callback	= rcar_rvgc_cb,
 	.remove		= rcar_rvgc_remove,
 };
 module_rpmsg_driver(taurus_rvgc_client);
