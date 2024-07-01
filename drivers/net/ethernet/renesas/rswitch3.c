@@ -586,7 +586,7 @@ static int rswitch_serdes_chan_setting(struct rswitch_etha *etha)
 	void __iomem *addr = etha->serdes_addr;
 	int ret;
 
-	/* TODO: Support 10Gbps, SerDes not suported in VPF */
+	/* TODO: Support 10Gbps, SerDes not supported in VPF */
 	switch (etha->phy_interface) {
 	case PHY_INTERFACE_MODE_SGMII:
 		rswitch_serdes_write32(addr, VR_XS_PCS_DIG_CTRL1, BANK_380, 0x2000);
