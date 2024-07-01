@@ -2219,12 +2219,13 @@ static void rswitch_deinit(struct rswitch_private *priv)
 static int renesas_eth_sw_probe(struct platform_device *pdev)
 {
 	struct rswitch_private *priv;
-	struct resource *res, *res_serdes;
+	struct resource *res, *res_serdes, *res_ptp;
 	int ret;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	res_serdes = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (!res || !res_serdes) {
+	res_serdes = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	res_ptp = platform_get_resource_byname(pdev, IORESOURCE_MEM, "gptp");
+	if (!res || !res_serdes || !res_ptp) {
 		dev_err(&pdev->dev, "invalid resource\n");
 		return -EINVAL;
 	}
@@ -2282,7 +2283,10 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->addr))
 		return PTR_ERR(priv->addr);
 
-	priv->ptp_priv->addr = priv->addr + RSWITCH_GPTP_OFFSET;
+	priv->ptp_priv->addr = devm_ioremap_resource(&pdev->dev, res_ptp);
+	if (IS_ERR(priv->ptp_priv->addr))
+		return PTR_ERR(priv->ptp_priv->addr);
+
 	priv->serdes_addr = devm_ioremap_resource(&pdev->dev, res_serdes);
 	if (IS_ERR(priv->serdes_addr))
 		return PTR_ERR(priv->serdes_addr);
