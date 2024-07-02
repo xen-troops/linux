@@ -23,7 +23,6 @@
 
 #define TX_RING_SIZE		1024
 #define RX_RING_SIZE		1024
-#define TS_RING_SIZE		(TX_RING_SIZE * RSWITCH_MAX_NUM_ETHA)
 
 #define PKT_BUF_SZ			9000
 #define MAX_MTU_SZ			9000
@@ -37,18 +36,15 @@
 
 #define RSWITCH_MAX_CTAG_PCP		7
 
-#define GWCA_TS_IRQ_RESOURCE_NAME       "gwca1_gwtsdis"
-#define GWCA_TS_IRQ_NAME                "rswitch: gwca1_gwtsdis"
-#define GWCA_TS_IRQ_BIT                 BIT(0)
 #define GWCA_IPV_NUM            0
 
-#define RSWITCH_TOP_OFFSET		0x1b000
-#define RSWITCH_COMA_OFFSET		0x1c000
-#define RSWITCH_ETHA_OFFSET		0x1d000 /* with RMAC */
-#define RSWITCH_ETHA_SIZE		0x02000 /* with RMAC */
+#define RSWITCH_TOP_OFFSET	0x1b000
+#define RSWITCH_COMA_OFFSET	0x1c000
+#define RSWITCH_ETHA_OFFSET	0x1d000 /* with RMAC */
+#define RSWITCH_ETHA_SIZE	0x02000 /* with RMAC */
 #define RSWITCH_GWCA0_OFFSET	0x37000
 #define RSWITCH_GWCA1_OFFSET	0x39000
-#define RSWITCH_GPTP_OFFSET		0xc8800
+#define RSWITCH_GPTP_OFFSET	0xc9c89000
 
 #define FWRO	0
 #define CARO	RSWITCH_COMA_OFFSET
@@ -1014,12 +1010,6 @@ enum DIE_DT {
 	DIE		= 0x08, /* Descriptor Interrupt Enable */
 };
 
-/* For timestamp descriptor in dptrl (Byte 4 to 7) */
-#define TS_DESC_TSUN(dptrl)		((dptrl) & GENMASK(7, 0))
-#define TS_DESC_SPN(dptrl)		(((dptrl) & GENMASK(10, 8)) >> 8)
-#define TS_DESC_DPN(dptrl)		(((dptrl) & GENMASK(17, 16)) >> 16)
-#define TS_DESC_TN(dptrl)		 ((dptrl) & BIT(24))
-
 struct rswitch_desc {
 	__le16 info_ds; /* Descriptor size */
 	u8 die_dt;		/* Descriptor interrupt enable and type */
@@ -1081,10 +1071,11 @@ struct rswitch_etha {
 };
 
 struct rswitch_gwca_chain {
+	int index;
+	bool dir_tx;
 	union {
 		struct rswitch_ext_desc *tx_ring;
 		struct rswitch_ext_ts_desc *rx_ring;
-		struct rswitch_ts_desc *ts_ring;
 
 	};
 
@@ -1093,11 +1084,8 @@ struct rswitch_gwca_chain {
 	u32 num_ring;
 	u32 cur;
 	u32 dirty;
-
-	/* For [rt]x_ring */
-	int index;
-	bool dir_tx;
 	struct sk_buff **skb;
+
 	struct net_device *ndev;	/* chain to ndev for irq */
 
 	/* For RX multi-descriptor handling */
@@ -1107,21 +1095,11 @@ struct rswitch_gwca_chain {
 	struct sk_buff *skb_multi;
 };
 
-struct rswitch_gwca_ts_info {
-	struct sk_buff *skb;
-	struct list_head list;
-
-	int port;
-	u8 tag;
-};
-
 #define RSWITCH_NUM_IRQ_REGS	 (RSWITCH_MAX_NUM_CHAINS / BITS_PER_TYPE(u32))
 struct rswitch_gwca {
 	int index;
 	struct rswitch_gwca_chain *chains;
 	int num_chains;
-	struct rswitch_gwca_chain ts_queue;
-	struct list_head ts_info_list;
 	DECLARE_BITMAP(used, RSWITCH_MAX_NUM_CHAINS);
 	u32 tx_irq_bits[RSWITCH_NUM_IRQ_REGS];
 	u32 rx_irq_bits[RSWITCH_NUM_IRQ_REGS];
