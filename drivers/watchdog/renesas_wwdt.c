@@ -2,7 +2,7 @@
 /*
  * Window watchdog driver for Renesas WWDT Watchdog timer
  *
- */
+*/
 
 #include <linux/bitops.h>
 #include <linux/clk.h>
@@ -20,10 +20,7 @@
 
 #define WWDTE		0x00
 #define WDTA0MD		0xC
-#define WSIZE_25P	0x0
-#define WSIZE_50P	0x1
-#define WSIZE_75P	0x2
-#define WSIZE_100P	0x3
+#define WSIZE(x)	(x)
 #define WDTA0ERM	BIT(2)
 #define WDTA0WIE	BIT(3)
 #define WDTA0OVF(x)	(((x) << 4) & GENMASK(6, 4))
@@ -34,11 +31,14 @@ module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 					__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
-static struct wwdt_priv {
+struct wwdt_priv {
 	void __iomem *base;
 	struct watchdog_device wdev;
-	int interval_time;
-	int error_mode;
+	unsigned long clk_rate;
+	unsigned int interval_time;
+	unsigned int error_mode;
+	unsigned int wsize;
+	unsigned int wdt_wie;
 };
 
 static void wwdt_write(struct wwdt_priv *priv, u8 val, unsigned int reg)
@@ -71,8 +71,9 @@ static void wwdt_setup(struct watchdog_device *wdev)
 	val = wwdt_read(priv, WDTA0MD);
 	if (!priv->error_mode)
 		val &= ~WDTA0ERM;
-	val |= (WDTA0OVF(priv->interval_time)) | WSIZE_100P;
-
+	val |= (WDTA0OVF(priv->interval_time)) | WSIZE(priv->wsize);
+	if (priv->wdt_wie)
+		val |= WDTA0WIE;
 	wwdt_write(priv, val, WDTA0MD);
 }
 
@@ -84,8 +85,6 @@ static int wwdt_start(struct watchdog_device *wdev)
 
 	wwdt_setup(wdev);
 	wwdt_write(priv, 0xAC, WWDTE);
-	/* Delay 1 RCLK */
-	udelay(30);
 
 	return 0;
 }
@@ -120,6 +119,7 @@ static int wwdt_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct wwdt_priv *priv;
+	u8 val;
 	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -147,6 +147,24 @@ static int wwdt_probe(struct platform_device *pdev)
 		dev_warn(dev, "error-mode not found, defaulting to 1\n");
 		priv->error_mode = 1;
 	}
+
+	ret = device_property_read_u32(dev, "wsize", &priv->wsize);
+	if (ret) {
+		dev_warn(dev, "window-size not found, defaulting to 100%%\n");
+		priv->wsize = 3;
+	}
+
+	ret = device_property_read_u32(dev, "irq_75p", &priv->wdt_wie);
+	if (ret) {
+		dev_warn(dev, "75%% interurpt is disabled\n");
+		priv->wdt_wie = 0;
+	}
+
+	/* Default state after reset release */
+	val = wwdt_read(priv, WDTA0MD);
+	val &= ~WDTA0WIE;
+	val |= WSIZE(0);
+	wwdt_write(priv, val, WDTA0MD);
 
 	watchdog_set_nowayout(&priv->wdev, nowayout);
 	watchdog_set_restart_priority(&priv->wdev, 0);
