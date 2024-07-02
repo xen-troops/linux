@@ -11,40 +11,34 @@
 #include "crc-wrapper.h"
 #include "crc-drv.h"
 
+#define CRC_DEVICES 10
+
 struct crc_device {
-    struct device *dev;
-    void __iomem *base;
+    void __iomem *base[CRC_DEVICES];
+    struct device *dev[CRC_DEVICES];
 };
 
-#define CRC_BASE_DEVICES 11
-static void __iomem *device_addresses[CRC_BASE_DEVICES];
-static int device_channel = 0;
+static struct crc_device *crc;
+
+static int dev_chan = 0;
 
 static u32 crc_read(void __iomem *base, unsigned int offset)
 {
     return ioread32(base + offset);
-};
+}
 
 static void crc_write(void __iomem *base, unsigned int offset, u32 data)
 {
     iowrite32(data, base + offset);
-};
+}
 
-int crc_calculate(struct wcrc_info *info)
+void crc_setting(struct wcrc_info *info)
 {
     unsigned int crc_size;
 	unsigned int poly_set;
     unsigned int initial_set;
     unsigned int crc_cmd;
     u32 reg;
-
-    /* Skiping data input to*/
-    if (info->skip_data_in)
-        goto geting_output;
-
-    /* Calculating data larger than 4bytes*/
-    if (info->conti_cal)
-        goto bypass_setting;
 
     /* Checking the Polynomial mode */
     switch (info->poly_mode) {
@@ -86,21 +80,20 @@ int crc_calculate(struct wcrc_info *info)
         break;
     default:
         pr_err("ERROR: Polynomial mode NOT found\n");
-        return -ENXIO;
+        return;
     }
 
     /* Checking DCRAmCIN data size setting */
-    if (info->d_in_sz == 8) {
+    if (info->d_in_sz == 8)
         crc_size = DCRAmCTL_ISZ_8;
-    } else if (info->d_in_sz == 16) {
+    else if (info->d_in_sz == 16)
         crc_size = DCRAmCTL_ISZ_16;
-    } else { //default 32-bit
+    else //default 32-bit
         crc_size = DCRAmCTL_ISZ_32;
-    }
 
     /* Set DCRAmCTL registers. */
     reg = crc_size | poly_set;
-    crc_write(device_addresses[info->crc_unit], DCRAmCTL, reg);
+    crc_write(crc->base[info->crc_unit], DCRAmCTL, reg);
 
     /* Checking DCRAmCTL2 setting */
     crc_cmd = (info->out_exor_on ? DCRAmCTL2_xorvalmode : 0) |
@@ -139,25 +132,39 @@ int crc_calculate(struct wcrc_info *info)
     }
 
     /* Set DCRAmCTL2 registers. */
-    crc_write(device_addresses[info->crc_unit], DCRAmCTL2, crc_cmd);
+    crc_write(crc->base[info->crc_unit], DCRAmCTL2, crc_cmd);
 
     /* Set initial value to DCRAmCOUT register. */
-    crc_write(device_addresses[info->crc_unit], DCRAmCOUT, DCRAmCOUT_DEFAULT);
+    crc_write(crc->base[info->crc_unit], DCRAmCOUT, DCRAmCOUT_DEFAULT);
 
     /* Set polynomial initial value to DCRAmCOUT register. */
-    crc_write(device_addresses[info->crc_unit], DCRAmCOUT, initial_set);
+    crc_write(crc->base[info->crc_unit], DCRAmCOUT, initial_set);
+}
+
+int crc_calculate(struct wcrc_info *info)
+{
+    /* Skiping data input to DCRAmCIN */
+    if (info->skip_data_in)
+        goto geting_output;
+
+    /* Calculating data larger than 4bytes */
+    if (info->conti_cal)
+        goto bypass_setting;
+
+    /* Setting CRC registers */
+    crc_setting(info);
 
 bypass_setting:
     /* Set input value to DCRAmCIN register. */
-    crc_write(device_addresses[info->crc_unit], DCRAmCIN, info->data_input);
+    crc_write(crc->base[info->crc_unit], DCRAmCIN, info->data_input);
 
 geting_output:
     /* Read out the operated data from DCRAmCOUT register. */
     if (!info->during_conti_cal)
-        info->crc_data_out = crc_read(device_addresses[info->crc_unit], DCRAmCOUT);
+        info->crc_data_out = crc_read(crc->base[info->crc_unit], DCRAmCOUT);
 
     return 0;
-};
+}
 EXPORT_SYMBOL(crc_calculate);
 
 static const struct of_device_id crc_of_ids[] = {
@@ -172,29 +179,28 @@ static const struct of_device_id crc_of_ids[] = {
 
 static int crc_probe(struct platform_device *pdev)
 {
-    struct crc_device *crc;
     struct resource *res;
 
-    crc = devm_kzalloc(&pdev->dev, sizeof(*crc), GFP_KERNEL);
-    if (!crc) {
-        dev_err(&pdev->dev, "cannot allocate device data\n");
-        return -ENOMEM;
+    if (dev_chan == 0) {
+        crc = devm_kzalloc(&pdev->dev, sizeof(*crc), GFP_KERNEL);
+        if (!crc) {
+            dev_err(&pdev->dev, "cannot allocate device data\n");
+            return -ENOMEM;
+        }
     }
 
-    crc->dev = &pdev->dev;
+    crc->dev[dev_chan] = &pdev->dev;
 
     /* Map I/O memory */
     res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-    crc->base = devm_ioremap_resource(&pdev->dev, res);
-    if (IS_ERR(crc->base))
-        return PTR_ERR(crc->base);
+    crc->base[dev_chan] = devm_ioremap_resource(&pdev->dev, res);
+    if (IS_ERR(crc->base[dev_chan]))
+        return PTR_ERR(crc->base[dev_chan]);
 
-    /* Address storing for later uses */
-    device_addresses[device_channel] = crc->base;
-    device_channel++;
+    dev_chan++;
 
     return 0;
-};
+}
 
 static int crc_remove(struct platform_device *pdev)
 {
@@ -227,5 +233,12 @@ static int __init crc_drv_init(void)
         return ret;
 
     return 0;
-};
-subsys_initcall(crc_drv_init);
+}
+
+static void __exit crc_drv_exit(void)
+{
+    platform_driver_unregister(&crc_driver);
+}
+
+module_init(crc_drv_init);
+module_exit(crc_drv_exit);

@@ -12,6 +12,7 @@
 #define _RENESAS_CRC_H_
 
 int crc_calculate(struct wcrc_info *info);
+void crc_setting(struct wcrc_info *info);
 
 /* -----------------------------------------------------------------------------
  * Regrister Definition

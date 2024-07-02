@@ -12,31 +12,34 @@
 #define _RENESAS_CRC_WRAPPER_H_
 
 /* WCRC modes */
-#define INDEPENDENT_CRC_MODE 1
-#define E2E_CRC_MODE 2
-#define DATA_THROUGH_MODE 3
-#define E2E_CRC_DATA_THROUGH_MODE 4
+#define MM_IOC_MAGIC 'o'
+#define INDEPENDENT_CRC_MODE _IOWR(MM_IOC_MAGIC, 0, struct wcrc_info)
+#define E2E_CRC_MODE _IOWR(MM_IOC_MAGIC, 1, struct wcrc_info)
+#define DATA_THROUGH_MODE _IOWR(MM_IOC_MAGIC, 2, struct wcrc_info)
+#define E2E_CRC_DATA_THROUGH_MODE _IOWR(MM_IOC_MAGIC, 3, struct wcrc_info)
+
+/* Input, Output modes */
+#define MM_IOC_MAGIC_2 'h'
+#define SET_INPUT_LEN	_IOWR(MM_IOC_MAGIC_2, 0, uint32_t)
+#define SET_INPUT_DATA	_IOWR(MM_IOC_MAGIC_2, 1, uint32_t)
+#define GET_OUTPUT		_IOWR(MM_IOC_MAGIC_2, 2, uint32_t)
 
 /* Polynomial modes */
-#define POLY_32_ETHERNET 5
-#define POLY_16_CCITT_FALSE_CRC16 6
-#define POLY_8_SAE_J1850 7
-#define POLY_8_0x2F 8
-#define POLY_32_0xF4ACFB13 9
-#define POLY_32_0x1EDC6F41 10 //Castagnoli
-#define POLY_21_0x102899 11
-#define POLY_17_0x1685B 12
-#define POLY_15_0x4599 13
-
-/* CRC/KCRC select for INDEPENDENT_CRC_MODE */
-#define INDEPENDENT_CRC 0
-#define INDEPENDENT_KCRC 1
+#define POLY_32_ETHERNET _IOWR(MM_IOC_MAGIC, 4, struct wcrc_info)
+#define POLY_16_CCITT_FALSE_CRC16 _IOWR(MM_IOC_MAGIC, 5, struct wcrc_info)
+#define POLY_8_SAE_J1850 _IOWR(MM_IOC_MAGIC, 6, struct wcrc_info)
+#define POLY_8_0x2F _IOWR(MM_IOC_MAGIC, 7, struct wcrc_info)
+#define POLY_32_0xF4ACFB13 _IOWR(MM_IOC_MAGIC, 8, struct wcrc_info)
+#define POLY_32_0x1EDC6F41 _IOWR(MM_IOC_MAGIC, 9, struct wcrc_info) //Castagnoli
+#define POLY_21_0x102899 _IOWR(MM_IOC_MAGIC, 10, struct wcrc_info)
+#define POLY_17_0x1685B _IOWR(MM_IOC_MAGIC, 11, struct wcrc_info)
+#define POLY_15_0x4599 _IOWR(MM_IOC_MAGIC, 12, struct wcrc_info)
 
 struct wcrc_info {
     //Input data and output crc data
-    size_t data_input;
-    size_t crc_data_out;
-    size_t kcrc_data_out;
+    uint32_t data_input;
+    uint32_t crc_data_out;
+    uint32_t kcrc_data_out;
 
     // Size of data input
     unsigned int d_in_sz;
@@ -50,7 +53,6 @@ struct wcrc_info {
     unsigned int wcrc_unit;
     unsigned int crc_unit;
     unsigned int kcrc_unit;
-    unsigned int fifo_chan;
 
     //CRC addiotional features
     unsigned int poly_mode;
@@ -66,26 +68,59 @@ struct wcrc_info {
     unsigned int kcrc_cmd1;
     unsigned int kcrc_cmd2;
 
-    //Independent CRC or KCRC mode
-    bool wcrc_indp_opt;
+    //Choosing CRC = 0, or KCRC = 1 mode
+    bool crc_opt;	
+
+    //For E2E CRC mode
+    //WCRCm_CRCm_EN
+	unsigned int conv_size;
+	//WCRCm_CRCm_INIT_CRC
+	unsigned int init_crc_code;
+	//WCRCm_CRCm_EN
+	bool out_en;
+	bool res_en;
+	bool trans_en;
+	bool in_en;
+	
+	//WCRCm_CRCm_CMDEN
+	bool cmd_en;
+
 };
 
 /* -----------------------------------------------------------------------------
  * Regrister Definition
  */
 
-/* FIFO channels base address */
-#define WCRC0_FIFO_BASE (0x19400000)
-#define WCRC1_FIFO_BASE (0x19404000)
-#define WCRC2_FIFO_BASE (0x19408000)
-#define WCRC3_FIFO_BASE (0x1940C000)
-#define WCRC4_FIFO_BASE (0x19410000)
-#define WCRC5_FIFO_BASE (0x19414000)
-#define WCRC6_FIFO_BASE (0x19418000)
-#define WCRC7_FIFO_BASE (0x1941C000)
-#define WCRC8_FIFO_BASE (0x19420000)
-#define WCRC9_FIFO_BASE (0x19424000)
-#define WCRC10_FIFO_BASE (0x19428000)
+#define CRCm        (2)
+#define KCRCm       (3)
+
+/* Address assignment of FIFO */
+/* Data */
+#define PORT_DATA(mod)				            \
+		((CRCm)      == (mod))	? 	(0x800) :	\
+		((KCRCm)     == (mod))	? 	(0xC00) :	\
+		(0x800)
+
+/* Command */
+#define PORT_CMD(mod)				            \
+		((CRCm)      == (mod))	? 	(0x900) :	\
+		((KCRCm)     == (mod))	? 	(0xD00) :	\
+		(0x900)
+
+/* Expected data */
+#define PORT_EXPT_DATA(mod)				        \
+		((CRCm)      == (mod))	? 	(0xA00) :	\
+		((KCRCm)     == (mod))	? 	(0xE00) :	\
+		(0xA00)
+
+/* Result */
+#define PORT_RES(mod)				            \
+		((CRCm)      == (mod))	? 	(0xB00) :	\
+		((KCRCm)     == (mod))	? 	(0xF00) :	\
+		(0xB00)
+
+// Size each port is 256 bytes
+#define PORT_SIZE	(256)
 
 /* WCRC for CRC */
 
