@@ -37,6 +37,7 @@ struct sh_msiof_chipdata {
 	u16 rx_fifo_size;
 	u16 ctlr_flags;
 	u16 min_div_pow;
+	bool gen5;
 };
 
 #ifdef CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG
@@ -1143,6 +1144,7 @@ static const struct sh_msiof_chipdata rcar_gen5_data = {
 	.rx_fifo_size = 256,
 	.ctlr_flags = SPI_CONTROLLER_MUST_TX,
 	.min_div_pow = 1,
+	.gen5 = true,
 };
 
 static const struct of_device_id sh_msiof_match[] = {
@@ -1399,8 +1401,14 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
-	ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, 0,
-			       dev_name(&pdev->dev), p);
+	if (chipdata->gen5) {
+		ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, IRQF_SHARED,
+				       dev_name(&pdev->dev), p);
+	}
+	else {
+		ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, 0,
+				       dev_name(&pdev->dev), p);
+	}
 	if (ret) {
 		dev_err(&pdev->dev, "unable to request irq\n");
 		goto err1;
