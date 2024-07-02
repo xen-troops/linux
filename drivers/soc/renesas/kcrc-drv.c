@@ -11,40 +11,34 @@
 #include "crc-wrapper.h"
 #include "kcrc-drv.h"
 
+#define KCRC_DEVICES 10
+
 struct kcrc_device {
-    struct device *dev;
-    void __iomem *base;
+    void __iomem *base[KCRC_DEVICES];
+    struct device *dev[KCRC_DEVICES];
 };
 
-#define KCRC_BASE_DEVICES 11
-static void __iomem *device_addresses[KCRC_BASE_DEVICES];
-static int device_channel = 0;
+static struct kcrc_device *kcrc;
+
+static int dev_chan = 0;
 
 static u32 kcrc_read(void __iomem *base, unsigned int offset)
 {
     return ioread32(base + offset);
-};
+}
 
 static void kcrc_write(void __iomem *base, unsigned int offset, u32 data)
 {
     iowrite32(data, base + offset);
-};
+}
 
-int kcrc_calculate(struct wcrc_info *info)
+static void kcrc_setting(struct wcrc_info *info)
 {
     unsigned int poly_set;
     unsigned int p_size;
     unsigned int kcrc_cmd;
     unsigned int input_dw;
     u32 reg;
-
-    /* Skiping data input to*/
-    if (info->skip_data_in)
-        goto geting_output;
-
-    /* Calculating data larger than 4bytes*/
-    if (info->conti_cal)
-        goto bypass_setting;
 
     /* Checking the Polynomial mode */
     switch (info->poly_mode) {
@@ -70,7 +64,7 @@ int kcrc_calculate(struct wcrc_info *info)
         break;
     default:
         pr_err("ERROR: Polynomial mode NOT found\n");
-        return -ENXIO;
+        return;
     }
 
     /* Checking KCRC Calculate Mode 0/1/2 */
@@ -89,28 +83,42 @@ int kcrc_calculate(struct wcrc_info *info)
 
     /* Set KCRCmCTL registers. */
     reg = p_size | kcrc_cmd | input_dw;
-    kcrc_write(device_addresses[info->kcrc_unit], KCRCmCTL, reg);
+    kcrc_write(kcrc->base[info->kcrc_unit], KCRCmCTL, reg);
 
     /* Set KCRCmPOLY registers. */
-    kcrc_write(device_addresses[info->kcrc_unit], KCRCmPOLY, poly_set);
+    kcrc_write(kcrc->base[info->kcrc_unit], KCRCmPOLY, poly_set);
 
     /* Set KCRCmXOR register. */
-    kcrc_write(device_addresses[info->kcrc_unit], KCRCmXOR, KCRCmXOR_XOR);
+    kcrc_write(kcrc->base[info->kcrc_unit], KCRCmXOR, KCRCmXOR_XOR);
 
     /* Set initial value to KCRCmDOUT register. */
-    kcrc_write(device_addresses[info->kcrc_unit], KCRCmDOUT, KCRCmDOUT_INITIAL);
+    kcrc_write(kcrc->base[info->kcrc_unit], KCRCmDOUT, KCRCmDOUT_INITIAL);
+}
+
+int kcrc_calculate(struct wcrc_info *info)
+{
+    /* Skiping data input to*/
+    if (info->skip_data_in)
+        goto geting_output;
+
+    /* Calculating data larger than 4bytes*/
+    if (info->conti_cal)
+        goto bypass_setting;
+
+    /* Setting KCRC registers */
+    kcrc_setting(info);
 
 bypass_setting:
     /* Set input value to KCRCmDIN register. */
-    kcrc_write(device_addresses[info->kcrc_unit], KCRCmDIN, info->data_input);
+    kcrc_write(kcrc->base[info->kcrc_unit], KCRCmDIN, info->data_input);
 
 geting_output:
     /* Read out the operated data from KCRCmDOUT register. */
     if (!info->during_conti_cal)
-        info->kcrc_data_out = kcrc_read(device_addresses[info->kcrc_unit], KCRCmDOUT);
+        info->kcrc_data_out = kcrc_read(kcrc->base[info->kcrc_unit], KCRCmDOUT);
 
     return 0;
-};
+}
 EXPORT_SYMBOL(kcrc_calculate);
 
 static const struct of_device_id kcrc_of_ids[] = {
@@ -125,29 +133,27 @@ static const struct of_device_id kcrc_of_ids[] = {
 
 static int kcrc_probe(struct platform_device *pdev)
 {
-    struct kcrc_device *kcrc;
     struct resource *res;
 
-    kcrc = devm_kzalloc(&pdev->dev, sizeof(*kcrc), GFP_KERNEL);
-    if (!kcrc) {
-        dev_err(&pdev->dev, "cannot allocate device data\n");
-        return -ENOMEM;
+    if (dev_chan == 0){
+        kcrc = devm_kzalloc(&pdev->dev, sizeof(*kcrc), GFP_KERNEL);
+        if (!kcrc) {
+            dev_err(&pdev->dev, "cannot allocate device data\n");
+            return -ENOMEM;
+        }
     }
-
-    kcrc->dev = &pdev->dev;
+    kcrc->dev[dev_chan] = &pdev->dev;
 
     /* Map I/O memory */
     res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-    kcrc->base = devm_ioremap_resource(&pdev->dev, res);
-    if (IS_ERR(kcrc->base))
-        return PTR_ERR(kcrc->base);
+    kcrc->base[dev_chan] = devm_ioremap_resource(&pdev->dev, res);
+    if (IS_ERR(kcrc->base[dev_chan]))
+        return PTR_ERR(kcrc->base[dev_chan]);
 
-    /* Address storing for later uses */
-    device_addresses[device_channel] = kcrc->base;
-    device_channel++;
+    dev_chan++;
 
     return 0;
-};
+}
 
 static int kcrc_remove(struct platform_device *pdev)
 {
@@ -180,5 +186,12 @@ static int __init kcrc_drv_init(void)
         return ret;
 
     return 0;
-};
-subsys_initcall(kcrc_drv_init);
+}
+
+static void __exit kcrc_drv_exit(void)
+{
+    platform_driver_unregister(&kcrc_driver);
+}
+module_init(kcrc_drv_init);
+module_exit(kcrc_drv_exit);
+
