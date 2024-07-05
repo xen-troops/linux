@@ -63,20 +63,40 @@ static struct drm_driver rcar_vcon_driver = {
 
 static const struct rcar_vcon_device_info rcar_vcon_r8a78000_group2_info = {
 	.routes = {
-		[RCAR_VCON_OUTPUT_DP] = {
-			.possible_crtcs		= BIT(0) | BIT(1),
+		[RCAR_VCON_OUTPUT_DP0] = {
+			.possible_crtcs		= BIT(0),
 			.possible_clones	= BIT(0),
 			.port			= 0,
+		},
+		[RCAR_VCON_OUTPUT_DP1] = {
+			.possible_crtcs		= BIT(1),
+			.possible_clones	= BIT(1),
+			.port			= 1,
 		},
 	},
 };
 
 static const struct rcar_vcon_device_info rcar_vcon_r8a78000_group4_info = {
 	.routes = {
-		[RCAR_VCON_OUTPUT_DP] = {
-			.possible_crtcs		= BIT(0) | BIT(1) | BIT(2) | BIT(3),
+		[RCAR_VCON_OUTPUT_DP0] = {
+			.possible_crtcs		= BIT(0),
 			.possible_clones	= BIT(0),
 			.port			= 0,
+		},
+		[RCAR_VCON_OUTPUT_DP1] = {
+			.possible_crtcs		= BIT(1),
+			.possible_crtcs		= BIT(1),
+			.port			= 1,
+		},
+		[RCAR_VCON_OUTPUT_DP2] = {
+			.possible_crtcs		= BIT(2),
+			.possible_crtcs		= BIT(2),
+			.port			= 2,
+		},
+		[RCAR_VCON_OUTPUT_DP3] = {
+			.possible_crtcs		= BIT(3),
+			.possible_crtcs		= BIT(3),
+			.port			= 3,
 		},
 	},
 };
