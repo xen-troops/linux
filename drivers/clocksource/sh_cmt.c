@@ -797,7 +797,6 @@ static int sh_cmt_register_clockevent(struct sh_cmt_channel *ch,
 	if (irq < 0)
 		return irq;
 
-
 	if (of_find_property(np, "rcar_gen5", NULL)) {
 		ret = request_irq(irq, sh_cmt_interrupt,
 				  IRQF_TIMER | IRQF_IRQPOLL | IRQF_NOBALANCING | IRQF_SHARED,
