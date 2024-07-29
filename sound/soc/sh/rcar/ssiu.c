@@ -155,7 +155,8 @@ static int rsnd_ssiu_init(struct rsnd_mod *mod,
 
 	if (!rsnd_is_gen4(priv)) {
 		/* SSI_MODE0 */
-		rsnd_mod_bset(mod, SSI_MODE0, (1 << id), !use_busif << id);
+		if (!rsnd_is_gen5(priv))
+			rsnd_mod_bset(mod, SSI_MODE0, (1 << id), !use_busif << id);
 
 		/*
 		 * SSI_MODE1 / SSI_MODE2
