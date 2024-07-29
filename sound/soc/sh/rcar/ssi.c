@@ -438,8 +438,13 @@ static void rsnd_ssi_config_init(struct rsnd_mod *mod,
 	}
 
 	if (rsnd_ssi_is_dma_mode(mod)) {
-		cr_mode = UIEN | OIEN |	/* over/under run */
-			  DMEN;		/* DMA : enable DMA */
+		if (rsnd_is_gen5(priv)) {
+			cr_mode = UIEN | OIEN |
+				  DMEN | DIEN; /* WA on Gen5 VDK */
+		} else {
+			cr_mode = UIEN | OIEN |	/* over/under run */
+				  DMEN;		/* DMA : enable DMA */
+		}
 	} else {
 		cr_mode = DIEN;		/* PIO : enable Data interrupt */
 	}
