@@ -1,11 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
- * Renesas CRC drivers header;
+ * Renesas CRC drivers header
  *
- * Copyright (C) 2024 by Renesas Electronics Corporation
+ * Copyright (C) 2024 Renesas Electronics Inc.
  *
- * Redistribution of this file is permitted under
- * the terms of the GNU Public License (GPL)
+ * Author: huybui2 <huy.bui.wm@renesas.com>
  */
 
 #ifndef _RENESAS_CRC_H_
@@ -13,6 +12,8 @@
 
 int crc_calculate(struct wcrc_info *info);
 void crc_setting(struct wcrc_info *info);
+void crc_return_reg(struct wcrc_info *info);
+void write_crc_in(struct wcrc_info *info);
 
 /* -----------------------------------------------------------------------------
  * Regrister Definition
