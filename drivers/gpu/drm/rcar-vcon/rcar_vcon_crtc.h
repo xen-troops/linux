@@ -60,7 +60,10 @@ struct rcar_vcon_crtc_state {
 #define to_rcar_crtc_state(s) container_of(s, struct rcar_vcon_crtc_state, state)
 
 enum rcar_vcon_output {
-	RCAR_VCON_OUTPUT_DP,
+	RCAR_VCON_OUTPUT_DP0,
+	RCAR_VCON_OUTPUT_DP1,
+	RCAR_VCON_OUTPUT_DP2,
+	RCAR_VCON_OUTPUT_DP3,
 	RCAR_VCON_OUTPUT_MAX,
 };
 

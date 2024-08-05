@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * rcar_dw_dp.c  --  R-Car Designware Display port
+ * rcar_dw_dp_dummy.c  --  R-Car Designware Display port dummy driver
  *
  * Copyright (C) 2023 Renesas Electronics Corporation
  */
@@ -29,12 +29,21 @@
 #define connector_to_rcar_dw_dp(c) \
 	container_of(c, struct rcar_dw_dp, connector)
 
+#define RCAR_DW_DP_MAX_PORTS	4
+
 struct rcar_dw_dp {
 	struct device *dev;
 	struct drm_bridge bridge;
 	struct drm_connector connector;
-
 	struct drm_display_mode display_mode;
+
+	int con_status;
+};
+
+struct rcar_dw_dp_manager {
+	struct device *dev;
+	struct rcar_dw_dp port[RCAR_DW_DP_MAX_PORTS];
+	int num_ports;
 
 	int con_status;
 };
@@ -43,9 +52,9 @@ struct rcar_dw_dp {
 
 static ssize_t con_status_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	struct rcar_dw_dp *dw_dp = dev_get_drvdata(dev);
+	struct rcar_dw_dp_manager *dw_dp_mgr = dev_get_drvdata(dev);
 
-	if (dw_dp->con_status)
+	if (dw_dp_mgr->con_status)
 		return snprintf(buf, PAGE_SIZE, "connected\n");
 	else
 		return snprintf(buf, PAGE_SIZE, "disconnected\n");
@@ -54,12 +63,15 @@ static ssize_t con_status_show(struct device *dev, struct device_attribute *attr
 static ssize_t con_status_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	struct rcar_dw_dp *dw_dp = dev_get_drvdata(dev);
-	int ret;
+	struct rcar_dw_dp_manager *dw_dp_mgr = dev_get_drvdata(dev);
+	int i, ret;
 
-	ret = kstrtoint(buf, 0, &dw_dp->con_status);
+	ret = kstrtoint(buf, 0, &dw_dp_mgr->con_status);
 	if (ret)
 		return ret;
+
+	for (i = 0; i < dw_dp_mgr->num_ports; i++)
+		dw_dp_mgr->port[i].con_status = dw_dp_mgr->con_status;
 
 	return count;
 }
@@ -95,6 +107,7 @@ static enum drm_connector_status rcar_dw_dp_connector_detect(struct drm_connecto
 	struct rcar_dw_dp *dw_dp = connector_to_rcar_dw_dp(connector);
 
 	if (dw_dp->con_status) {
+		drm_add_modes_noedid(connector, 3840, 2160);
 		drm_add_modes_noedid(connector, 4096, 2160);
 		return connector_status_connected;
 	}
@@ -184,24 +197,43 @@ static const struct drm_bridge_funcs rcar_dw_dp_bridge_ops = {
 
 static int rcar_dw_dp_probe(struct platform_device *pdev)
 {
+	struct rcar_dw_dp_manager *dw_dp_mgr;
 	struct device *dev = &pdev->dev;
-	struct rcar_dw_dp *dw_dp;
-	int ret;
+	int i, ret;
 
-	dw_dp = devm_kzalloc(&pdev->dev, sizeof(*dw_dp), GFP_KERNEL);
-	if (!dw_dp)
+	dw_dp_mgr = devm_kzalloc(&pdev->dev, sizeof(*dw_dp_mgr), GFP_KERNEL);
+	if (!dw_dp_mgr)
 		return -ENOMEM;
 
-	platform_set_drvdata(pdev, dw_dp);
+	platform_set_drvdata(pdev, dw_dp_mgr);
 
-	dw_dp->dev = dev;
+	dw_dp_mgr->dev = dev;
 
-	/* Init bridge */
-	dw_dp->bridge.driver_private = dw_dp;
-	dw_dp->bridge.funcs = &rcar_dw_dp_bridge_ops;
-	dw_dp->bridge.of_node = pdev->dev.of_node;
+	ret = of_property_read_u32(dev->of_node, "channels", &dw_dp_mgr->num_ports);
+	if (ret) {
+		dev_err(dev, "Unable to read number of channels property\n");
+		return ret;
+	}
 
-	drm_bridge_add(&dw_dp->bridge);
+	for (i = 0; i < dw_dp_mgr->num_ports; i++) {
+		struct rcar_dw_dp *dw_dp = &dw_dp_mgr->port[i];
+		struct device_node *pnode;
+
+		dw_dp->dev = dev;
+
+		pnode = of_graph_get_port_by_id(pdev->dev.of_node, i);
+		if (!pnode)
+			continue;
+
+		/* Init bridge */
+		dw_dp->bridge.driver_private = dw_dp;
+		dw_dp->bridge.funcs = &rcar_dw_dp_bridge_ops;
+		dw_dp->bridge.of_node = pnode;
+
+		drm_bridge_add(&dw_dp->bridge);
+
+		of_node_put(pnode);
+	}
 
 	/* For simulating hotplug cable*/
 	ret = device_create_file(dev, &con_status_attribute);
@@ -224,7 +256,7 @@ static int rcar_dw_dp_remove(struct platform_device *pdev)
 
 static const struct of_device_id rcar_dw_dp_of_table[] = {
 	{
-		.compatible = "renesas,r8a78000-dw-dp",
+		.compatible = "renesas,r8a78000-dw-dp-dummy",
 	},
 	{ /* sentinel */ },
 };
@@ -235,12 +267,12 @@ static struct platform_driver rcar_dw_dp_platform_driver = {
 	.probe          = rcar_dw_dp_probe,
 	.remove         = rcar_dw_dp_remove,
 	.driver         = {
-		.name   = "rcar-dw-dp",
+		.name   = "rcar-dw-dp-dummy",
 		.of_match_table = rcar_dw_dp_of_table,
 	},
 };
 
 module_platform_driver(rcar_dw_dp_platform_driver);
 
-MODULE_DESCRIPTION("Renesas R-Car DesignWare Display port Driver");
+MODULE_DESCRIPTION("Renesas R-Car DesignWare Display port Dummy Driver");
 MODULE_LICENSE("GPL");

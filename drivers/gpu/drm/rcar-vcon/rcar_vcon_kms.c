@@ -447,7 +447,7 @@ static int rcar_vcon_encoders_init(struct rcar_vcon_device *rvcon)
 {
 	struct device_node *np = rvcon->dev->of_node;
 	struct device_node *ep_node;
-	unsigned int num_encoders;
+	unsigned int num_encoders = 0;
 
 	/*
 	 * Iterate over the endpoints and create one encoder for each output
