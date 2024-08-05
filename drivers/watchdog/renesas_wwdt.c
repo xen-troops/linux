@@ -26,6 +26,17 @@
 #define WDTA0OVF(x)	(((x) << 4) & GENMASK(6, 4))
 #define WWDTE_KEY	0xAC
 
+/* ECM register base and offsets */
+#define ECM_WWDT	22
+#define ECM_BASE	0x189A0000
+#define CTLR(x)	(0x0000 + (4 * (x)))
+#define STSR(x)	(0x0100 + (4 * (x)))
+#define RSTR(x)	(0x0300 + (4 * (x)))
+#define INCR(x)	(0x0200 + (4 * (x)))
+#define ECMWPCNTR	0x0A00
+#define ECM_MAX_SIZE	(ECMWPCNTR + 0x04)
+#define ECM_SET	(0x81 << 22)
+
 static bool nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
@@ -46,6 +57,27 @@ static void wwdt_write(struct wwdt_priv *priv, u8 val, unsigned int reg)
 	writeb(val, priv->base + reg);
 }
 
+static inline void ecm_write(u32 value, u32 base, u32 reg)
+{
+	void __iomem *ecm_base;
+
+	ecm_base = ioremap_cache(base, ECM_MAX_SIZE);
+
+	iowrite32(value, ecm_base + reg);
+
+	iounmap(ecm_base);
+}
+
+static void init_ecm_registers(void)
+{
+	ecm_write(0xACCE0001, ECM_BASE, ECMWPCNTR);
+	usleep_range(1000, 2000);
+	ecm_write(ECM_SET, ECM_BASE, CTLR(ECM_WWDT));
+	ecm_write(ECM_SET, ECM_BASE, STSR(ECM_WWDT));
+	ecm_write(ECM_SET, ECM_BASE, INCR(ECM_WWDT));
+	ecm_write(ECM_SET, ECM_BASE, RSTR(ECM_WWDT));
+}
+
 static u8 wwdt_read(struct wwdt_priv *priv, int reg)
 {
 	return readb_relaxed(priv->base + reg);
@@ -61,13 +93,9 @@ static void wwdt_refresh_counter(struct watchdog_device *wdev)
 static void wwdt_setup(struct watchdog_device *wdev)
 {
 	struct wwdt_priv *priv = watchdog_get_drvdata(wdev);
+	struct device_node *np = priv->wdev.parent->of_node;
 	u8 val;
 
-	/* Setup for WDTA0MD
-	 * - Interval time mode
-	 * - Window size selection: 100%
-	 * - Reset mode
-	 */
 	val = wwdt_read(priv, WDTA0MD);
 	if (!priv->error_mode)
 		val &= ~WDTA0ERM;
@@ -75,6 +103,10 @@ static void wwdt_setup(struct watchdog_device *wdev)
 	if (priv->wdt_wie)
 		val |= WDTA0WIE;
 	wwdt_write(priv, val, WDTA0MD);
+
+	/* Setting ECM for WWDT20 */
+	if (of_find_property(np, "ecm", NULL))
+		init_ecm_registers();
 }
 
 static int wwdt_start(struct watchdog_device *wdev)
