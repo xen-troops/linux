@@ -1404,8 +1404,7 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 	if (chipdata->gen5) {
 		ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, IRQF_SHARED,
 				       dev_name(&pdev->dev), p);
-	}
-	else {
+	} else {
 		ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, 0,
 				       dev_name(&pdev->dev), p);
 	}
