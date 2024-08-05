@@ -1,17 +1,18 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
- * Renesas KCRC drivers header;
+ * Renesas KCRC drivers header
  *
- * Copyright (C) 2024 by Renesas Electronics Corporation
+ * Copyright (C) 2024 Renesas Electronics Inc.
  *
- * Redistribution of this file is permitted under
- * the terms of the GNU Public License (GPL)
+ * Author: huybui2 <huy.bui.wm@renesas.com>
  */
 
 #ifndef _RENESAS_KCRC_H_
 #define _RENESAS_KCRC_H_
 
 int kcrc_calculate(struct wcrc_info *info);
+void kcrc_setting(struct wcrc_info *info);
+void kcrc_return_reg(struct wcrc_info *info);
 
 /* -----------------------------------------------------------------------------
  * Regrister Definition
