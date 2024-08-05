@@ -1014,6 +1014,9 @@ static void dw_pcie6_link_set_max_speed(struct dw_pcie6 *pci, u32 link_gen)
 	case PCIE_SPEED_16_0GT:
 		link_speed = PCI_EXP_LNKCTL2_TLS_16_0GT;
 		break;
+	case PCIE_SPEED_32_0GT:
+		link_speed = PCI_EXP_LNKCTL2_TLS_32_0GT;
+		break;
 	default:
 		/* Use hardware capability */
 		link_speed = FIELD_GET(PCI_EXP_LNKCAP_SLS, cap);
@@ -1409,6 +1412,17 @@ void dw_pcie6_msi_init(struct pcie_port *pp)
 	dw_pcie6_writel_dbi(pci, PCIE_MSI_ADDR_HI, upper_32_bits(msi_target));
 }
 
+int rcar_gen5_pcie6_get_link_speed(struct device_node *node)
+{
+	u32 max_link_speed;
+
+	if (of_property_read_u32(node, "max-link-speed", &max_link_speed) ||
+	    max_link_speed == 0 || max_link_speed > 6)
+		return -EINVAL;
+
+	return max_link_speed;
+}
+
 int dw_pcie6_host_init(struct pcie_port *pp)
 {
 	struct dw_pcie6 *pci = to_dw_pcie6_from_pp(pp);
@@ -1475,7 +1489,7 @@ int dw_pcie6_host_init(struct pcie_port *pp)
 		pci->num_viewport = 2;
 
 	if (pci->link_gen < 1)
-		pci->link_gen = of_pci_get_max_link_speed(np);
+		pci->link_gen = rcar_gen5_pcie6_get_link_speed(np);
 
 	if (pci_msi_enabled()) {
 		/*
@@ -2449,7 +2463,7 @@ int dw_pcie6_ep_init(struct dw_pcie6_ep *ep)
 	ep->outbound_addr = addr;
 
 	if (pci->link_gen < 1)
-		pci->link_gen = of_pci_get_max_link_speed(np);
+		pci->link_gen = rcar_gen5_pcie6_get_link_speed(np);
 
 	epc = devm_pci_epc_create(dev, &epc_ops);
 	if (IS_ERR(epc)) {
