@@ -73,6 +73,11 @@ properties:
               - renesas,r8a779g0-wdt     # R-Car V4H
           - const: renesas,rcar-gen4-wdt # R-Car Gen4
 
+      -	items:
+	  - enum:
+	      - renesas,r8a78000-wdt   # R-Car X5H
+	  - const: renesas,rcar-gen5-wdt # R-Car Gen5
+
   reg:
     maxItems: 1
 
