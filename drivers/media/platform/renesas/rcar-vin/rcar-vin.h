@@ -14,6 +14,8 @@
 #define __RCAR_VIN__
 
 #include <linux/kref.h>
+#include <linux/clk.h>
+#include <linux/reset.h>
 
 #include <media/v4l2-async.h>
 #include <media/v4l2-ctrls.h>
@@ -33,7 +35,10 @@
 /* Max number on VIN instances that can be in a system */
 #define RCAR_VIN_NUM 32
 
+#define MSTP_WAIT_TIME 100
+
 struct rvin_dev;
+
 struct rvin_group;
 
 enum model_id {
@@ -184,6 +189,8 @@ struct rvin_info {
  * @notifier:		V4L2 asynchronous subdevs notifier
  *
  * @parallel:		parallel input subdevice descriptor
+ * @rstc:		CPG reset/release control
+ * @clk:		CPG clock control
  *
  * @group:		Gen3 CSI group
  * @id:			Gen3 group id for this VIN
@@ -224,6 +231,8 @@ struct rvin_dev {
 	struct v4l2_async_notifier notifier;
 
 	struct rvin_parallel_entity parallel;
+	struct reset_control *rstc;
+	struct clk *clk;
 
 	struct rvin_group *group;
 	unsigned int id;

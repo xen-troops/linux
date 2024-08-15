@@ -18,6 +18,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/clk-provider.h>
 
 #include <media/videobuf2-dma-contig.h>
 
@@ -1439,6 +1440,9 @@ int rvin_start_streaming(struct rvin_dev *vin)
 	unsigned long flags;
 	int ret;
 
+	if (vin->info->use_mc)
+		pm_runtime_get_sync(vin->dev);
+
 	ret = rvin_set_stream(vin, 1);
 	if (ret)
 		return ret;
@@ -1448,12 +1452,16 @@ int rvin_start_streaming(struct rvin_dev *vin)
 	vin->sequence = 0;
 
 	ret = rvin_capture_start(vin);
-	if (ret)
+	if (ret) {
 		rvin_set_stream(vin, 0);
+		if (vin->info->use_mc)
+			pm_runtime_put(vin->dev);
+		return ret;
+	}
 
 	spin_unlock_irqrestore(&vin->qlock, flags);
 
-	return ret;
+	return 0;
 }
 
 static int rvin_start_streaming_vq(struct vb2_queue *vq, unsigned int count)
@@ -1555,6 +1563,26 @@ void rvin_stop_streaming(struct rvin_dev *vin)
 
 	/* disable interrupts */
 	rvin_disable_interrupts(vin);
+
+	if (vin->info->use_mc) {
+		u32 timeout = MSTP_WAIT_TIME;
+
+		pm_runtime_put_sync(vin->dev);
+
+		while (1) {
+			bool enable;
+
+			enable = __clk_is_enabled(vin->clk);
+			if (!enable)
+				break;
+			if (!timeout) {
+				dev_warn(vin->dev, "MSTP status timeout\n");
+				break;
+			}
+			usleep_range(10, 15);
+			timeout--;
+		}
+	}
 }
 
 static void rvin_stop_streaming_vq(struct vb2_queue *vq)
