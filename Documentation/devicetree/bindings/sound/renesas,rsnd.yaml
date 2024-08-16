@@ -49,12 +49,19 @@ properties:
               - renesas,rcar_sound-r8a77995  # R-Car D3
           - enum:
               - renesas,rcar_sound-gen3
+      # for Gen5 SoC
+      - items:
+          - enum:
+              - renesas,rcar_sound-r8a78000  # R-Car X5H
+          - enum:
+              - renesas,rcar_sound-gen5
       # for Generic
       - items:
           - enum:
               - renesas,rcar_sound-gen1
               - renesas,rcar_sound-gen2
               - renesas,rcar_sound-gen3
+              - renesas,rcar_sound-gen5
 
   reg:
     minItems: 1
