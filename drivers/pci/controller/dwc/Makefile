@@ -25,6 +25,10 @@ obj-$(CONFIG_PCIE_TEGRA194) += pcie-tegra194.o
 obj-$(CONFIG_PCIE_UNIPHIER) += pcie-uniphier.o
 obj-$(CONFIG_PCIE_UNIPHIER_EP) += pcie-uniphier-ep.o
 obj-$(CONFIG_PCIE_VISCONTI_HOST) += pcie-visconti.o
+ucie-rcar-host-drv-objs := ucie-rcar.o ucie-rcar-host.o
+obj-$(CONFIG_UCIE_RCAR_HOST) += ucie-rcar-host-drv.o
+ucie-rcar-ep-drv-objs := ucie-rcar.o ucie-rcar-ep.o
+obj-$(CONFIG_UCIE_RCAR_EP) += ucie-rcar-ep-drv.o
 
 # The following drivers are for devices that use the generic ACPI
 # pci_root.c driver but don't support standard ECAM config access.
