@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 
 msp3400-objs	:=	msp3400-driver.o msp3400-kthreads.o
+dummy-camera_module-objs        := dummy-camera.o
 
+obj-$(CONFIG_VIDEO_DUMMY_CAMERA)	+= dummy-camera_module.o
 obj-$(CONFIG_SDR_MAX2175) += max2175.o
 obj-$(CONFIG_VIDEO_AD5820) += ad5820.o
 obj-$(CONFIG_VIDEO_AD9389B) += ad9389b.o
