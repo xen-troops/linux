@@ -263,3 +263,6 @@
 &vin31 {
 	status = "okay";
 };
+
+/* FAKRA Overlay */
+#include "falcon-fakra.dtsi"
