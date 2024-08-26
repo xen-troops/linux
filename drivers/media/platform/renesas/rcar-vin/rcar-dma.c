@@ -1592,11 +1592,13 @@ void rvin_stop_streaming(struct rvin_dev *vin)
 		pm_runtime_put_sync(vin->dev);
 
 		while (1) {
+#ifndef SIM_VDK
 			bool enable;
 
 			enable = __clk_is_enabled(vin->clk);
 			if (!enable)
 				break;
+#endif
 			if (!timeout) {
 				dev_warn(vin->dev, "MSTP status timeout\n");
 				break;

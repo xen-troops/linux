@@ -40,3 +40,9 @@ config VIDEO_RCAR_VIN_DEBUG
 	  Input driver.
 	  If you set to enable, When an overflow occurred,
 	  a debug overflow message is output.
+
+config VIDEO_RCAR_VIN_VDK
+	bool "R-Car VIN Driver for VDK simulation"
+	depends on VIDEO_RCAR_VIN
+	help
+	  Enable R-Car Video Input driver on VDK environment.
