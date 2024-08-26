@@ -45,6 +45,14 @@
 #define ISPCS_DT_CODE03_EN0				BIT(7)
 #define ISPCS_DT_CODE03_DT0(dt)				((dt) & 0x3f)
 
+#define ISPCS_FILTER_VC_EN_CH(n)			(0x3014 + (0x100 * n))
+
+enum rcar_soc_type {
+        R8A779A0,
+        R8A779G0,
+        R8A78000,
+};
+
 struct rcar_isp_format {
 	u32 code;
 	unsigned int datatype;
@@ -205,7 +213,10 @@ static int risp_start(struct rcar_isp *isp)
 		u8 ch = vc + 4;
 		u8 dt = format->datatype;
 
-		risp_write(isp, ISPCS_FILTER_ID_CH_REG(ch), BIT(vc));
+		if((enum rcar_soc_type)of_device_get_match_data(isp->dev) == R8A78000)
+			risp_write(isp, ISPCS_FILTER_VC_EN_CH(ch), BIT(vc));
+		else
+			risp_write(isp, ISPCS_FILTER_ID_CH_REG(ch), BIT(vc));
 		risp_write(isp, ISPCS_DT_CODE03_CH_REG(ch),
 			   ISPCS_DT_CODE03_EN3 | ISPCS_DT_CODE03_DT3(dt) |
 			   ISPCS_DT_CODE03_EN2 | ISPCS_DT_CODE03_DT2(dt) |
@@ -234,8 +245,10 @@ static void risp_stop(struct rcar_isp *isp)
 {
 	v4l2_subdev_call(isp->remote, video, s_stream, 0);
 
+#ifndef CONFIG_VIDEO_RCAR_VIN_VDK
 	/* Stop ISP. */
 	risp_write(isp, ISPSTART_REG, ISPSTART_STOP);
+#endif
 
 	risp_power_off(isp);
 }
@@ -439,8 +452,9 @@ static int risp_probe_resources(struct rcar_isp *isp,
 }
 
 static const struct of_device_id risp_of_id_table[] = {
-	{ .compatible = "renesas,r8a779a0-isp" },
-	{ .compatible = "renesas,r8a779g0-isp" },
+	{ .compatible = "renesas,r8a779a0-isp", .data = (void *)R8A779A0 },
+	{ .compatible = "renesas,r8a779g0-isp", .data = (void *)R8A779G0 },
+	{ .compatible = "renesas,r8a78000-isp", .data = (void *)R8A78000 },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, risp_of_id_table);
