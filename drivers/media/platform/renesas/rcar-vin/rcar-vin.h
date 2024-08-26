@@ -33,7 +33,7 @@
 #define HW_BUFFER_MASK 0x7f
 
 /* Max number on VIN instances that can be in a system */
-#define RCAR_VIN_NUM 32
+#define RCAR_VIN_NUM 96
 
 #define MSTP_WAIT_TIME 100
 
@@ -46,6 +46,8 @@ enum model_id {
 	RCAR_M1,
 	RCAR_GEN2,
 	RCAR_GEN3,
+	RCAR_GEN4,
+	RCAR_GEN5,
 };
 
 enum rvin_csi_id {
@@ -175,6 +177,8 @@ struct rvin_info {
 	unsigned int max_height;
 	const struct rvin_group_route *routes;
 	void (*scaler)(struct rvin_dev *vin);
+
+	unsigned int num_channel;
 };
 
 /**
