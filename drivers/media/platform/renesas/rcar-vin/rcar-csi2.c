@@ -24,6 +24,8 @@
 #include <media/v4l2-mc.h>
 #include <media/v4l2-subdev.h>
 
+#include "snps-csi2camera.h"
+
 struct rcar_csi2;
 
 /* Register offsets and bits */
@@ -690,6 +692,9 @@ struct rcar_csi2 {
 	bool cphy;
 	unsigned short lanes;
 	unsigned char lane_swap[4];
+#ifdef CONFIG_VIDEO_SNPS_CSI2_CAMERA
+	struct csi2cam *cam;
+#endif
 };
 
 static inline struct rcar_csi2 *sd_to_csi2(struct v4l2_subdev *sd)
@@ -1291,7 +1296,12 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 		return ret;
 	}
 
-	ret = v4l2_subdev_call(priv->remote, video, s_stream, 1);
+	/* if (soc_device_match(r8a78000)) */
+	if (1)
+		ret = csi2cam_start(priv->cam, priv->mf.width, priv->mf.height, priv->mf.code);
+	else
+		ret = v4l2_subdev_call(priv->remote, video, s_stream, 1);
+
 	if (ret) {
 		rcsi2_enter_standby(priv);
 		return ret;
@@ -1303,7 +1313,12 @@ static int rcsi2_start(struct rcar_csi2 *priv)
 static void rcsi2_stop(struct rcar_csi2 *priv)
 {
 	rcsi2_enter_standby(priv);
-	v4l2_subdev_call(priv->remote, video, s_stream, 0);
+
+	/* if (soc_device_match(r8a78000)) */
+	if (1)
+		csi2cam_stop(priv->cam);
+	else
+		v4l2_subdev_call(priv->remote, video, s_stream, 0);
 }
 
 static int rcsi2_s_stream(struct v4l2_subdev *sd, int enable)
@@ -1544,6 +1559,9 @@ static int rcsi2_parse_dt(struct rcar_csi2 *priv)
 		.bus_type = V4L2_MBUS_UNKNOWN,
 	};
 	int ret;
+	struct device_node *remote_ep;
+	struct platform_device *pdev;
+
 
 	ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(priv->dev), 0, 0, 0);
 	if (!ep) {
@@ -1564,23 +1582,42 @@ static int rcsi2_parse_dt(struct rcar_csi2 *priv)
 		return ret;
 	}
 
-	fwnode = fwnode_graph_get_remote_endpoint(ep);
-	fwnode_handle_put(ep);
+	/* if (soc_device_match(r8a78000)) */
+	if (1) {
+		/* Synopsys CSI-2 Camera */
+		remote_ep = of_graph_get_remote_node(priv->dev->of_node, 0, 0);
+		if (!remote_ep) {
+			pr_err("Failed to find remote endpoint in the device tree\n");
+			return -ENODEV;
+		}
+		dev_dbg(priv->dev, "Found '%pOF'\n", remote_ep);
 
-	dev_dbg(priv->dev, "Found '%pOF'\n", to_of_node(fwnode));
+		pdev = of_find_device_by_node(remote_ep);
+		of_node_put(remote_ep);
+		if (!pdev)
+			return -ENOMEM;
 
-	v4l2_async_nf_init(&priv->notifier);
-	priv->notifier.ops = &rcar_csi2_notify_ops;
+		priv->cam = platform_get_drvdata(pdev);
+		platform_device_put(pdev);
+	} else {
+		fwnode = fwnode_graph_get_remote_endpoint(ep);
+		fwnode_handle_put(ep);
 
-	asd = v4l2_async_nf_add_fwnode(&priv->notifier, fwnode,
-				       struct v4l2_async_subdev);
-	fwnode_handle_put(fwnode);
-	if (IS_ERR(asd))
-		return PTR_ERR(asd);
+		dev_dbg(priv->dev, "Found '%pOF'\n", to_of_node(fwnode));
 
-	ret = v4l2_async_subdev_nf_register(&priv->subdev, &priv->notifier);
-	if (ret)
-		v4l2_async_nf_cleanup(&priv->notifier);
+		v4l2_async_nf_init(&priv->notifier);
+		priv->notifier.ops = &rcar_csi2_notify_ops;
+
+		asd = v4l2_async_nf_add_fwnode(&priv->notifier, fwnode,
+						   struct v4l2_async_subdev);
+		fwnode_handle_put(fwnode);
+		if (IS_ERR(asd))
+			return PTR_ERR(asd);
+
+		ret = v4l2_async_subdev_nf_register(&priv->subdev, &priv->notifier);
+		if (ret)
+			v4l2_async_nf_cleanup(&priv->notifier);
+	}
 
 	return ret;
 }
@@ -2026,6 +2063,11 @@ static const struct soc_device_attribute r8a7795[] = {
 		.soc_id = "r8a7795", .revision = "ES2.*",
 		.data = &rcar_csi2_info_r8a7795es2,
 	},
+	{ /* sentinel */ }
+};
+
+static const struct soc_device_attribute r8a78000[] = {
+	{ .soc_id = "r8a78000" },
 	{ /* sentinel */ }
 };
 
