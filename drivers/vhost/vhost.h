@@ -138,6 +138,7 @@ struct vhost_virtqueue {
 	bool user_be;
 #endif
 	u32 busyloop_timeout;
+	struct vhost_worker *worker;
 
 #ifdef CONFIG_VHOST_XEN
 	/*
