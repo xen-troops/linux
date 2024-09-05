@@ -272,6 +272,17 @@ static void vhost_worker_flush(struct vhost_worker *w)
        wait_for_completion(&flush.wait_event);
 }
 
+void vhost_work_flush_vq(struct vhost_virtqueue *vq)
+{
+       struct vhost_worker *w = READ_ONCE(vq->worker);
+
+       if (!w)
+               return;
+
+       vhost_worker_flush(w);
+}
+EXPORT_SYMBOL_GPL(vhost_work_flush_vq);
+
 void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
 {
 	struct vhost_worker *w = &dev->workers[0];
@@ -282,6 +293,17 @@ void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
 	vhost_work_queue_at_worker(w, work);
 }
 EXPORT_SYMBOL_GPL(vhost_work_queue);
+
+void vhost_work_vqueue(struct vhost_virtqueue *vq, struct vhost_work *work)
+{
+       struct vhost_worker *w = READ_ONCE(vq->worker);
+
+       if (!w)
+               return;
+
+       vhost_work_queue_at_worker(w, work);
+}
+EXPORT_SYMBOL_GPL(vhost_work_vqueue);
 
 /* A lockless hint for busy polling code to exit the loop */
 bool vhost_has_work(struct vhost_dev *dev)

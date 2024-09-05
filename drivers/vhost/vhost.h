@@ -150,6 +150,11 @@ struct vhost_virtqueue {
 #endif
 };
 
+/* Queue the work on virtqueue assigned worker */
+void vhost_work_vqueue(struct vhost_virtqueue *vq, struct vhost_work *work);
+/* Flush virtqueue assigned worker */
+void vhost_work_flush_vq(struct vhost_virtqueue *vq);
+
 struct vhost_msg_node {
   union {
 	  struct vhost_msg msg;
