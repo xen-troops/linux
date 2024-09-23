@@ -252,6 +252,7 @@ static int rcar_rvgc_probe(struct rpmsg_device* rpdev) {
 	rwlock_init(&rcrvgc->event_list_lock);
 
 	init_waitqueue_head(&rcrvgc->vblank_pending_wait_queue);
+	init_waitqueue_head(&rcrvgc->flip_wait);
 
 	/* Init device memory.
 	 *

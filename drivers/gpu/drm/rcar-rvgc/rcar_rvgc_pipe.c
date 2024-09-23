@@ -205,12 +205,76 @@ static void rvgc_crtc_enable(struct drm_crtc* crtc,
 	drm_crtc_vblank_get(crtc);
 }
 
+/* Page Flip
+ * 	true: no vblank event
+ * 	false: vbank event sent
+ */
+bool rvgc_crtc_finish_page_flip(struct rcar_rvgc_pipe* rvgc_pipe)
+{
+	struct drm_pending_vblank_event *event;
+	struct rcar_rvgc_device* rcrvgc = rvgc_pipe->rcar_rvgc_dev;
+	struct drm_device *dev = rcrvgc->ddev;
+	struct drm_crtc *crtc = &rvgc_pipe->crtc;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->event_lock, flags);
+	event = rvgc_pipe->event;
+	rvgc_pipe->event = NULL;
+	spin_unlock_irqrestore(&dev->event_lock, flags);
+
+	if (event == NULL)
+		return true;
+
+	spin_lock_irqsave(&dev->event_lock, flags);
+	drm_crtc_send_vblank_event(crtc, event);
+	wake_up(&rcrvgc->flip_wait);
+	spin_unlock_irqrestore(&dev->event_lock, flags);
+	return false;
+}
+
+static bool rvgc_crtc_page_flip_pending(struct rcar_rvgc_pipe* rvgc_pipe)
+{
+	struct drm_device *dev = rvgc_pipe->rcar_rvgc_dev->ddev;
+	unsigned long flags;
+	bool pending;
+
+	spin_lock_irqsave(&dev->event_lock, flags);
+	pending = rvgc_pipe->event != NULL;
+	spin_unlock_irqrestore(&dev->event_lock, flags);
+
+	return pending;
+}
+
+static void rvgc_crtc_wait_page_flip(struct drm_crtc *crtc)
+{
+	struct rcar_rvgc_pipe* rvgc_pipe = container_of(crtc, struct rcar_rvgc_pipe, crtc);
+	struct rcar_rvgc_device* rcrvgc = rvgc_pipe->rcar_rvgc_dev;
+	unsigned long flags;
+
+	if (crtc->state->event) {
+		spin_lock_irqsave(&crtc->dev->event_lock, flags);
+		rvgc_pipe->event = crtc->state->event;
+		crtc->state->event = NULL;
+		spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+	}
+
+	if (wait_event_timeout(rcrvgc->flip_wait,
+			       !rvgc_crtc_page_flip_pending(rvgc_pipe),
+			       msecs_to_jiffies(50)))
+		return;
+
+	dev_warn(rcrvgc->dev, "page flip timeout\n");
+
+	(void)rvgc_crtc_finish_page_flip(rvgc_pipe);
+}
+
 static void rvgc_crtc_disable(struct drm_crtc *crtc,
 			      struct drm_crtc_state *old_state)
 {
 	//printk(KERN_ERR "%s():%d", __FUNCTION__, __LINE__);
-	drm_crtc_vblank_off(crtc);
+	rvgc_crtc_wait_page_flip(crtc);
 	drm_crtc_vblank_put(crtc);
+	drm_crtc_vblank_off(crtc);
 }
 
 static void rvgc_crtc_atomic_flush(struct drm_crtc *crtc,

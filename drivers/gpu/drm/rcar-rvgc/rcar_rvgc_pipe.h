@@ -53,5 +53,6 @@ struct rcar_rvgc_pipe {
 
 int rcar_rvgc_pipe_init(struct rcar_rvgc_device* rvgc_dev, struct rcar_rvgc_pipe* rvgc_pipe);
 struct rcar_rvgc_pipe* rvgc_pipe_find(struct rcar_rvgc_device* rcrvgc, unsigned int pipe_idx);
+bool rvgc_crtc_finish_page_flip(struct rcar_rvgc_pipe* rvgc_pipe);
 
 #endif /* __RCAR_RVGC_PIPE_H__ */

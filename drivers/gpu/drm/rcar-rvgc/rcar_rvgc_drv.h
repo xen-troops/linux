@@ -46,6 +46,9 @@ struct rcar_rvgc_device {
 	wait_queue_head_t vblank_enable_wait_queue;
 	atomic_t global_vblank_enable;
 
+	/* needed for flip_done */
+	wait_queue_head_t flip_wait;
+
 	struct task_struct* vsync_thread;
 
 	struct list_head taurus_event_list_head;

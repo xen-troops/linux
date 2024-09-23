@@ -69,14 +69,11 @@ static struct drm_framebuffer* rcar_rvgc_fb_create(struct drm_device* dev, struc
 /********** VBlank Handling **********/
 static int vsync_thread_fn(void* data) {
 	struct rcar_rvgc_device* rcrvgc = (struct rcar_rvgc_device*)data;
-	struct drm_crtc* crtc;
 	struct rcar_rvgc_pipe* rvgc_pipe;
 	unsigned int nr_rvgc_pipes = rcrvgc->nr_rvgc_pipes;
 	int i;
 	int pipe_vblk_pending;
 	unsigned int display_idx;
-	struct drm_pending_vblank_event* event;
-	unsigned long flags;
 
 	while (!kthread_should_stop()) {
 
@@ -87,30 +84,14 @@ static int vsync_thread_fn(void* data) {
 		for (i = 0; i < nr_rvgc_pipes; i++) {
 			rvgc_pipe = &rcrvgc->rvgc_pipes[i];
 			display_idx = rvgc_pipe->display_mapping;
-			;
 
 			pipe_vblk_pending = test_and_clear_bit(display_idx, (long unsigned int*)&rcrvgc->vblank_pending);
 
 			if (pipe_vblk_pending && rvgc_pipe->vblank_enabled) {
 				/* TODO: removed simple pipe here nothing else need to be done here */
-				crtc = &rvgc_pipe->crtc;
-
-				drm_crtc_handle_vblank(crtc);
-
-				spin_lock_irqsave(&crtc->dev->event_lock, flags);
-				event = rvgc_pipe->event;
-				rvgc_pipe->event = NULL;
-				spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
-
-				if (event == NULL)
+				drm_crtc_handle_vblank(&rvgc_pipe->crtc);
+				if (rvgc_crtc_finish_page_flip(rvgc_pipe))
 					continue;
-
-				spin_lock_irqsave(&crtc->dev->event_lock, flags);
-				drm_crtc_send_vblank_event(crtc, event);
-				spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
-
-				/* JMB: Where is corresponding "get" ? */
-				// drm_crtc_vblank_put(crtc);
 			}
 		}
 	}
