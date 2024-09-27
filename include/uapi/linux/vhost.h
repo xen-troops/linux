@@ -71,6 +71,15 @@
 #define VHOST_SET_VRING_ENDIAN _IOW(VHOST_VIRTIO, 0x13, struct vhost_vring_state)
 #define VHOST_GET_VRING_ENDIAN _IOW(VHOST_VIRTIO, 0x14, struct vhost_vring_state)
 
+/* Set number of vhost workers
+ * Currently nuber of vhost workers can only be increased.
+ * All workers are freed upon reset.
+ * If the value is too big it is silently truncated to the maximum number of
+ * supported vhost workers
+ * Even if the error is returned it is possible that some workers were created
+ */
+#define VHOST_SET_NWORKERS _IOW(VHOST_VIRTIO, 0x1F, int)
+
 /* The following ioctls use eventfd file descriptors to signal and poll
  * for events. */
 
@@ -150,4 +159,9 @@
 /* Get the valid iova range */
 #define VHOST_VDPA_GET_IOVA_RANGE	_IOR(VHOST_VIRTIO, 0x78, \
 					     struct vhost_vdpa_iova_range)
+
+/* VHOST_BLK specific defines */
+#define VHOST_BLK_SET_BACKEND		_IOW(VHOST_VIRTIO, 0xFF, \
+					     struct vhost_vring_file)
+
 #endif

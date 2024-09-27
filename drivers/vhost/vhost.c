@@ -170,7 +170,7 @@ static int vhost_poll_wakeup(wait_queue_entry_t *wait, unsigned mode, int sync,
 	if (!(key_to_poll(key) & poll->mask))
 		return 0;
 
-	if (!poll->dev->use_worker)
+	if (!poll->vq->dev->use_worker)
 		work->fn(work);
 	else
 		vhost_poll_queue(poll);
@@ -185,19 +185,27 @@ void vhost_work_init(struct vhost_work *work, vhost_work_fn_t fn)
 }
 EXPORT_SYMBOL_GPL(vhost_work_init);
 
-/* Init poll structure */
 void vhost_poll_init(struct vhost_poll *poll, vhost_work_fn_t fn,
 		     __poll_t mask, struct vhost_dev *dev)
+{
+       vhost_poll_init_vq(poll, fn, mask, dev->vqs[0]);
+}
+EXPORT_SYMBOL_GPL(vhost_poll_init);
+
+
+/* Init poll structure */
+void vhost_poll_init_vq(struct vhost_poll *poll, vhost_work_fn_t fn,
+                    __poll_t mask, struct vhost_virtqueue *vq)
 {
 	init_waitqueue_func_entry(&poll->wait, vhost_poll_wakeup);
 	init_poll_funcptr(&poll->table, vhost_poll_func);
 	poll->mask = mask;
-	poll->dev = dev;
+	poll->vq = vq;
 	poll->wqh = NULL;
 
 	vhost_work_init(&poll->work, fn);
 }
-EXPORT_SYMBOL_GPL(vhost_poll_init);
+EXPORT_SYMBOL_GPL(vhost_poll_init_vq);
 
 /* Start polling a file. We add ourselves to file's wait queue. The caller must
  * keep a reference to a file until after vhost_poll_stop is called. */
@@ -231,43 +239,79 @@ void vhost_poll_stop(struct vhost_poll *poll)
 }
 EXPORT_SYMBOL_GPL(vhost_poll_stop);
 
-void vhost_work_flush(struct vhost_dev *dev, struct vhost_work *work)
+static void vhost_work_queue_at_worker(struct vhost_worker *w,
+				       struct vhost_work *work)
 {
-	struct vhost_flush_struct flush;
-
-	if (dev->worker) {
-		init_completion(&flush.wait_event);
-		vhost_work_init(&flush.work, vhost_flush_work);
-
-		vhost_work_queue(dev, &flush.work);
-		wait_for_completion(&flush.wait_event);
-	}
-}
-EXPORT_SYMBOL_GPL(vhost_work_flush);
-
-/* Flush any work that has been scheduled. When calling this, don't hold any
- * locks that are also used by the callback. */
-void vhost_poll_flush(struct vhost_poll *poll)
-{
-	vhost_work_flush(poll->dev, &poll->work);
-}
-EXPORT_SYMBOL_GPL(vhost_poll_flush);
-
-void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
-{
-	if (!dev->worker)
-		return;
-
 	if (!test_and_set_bit(VHOST_WORK_QUEUED, &work->flags)) {
 		/* We can only add the work to the list after we're
 		 * sure it was not in the list.
 		 * test_and_set_bit() implies a memory barrier.
 		 */
-		llist_add(&work->node, &dev->work_list);
-		wake_up_process(dev->worker);
+		llist_add(&work->node, &w->work_list);
+		wake_up_process(w->worker);
 	}
 }
+
+void vhost_dev_flush(struct vhost_dev *dev)
+{
+	struct vhost_flush_struct flush[VHOST_MAX_WORKERS];
+	int i, nworkers;
+
+	nworkers = READ_ONCE(dev->nworkers);
+
+	for (i = 0; i < nworkers; i++) {
+		init_completion(&flush[i].wait_event);
+		vhost_work_init(&flush[i].work, vhost_flush_work);
+		vhost_work_queue_at_worker(&dev->workers[i], &flush[i].work);
+	}
+
+	for (i = 0; i < nworkers; i++)
+		wait_for_completion(&flush[i].wait_event);
+}
+EXPORT_SYMBOL_GPL(vhost_dev_flush);
+
+static void vhost_worker_flush(struct vhost_worker *w)
+{
+       struct vhost_flush_struct flush;
+
+       init_completion(&flush.wait_event);
+       vhost_work_init(&flush.work, vhost_flush_work);
+       vhost_work_queue_at_worker(w, &flush.work);
+       wait_for_completion(&flush.wait_event);
+}
+
+void vhost_work_flush_vq(struct vhost_virtqueue *vq)
+{
+       struct vhost_worker *w = READ_ONCE(vq->worker);
+
+       if (!w)
+               return;
+
+       vhost_worker_flush(w);
+}
+EXPORT_SYMBOL_GPL(vhost_work_flush_vq);
+
+void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
+{
+	struct vhost_worker *w = &dev->workers[0];
+
+	if (!w->worker)
+		return;
+
+	vhost_work_queue_at_worker(w, work);
+}
 EXPORT_SYMBOL_GPL(vhost_work_queue);
+
+void vhost_work_vqueue(struct vhost_virtqueue *vq, struct vhost_work *work)
+{
+       struct vhost_worker *w = READ_ONCE(vq->worker);
+
+       if (!w)
+               return;
+
+       vhost_work_queue_at_worker(w, work);
+}
+EXPORT_SYMBOL_GPL(vhost_work_vqueue);
 
 /* A lockless hint for busy polling code to exit the loop */
 bool vhost_has_work(struct vhost_dev *dev)
@@ -278,7 +322,7 @@ EXPORT_SYMBOL_GPL(vhost_has_work);
 
 void vhost_poll_queue(struct vhost_poll *poll)
 {
-	vhost_work_queue(poll->dev, &poll->work);
+	vhost_work_vqueue(poll->vq, &poll->work);
 }
 EXPORT_SYMBOL_GPL(vhost_poll_queue);
 
@@ -339,11 +383,32 @@ static void vhost_vq_reset(struct vhost_dev *dev,
 	vq->iotlb = NULL;
 	vhost_vring_call_reset(&vq->call_ctx);
 	__vhost_vq_meta_reset(vq);
+	vq->worker = NULL;
+}
+
+static void vhost_worker_reset(struct vhost_worker *w)
+{
+	init_llist_head(&w->work_list);
+	w->worker = NULL;
+}
+
+void vhost_cleanup_workers(struct vhost_dev *dev)
+{
+	int i;
+
+	for (i = 0; i < dev->nworkers; ++i) {
+		WARN_ON(!llist_empty(&dev->workers[i].work_list));
+		kthread_stop(dev->workers[i].worker);
+		vhost_worker_reset(&dev->workers[i]);
+	}
+
+	dev->nworkers = 0;
 }
 
 static int vhost_worker(void *data)
 {
-	struct vhost_dev *dev = data;
+	struct vhost_worker *w = data;
+	struct vhost_dev *dev = w->dev;
 	struct vhost_work *work, *work_next;
 	struct llist_node *node;
 
@@ -358,7 +423,7 @@ static int vhost_worker(void *data)
 			break;
 		}
 
-		node = llist_del_all(&dev->work_list);
+		node = llist_del_all(&w->work_list);
 		if (!node)
 			schedule();
 
@@ -481,7 +546,6 @@ void vhost_dev_init(struct vhost_dev *dev,
 	dev->umem = NULL;
 	dev->iotlb = NULL;
 	dev->mm = NULL;
-	dev->worker = NULL;
 	dev->iov_limit = iov_limit;
 	dev->weight = weight;
 	dev->byte_weight = byte_weight;
@@ -493,6 +557,11 @@ void vhost_dev_init(struct vhost_dev *dev,
 	INIT_LIST_HEAD(&dev->pending_list);
 	spin_lock_init(&dev->iotlb_lock);
 
+	dev->nworkers = 0;
+	for (i = 0; i < VHOST_MAX_WORKERS; ++i) {
+		dev->workers[i].dev = dev;
+		vhost_worker_reset(&dev->workers[i]);
+	}
 
 	for (i = 0; i < dev->nvqs; ++i) {
 		vq = dev->vqs[i];
@@ -506,8 +575,8 @@ void vhost_dev_init(struct vhost_dev *dev,
 #endif
 		vhost_vq_reset(dev, vq);
 		if (vq->handle_kick)
-			vhost_poll_init(&vq->poll, vq->handle_kick,
-					EPOLLIN, dev);
+			vhost_poll_init_vq(&vq->poll, vq->handle_kick,
+					EPOLLIN, vq);
 	}
 }
 EXPORT_SYMBOL_GPL(vhost_dev_init);
@@ -534,14 +603,14 @@ static void vhost_attach_cgroups_work(struct vhost_work *work)
 	s->ret = cgroup_attach_task_all(s->owner, current);
 }
 
-static int vhost_attach_cgroups(struct vhost_dev *dev)
+static int vhost_worker_attach_cgroups(struct vhost_worker *w)
 {
 	struct vhost_attach_cgroups_struct attach;
 
 	attach.owner = current;
 	vhost_work_init(&attach.work, vhost_attach_cgroups_work);
-	vhost_work_queue(dev, &attach.work);
-	vhost_work_flush(dev, &attach.work);
+	vhost_work_queue_at_worker(w, &attach.work);
+	vhost_worker_flush(w);
 	return attach.ret;
 }
 
@@ -582,51 +651,96 @@ static void vhost_detach_mm(struct vhost_dev *dev)
 	dev->mm = NULL;
 }
 
-/* Caller should have device mutex */
-long vhost_dev_set_owner(struct vhost_dev *dev)
+static int vhost_add_worker(struct vhost_dev *dev)
 {
+	struct vhost_worker *w = &dev->workers[dev->nworkers];
 	struct task_struct *worker;
 	int err;
 
-	/* Is there an owner already? */
-	if (vhost_dev_has_owner(dev)) {
-		err = -EBUSY;
-		goto err_mm;
+	if (dev->nworkers == VHOST_MAX_WORKERS)
+		return -E2BIG;
+
+	worker = kthread_create(vhost_worker, w,
+				"vhost-%d-%d", current->pid, dev->nworkers);
+	if (IS_ERR(worker))
+		return PTR_ERR(worker);
+
+	w->worker = worker;
+	wake_up_process(worker); /* avoid contributing to loadavg */
+
+	err = vhost_worker_attach_cgroups(w);
+	if (err)
+		goto cleanup;
+
+	dev->nworkers++;
+	return 0;
+
+cleanup:
+	kthread_stop(worker);
+	w->worker = NULL;
+
+	return err;
+}
+
+static int vhost_set_workers(struct vhost_dev *dev, int n)
+{
+	int i, ret;
+
+	if (n > dev->nvqs)
+		n = dev->nvqs;
+
+	if (n > VHOST_MAX_WORKERS)
+		n = VHOST_MAX_WORKERS;
+
+	for (i = 0; i < n - dev->nworkers ; i++) {
+		ret = vhost_add_worker(dev);
+		if (ret)
+			break;
 	}
+
+	return ret;
+}
+
+static void vhost_assign_workers(struct vhost_dev *dev)
+{
+	int i, j = 0;
+
+	for (i = 0; i < dev->nvqs; i++) {
+		dev->vqs[i]->worker = &dev->workers[j];
+		if (++j == dev->nworkers)
+			j = 0;
+	}
+}
+
+/* Caller should have device mutex */
+long vhost_dev_set_owner(struct vhost_dev *dev)
+{
+	int err;
+
+	/* Is there an owner already? */
+	if (vhost_dev_has_owner(dev))
+		return -EBUSY;
 
 	vhost_attach_mm(dev);
 
 	dev->kcov_handle = kcov_common_handle();
 	if (dev->use_worker) {
-		worker = kthread_create(vhost_worker, dev,
-					"vhost-%d", current->pid);
-		if (IS_ERR(worker)) {
-			err = PTR_ERR(worker);
-			goto err_worker;
-		}
-
-		dev->worker = worker;
-		wake_up_process(worker); /* avoid contributing to loadavg */
-
-		err = vhost_attach_cgroups(dev);
+		err = vhost_add_worker(dev);
 		if (err)
-			goto err_cgroup;
+			goto err_mm;
 	}
 
 	err = vhost_dev_alloc_iovecs(dev);
 	if (err)
-		goto err_cgroup;
+		goto err_worker;
 
+	vhost_assign_workers(dev);
 	return 0;
-err_cgroup:
-	if (dev->worker) {
-		kthread_stop(dev->worker);
-		dev->worker = NULL;
-	}
 err_worker:
+	vhost_cleanup_workers(dev);
+err_mm:
 	vhost_detach_mm(dev);
 	dev->kcov_handle = 0;
-err_mm:
 	return err;
 }
 EXPORT_SYMBOL_GPL(vhost_dev_set_owner);
@@ -664,11 +778,11 @@ void vhost_dev_stop(struct vhost_dev *dev)
 	int i;
 
 	for (i = 0; i < dev->nvqs; ++i) {
-		if (dev->vqs[i]->kick && dev->vqs[i]->handle_kick) {
+		if (dev->vqs[i]->kick && dev->vqs[i]->handle_kick)
 			vhost_poll_stop(&dev->vqs[i]->poll);
-			vhost_poll_flush(&dev->vqs[i]->poll);
-		}
 	}
+
+	vhost_dev_flush(dev);
 }
 EXPORT_SYMBOL_GPL(vhost_dev_stop);
 
@@ -707,6 +821,7 @@ void vhost_dev_cleanup(struct vhost_dev *dev)
 		vhost_xen_unmap_desc_all(dev->vqs[i]);
 #endif
 	}
+
 	vhost_dev_free_iovecs(dev);
 	if (dev->log_ctx)
 		eventfd_ctx_put(dev->log_ctx);
@@ -718,10 +833,8 @@ void vhost_dev_cleanup(struct vhost_dev *dev)
 	dev->iotlb = NULL;
 	vhost_clear_msg(dev);
 	wake_up_interruptible_poll(&dev->wait, EPOLLIN | EPOLLRDNORM);
-	WARN_ON(!llist_empty(&dev->work_list));
-	if (dev->worker) {
-		kthread_stop(dev->worker);
-		dev->worker = NULL;
+	if (dev->use_worker) {
+		vhost_cleanup_workers(dev);
 		dev->kcov_handle = 0;
 	}
 	vhost_detach_mm(dev);
@@ -1720,7 +1833,7 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 	mutex_unlock(&vq->mutex);
 
 	if (pollstop && vq->handle_kick)
-		vhost_poll_flush(&vq->poll);
+		vhost_dev_flush(d);
 	return r;
 }
 EXPORT_SYMBOL_GPL(vhost_vring_ioctl);
@@ -1758,7 +1871,7 @@ long vhost_dev_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *argp)
 	struct eventfd_ctx *ctx;
 	u64 p;
 	long r;
-	int i, fd;
+	int i, fd, n;
 
 	/* If you are not the owner, you can become one */
 	if (ioctl == VHOST_SET_OWNER) {
@@ -1814,6 +1927,18 @@ long vhost_dev_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *argp)
 		}
 		if (ctx)
 			eventfd_ctx_put(ctx);
+		break;
+	case VHOST_SET_NWORKERS:
+		r = get_user(n, (int __user *)argp);
+		if (r < 0)
+			break;
+		if (n < d->nworkers) {
+			r = -EINVAL;
+			break;
+		}
+
+		r = vhost_set_workers(d, n);
+		vhost_assign_workers(d);
 		break;
 	default:
 		r = -ENOIOCTLCMD;

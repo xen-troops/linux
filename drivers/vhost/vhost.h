@@ -25,6 +25,13 @@ struct vhost_work {
 	unsigned long		  flags;
 };
 
+#define VHOST_MAX_WORKERS 4
+struct vhost_worker {
+	struct task_struct *worker;
+	struct llist_head work_list;
+	struct vhost_dev *dev;
+};
+
 /* Poll a file (eventfd or socket) */
 /* Note: there's nothing vhost specific about this structure. */
 struct vhost_poll {
@@ -33,7 +40,7 @@ struct vhost_poll {
 	wait_queue_entry_t              wait;
 	struct vhost_work	  work;
 	__poll_t		  mask;
-	struct vhost_dev	 *dev;
+	struct vhost_virtqueue	*vq;
 };
 
 void vhost_work_init(struct vhost_work *work, vhost_work_fn_t fn);
@@ -42,11 +49,12 @@ bool vhost_has_work(struct vhost_dev *dev);
 
 void vhost_poll_init(struct vhost_poll *poll, vhost_work_fn_t fn,
 		     __poll_t mask, struct vhost_dev *dev);
+void vhost_poll_init_vq(struct vhost_poll *poll, vhost_work_fn_t fn,
+		     __poll_t mask, struct vhost_virtqueue *vq);
 int vhost_poll_start(struct vhost_poll *poll, struct file *file);
 void vhost_poll_stop(struct vhost_poll *poll);
-void vhost_poll_flush(struct vhost_poll *poll);
 void vhost_poll_queue(struct vhost_poll *poll);
-void vhost_work_flush(struct vhost_dev *dev, struct vhost_work *work);
+void vhost_dev_flush(struct vhost_dev *dev);
 long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *argp);
 
 struct vhost_log {
@@ -132,6 +140,7 @@ struct vhost_virtqueue {
 	bool user_be;
 #endif
 	u32 busyloop_timeout;
+	struct vhost_worker *worker;
 
 #ifdef CONFIG_VHOST_XEN
 	/*
@@ -142,6 +151,11 @@ struct vhost_virtqueue {
 	struct list_head desc_maps;
 #endif
 };
+
+/* Queue the work on virtqueue assigned worker */
+void vhost_work_vqueue(struct vhost_virtqueue *vq, struct vhost_work *work);
+/* Flush virtqueue assigned worker */
+void vhost_work_flush_vq(struct vhost_virtqueue *vq);
 
 struct vhost_msg_node {
   union {
@@ -159,7 +173,8 @@ struct vhost_dev {
 	int nvqs;
 	struct eventfd_ctx *log_ctx;
 	struct llist_head work_list;
-	struct task_struct *worker;
+	struct vhost_worker workers[VHOST_MAX_WORKERS];
+	int nworkers;
 	struct vhost_iotlb *umem;
 	struct vhost_iotlb *iotlb;
 	spinlock_t iotlb_lock;
