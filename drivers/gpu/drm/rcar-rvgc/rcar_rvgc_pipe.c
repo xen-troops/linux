@@ -454,7 +454,6 @@ static void rvgc_plane_atomic_update(struct drm_plane* plane,
 				dev_err(rcrvgc->dev, "%s(): rvgc_taurus_layer_set_position(display=%d, id=%d, layer=%d) failed\n",
 					__FUNCTION__, display_idx, plane->base.id, hw_plane);
 			}
-			return;
 		} 
 
 		/* don't proceed from here if we don't actually have plane */
