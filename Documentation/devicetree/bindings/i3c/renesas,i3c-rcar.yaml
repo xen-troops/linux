@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
 $id: http://devicetree.org/schemas/i3c/renesas,i3c-rcar.yaml#
@@ -21,7 +21,7 @@ properties:
 
   interrupts:
     maxItems: 1
- 
+
   clocks:
     items:
       - description: APB bus clock
