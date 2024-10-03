@@ -239,6 +239,7 @@ static inline void i3c_i2c_driver_unregister(struct i3c_driver *i3cdrv,
 int i3c_device_do_priv_xfers(struct i3c_device *dev,
 			     struct i3c_priv_xfer *xfers,
 			     int nxfers);
+int i3c_device_do_setdasa(struct i3c_device *dev);
 
 void i3c_device_get_info(struct i3c_device *dev, struct i3c_device_info *info);
 
