@@ -55,7 +55,7 @@ static void i3c_target_func_device_remove(struct device *dev)
 	func->driver = NULL;
 }
 
-static const struct bus_type i3c_target_func_bus_type = {
+static struct bus_type i3c_target_func_bus_type = {
 	.name = "i3c_target_func",
 	.probe = i3c_target_func_device_probe,
 	.remove = i3c_target_func_device_remove,
@@ -426,7 +426,7 @@ static int __init i3c_target_init(void)
 {
 	int ret;
 
-	i3c_target_ctrl_class = class_create("i3c_target");
+	i3c_target_ctrl_class = class_create(THIS_MODULE,"i3c_target");
 	if (IS_ERR(i3c_target_ctrl_class)) {
 		pr_err("failed to create i3c target class --> %ld\n",
 		       PTR_ERR(i3c_target_ctrl_class));
