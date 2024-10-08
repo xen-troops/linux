@@ -66,6 +66,8 @@ static int scmi_pd_attach_dev(struct generic_pm_domain *pd, struct device *dev)
 		return 0;
 
 	pm_clk_destroy(dev);
+	if (ret == -ENODEV)
+		return 0;
 	return ret;
 }
 
