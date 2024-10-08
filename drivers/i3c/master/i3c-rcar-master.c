@@ -297,27 +297,7 @@
 #define XFER_TIMEOUT		(msecs_to_jiffies(1000))
 #define NTDTBP0_DEPTH		16
 
-enum i3c_internal_state {
-	I3C_INTERNAL_STATE_DISABLED,
-	I3C_INTERNAL_STATE_MASTER_IDLE,
-	I3C_INTERNAL_STATE_MASTER_ENTDAA,
-	I3C_INTERNAL_STATE_MASTER_SETDASA,
-	I3C_INTERNAL_STATE_MASTER_WRITE,
-	I3C_INTERNAL_STATE_MASTER_READ,
-	I3C_INTERNAL_STATE_MASTER_COMMAND_WRITE,
-	I3C_INTERNAL_STATE_MASTER_COMMAND_READ,
-	I3C_INTERNAL_STATE_SLAVE_IDLE,
-	I3C_INTERNAL_STATE_SLAVE_IBI,
-};
-
-enum i3c_event {
-	I3C_COMMAND_ADDRESS_ASSIGNMENT,
-	I3C_WRITE,
-	I3C_READ,
-	I3C_COMMAND_WRITE,
-	I3C_COMMAND_READ,
-	I3C_IBI_WRITE,
-};
+#include "i3c-rcar.h"
 
 struct rcar_i3c_cmd {
 	u32 cmd0;
@@ -370,15 +350,6 @@ struct rcar_i3c_i2c_dev_data {
 	u8 index;
 };
 
-static inline void i3c_reg_update(u32 mask, u32 val, u32 __iomem *reg)
-{
-	u32 data = readl(reg);
-
-	data &= ~mask;
-	data |= (val & mask);
-	writel(data, reg);
-}
-
 static u8 i3c_address_parity_cal(u8 addr)
 {
 	u8 par = addr | BIT(7);
@@ -388,32 +359,6 @@ static u8 i3c_address_parity_cal(u8 addr)
 		par ^= ((addr << i) & BIT(7));
 
 	return par;
-}
-
-static inline void i3c_reg_write(void __iomem *base, u32 offset, u32 val)
-{
-	writel(val, base + (offset));
-}
-
-static inline u32 i3c_reg_read(void __iomem *base, u32 offset)
-{
-	return readl(base + (offset));
-}
-
-static void i3c_reg_set_bit(void __iomem *base, u32 reg, u32 val)
-{
-	i3c_reg_update(val, val, base + (reg));
-}
-
-static void i3c_reg_clear_bit(void __iomem *base, u32 reg, u32 val)
-{
-	i3c_reg_update(val, 0, base + (reg));
-}
-
-static void i3c_reg_update_bit(void __iomem *base, u32 reg,
-			       u32 mask, u32 val)
-{
-	i3c_reg_update(mask, val, base + (reg));
 }
 
 static inline struct rcar_i3c_master *
@@ -1372,7 +1317,7 @@ static const struct i3c_master_controller_ops rcar_i3c_master_ops = {
 	.detach_i2c_dev = rcar_i3c_master_detach_i2c_dev,
 };
 
-static int rcar_i3c_master_probe(struct platform_device *pdev)
+int rcar_i3c_master_probe(struct platform_device *pdev)
 {
 	struct rcar_i3c_master *master;
 	int ret, irq;
@@ -1438,7 +1383,7 @@ err_disable_pclk:
 	return ret;
 }
 
-static int rcar_i3c_master_remove(struct platform_device *pdev)
+int rcar_i3c_master_remove(struct platform_device *pdev)
 {
 	struct rcar_i3c_master *master = platform_get_drvdata(pdev);
 	int ret;
@@ -1452,22 +1397,6 @@ static int rcar_i3c_master_remove(struct platform_device *pdev)
 
 	return 0;
 }
-
-static const struct of_device_id rcar_i3c_master_of_ids[] = {
-	{ .compatible = "renesas,rcar-i3c-master"},
-	{ /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(of, rcar_i3c_master_of_match);
-
-static struct platform_driver rcar_i3c_master_driver = {
-	.probe = rcar_i3c_master_probe,
-	.remove = rcar_i3c_master_remove,
-	.driver = {
-		.name = "rcar-i3c-master",
-		.of_match_table = of_match_ptr(rcar_i3c_master_of_ids),
-	},
-};
-module_platform_driver(rcar_i3c_master_driver);
 
 MODULE_DESCRIPTION("Renesas R-Car I3C master driver");
 MODULE_LICENSE("GPL v2");
