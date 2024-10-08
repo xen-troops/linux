@@ -43,14 +43,35 @@ void i3c_reg_update_bit(void __iomem *base, u32 reg,
 	i3c_reg_update(mask, val, base + (reg));
 }
 
+static bool rcar_i3c_is_master(struct device *dev)
+{
+	const char *mode = NULL;
+
+	device_property_read_string(dev, "mode", &mode);
+
+	if (!mode)
+		return true;
+
+	if (strncmp(mode, "target", 6) == 0)
+		return false;
+
+	return true;
+}
+
 static int rcar_i3c_probe(struct platform_device *pdev)
 {
-	return rcar_i3c_master_probe(pdev);
+	if (rcar_i3c_is_master(&pdev->dev))
+		return rcar_i3c_master_probe(pdev);
+
+	return rcar_i3c_target_probe(pdev);
 }
 
 static int rcar_i3c_remove(struct platform_device *pdev)
 {
-	return rcar_i3c_master_remove(pdev);
+	if (rcar_i3c_is_master(&pdev->dev))
+		return rcar_i3c_master_remove(pdev);
+
+	return rcar_i3c_target_remove(pdev);
 }
 
 static const struct of_device_id rcar_i3c_master_of_ids[] = {

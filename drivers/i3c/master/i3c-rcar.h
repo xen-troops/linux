@@ -3,8 +3,14 @@
 #ifndef SVC_I3C_H
 #define SVC_I3C_H
 
+#define I3C_CCC_BROADCAST_ENTDAA	0x07 //Enter Dynamic Address Assignment
+#define I3C_CCC_DIRECT_SETDASA		0x87 // Set Dynamic Address from Static Address
+
 int rcar_i3c_master_probe(struct platform_device *pdev);
 int rcar_i3c_master_remove(struct platform_device *pdev);
+int rcar_i3c_target_probe(struct platform_device *pdev);
+int rcar_i3c_target_remove(struct platform_device *pdev);
+
 u32 i3c_reg_read(void __iomem *base, u32 offset);
 void i3c_reg_write(void __iomem *base, u32 offset, u32 val);
 void i3c_reg_set_bit(void __iomem *base, u32 reg, u32 val);
