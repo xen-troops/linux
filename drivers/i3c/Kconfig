@@ -62,3 +62,7 @@ config I3C_TARGET_CONFIGFS
 	  This will enable the configfs entry that can be used to configure
 	  the target function and used to bind the function with a target
 	  controller.
+
+if I3C_TARGET
+source "drivers/i3c/func/Kconfig"
+endif # I3C_TARGET
