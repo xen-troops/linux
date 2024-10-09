@@ -19,11 +19,7 @@
 
 extern bool xen_scrub_pages;
 
-static inline void xenmem_reservation_scrub_page(struct page *page)
-{
-	if (xen_scrub_pages)
-		clear_highpage(page);
-}
+void xenmem_reservation_scrub_page(struct page *page);
 
 #ifdef CONFIG_XEN_HAVE_PVMMU
 void __xenmem_reservation_va_mapping_update(unsigned long count,
