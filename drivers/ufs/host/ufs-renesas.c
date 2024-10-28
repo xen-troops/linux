@@ -666,9 +666,13 @@ static void ufs_renesas_exit(struct ufs_hba *hba)
 	release_firmware(priv->fw);
 }
 
-static int ufs_renesas_suspend(struct ufs_hba *hba, enum ufs_pm_op op)
+static int ufs_renesas_suspend(struct ufs_hba *hba, enum ufs_pm_op op,
+				enum ufs_notify_change_status status)
 {
 	struct ufs_renesas_priv *priv = ufshcd_get_variant(hba);
+
+	if (status == PRE_CHANGE)
+		return 0;
 
 	/* it shuold be re-initialized again */
 	priv->initialized = false;
