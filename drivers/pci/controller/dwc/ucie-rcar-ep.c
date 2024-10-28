@@ -22,6 +22,8 @@ static int rcar_ucie_ep_get_resources(struct rcar_ucie *ucie, struct platform_de
 
 	ucie->vdk_bypass = of_property_read_bool(pdev->dev.of_node, "vdk-bypass-mode");
 
+	ucie->vdk_bypass = of_property_read_bool(pdev->dev.of_node, "vdk-bypass-mode");
+
 	return 0;
 }
 
