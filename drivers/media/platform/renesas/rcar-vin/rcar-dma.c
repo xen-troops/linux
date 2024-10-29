@@ -1159,7 +1159,7 @@ static void rvin_capture_stop(struct rvin_dev *vin)
  * DMA Functions
  */
 
-#define RVIN_TIMEOUT_MS 100
+#define RVIN_TIMEOUT_MS 1
 #define RVIN_RETRIES 10
 
 static irqreturn_t rvin_irq(int irq, void *data)

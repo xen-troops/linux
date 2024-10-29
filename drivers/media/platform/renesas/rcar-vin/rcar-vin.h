@@ -35,7 +35,7 @@
 /* Max number on VIN instances that can be in a system */
 #define RCAR_VIN_NUM 96
 
-#define MSTP_WAIT_TIME 100
+#define MSTP_WAIT_TIME 1
 
 struct rvin_dev;
 
