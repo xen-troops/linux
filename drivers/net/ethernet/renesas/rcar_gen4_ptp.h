@@ -13,6 +13,9 @@
 #define RCAR_GEN4_PTP_CLOCK_S4		PTPTIVC_INIT
 #define RCAR_GEN4_GPTP_OFFSET_S4	0x00018000
 
+#define RCAR_GEN5_PTP_CLOCK_X5H		PTPTIVC_INIT
+#define RCAR_GEN5_GPTP_OFFSET_X5H	0x00018000
+
 /* for rcar_gen4_ptp_init */
 enum rcar_gen4_ptp_reg_layout {
 	RCAR_GEN4_PTP_REG_LAYOUT
