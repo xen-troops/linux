@@ -20,6 +20,9 @@
 #include <media/mipi-csi2.h>
 #include <media/v4l2-subdev.h>
 
+#define ISPFIFOCTL						0x0004
+#define ISPFIFOCTL_FIFO_PUSH			BIT(2)
+
 #define ISPINPUTSEL0_REG				0x0008
 #define ISPINPUTSEL0_SEL_CSI0				BIT(31)
 
@@ -46,6 +49,8 @@
 #define ISPCS_DT_CODE03_DT0(dt)				((dt) & 0x3f)
 
 #define ISPCS_FILTER_VC_EN_CH(n)			(0x3014 + (0x100 * n))
+
+#define MAX_NUM_PAD 25
 
 enum rcar_soc_type {
         R8A779A0,
@@ -102,6 +107,8 @@ static const struct rcar_isp_format *risp_code_to_fmt(unsigned int code)
 enum rcar_isp_input {
 	RISP_CSI_INPUT0,
 	RISP_CSI_INPUT1,
+	RISP_CSI_INPUT2,
+	RISP_CSI_INPUT3,
 };
 
 enum rcar_isp_pads {
@@ -114,7 +121,31 @@ enum rcar_isp_pads {
 	RCAR_ISP_PORT5,
 	RCAR_ISP_PORT6,
 	RCAR_ISP_PORT7,
-	RCAR_ISP_NUM_PADS,
+	RCAR_ISP_PORT8,
+	RCAR_ISP_PORT9,
+	RCAR_ISP_PORT10,
+	RCAR_ISP_PORT11,
+	RCAR_ISP_PORT12,
+	RCAR_ISP_PORT13,
+	RCAR_ISP_PORT14,
+	RCAR_ISP_PORT15,
+	RCAR_ISP_PORT16,
+	RCAR_ISP_PORT17,
+	RCAR_ISP_PORT18,
+	RCAR_ISP_PORT19,
+	RCAR_ISP_PORT20,
+	RCAR_ISP_PORT21,
+	RCAR_ISP_PORT22,
+	RCAR_ISP_PORT23,
+};
+
+struct rcar_isp;
+
+struct rcar_isp_info {
+	int soc_id;
+	void (*risp_start)(struct rcar_isp *isp, const struct rcar_isp_format *format);
+	int max_csi_input;
+	int num_vin_conn_bridge;
 };
 
 struct rcar_isp {
@@ -125,7 +156,7 @@ struct rcar_isp {
 	enum rcar_isp_input csi_input;
 
 	struct v4l2_subdev subdev;
-	struct media_pad pads[RCAR_ISP_NUM_PADS];
+	struct media_pad pads[MAX_NUM_PAD];
 
 	struct v4l2_async_notifier notifier;
 	struct v4l2_subdev *remote;
@@ -133,6 +164,7 @@ struct rcar_isp {
 	struct mutex lock; /* Protects mf and stream_count. */
 	struct v4l2_mbus_framefmt mf;
 	int stream_count;
+	const struct rcar_isp_info *info;
 };
 
 static inline struct rcar_isp *sd_to_isp(struct v4l2_subdev *sd)
@@ -182,11 +214,107 @@ static void risp_power_off(struct rcar_isp *isp)
 	pm_runtime_put(isp->dev);
 }
 
+static void risp_start_gen3(struct rcar_isp *isp, const struct rcar_isp_format *format)
+{
+	unsigned int vc;
+	u32 sel_csi = 0;
+
+	/* Stage 1: Pixel Reconstructor (for MIPI CSI-2 based data types) */
+	risp_write(isp, ISPPROCMODE_DT_REG(format->datatype),
+		   ISPPROCMODE_DT_PROC_MODE_VC3(format->procmode) |
+		   ISPPROCMODE_DT_PROC_MODE_VC2(format->procmode) |
+		   ISPPROCMODE_DT_PROC_MODE_VC1(format->procmode) |
+		   ISPPROCMODE_DT_PROC_MODE_VC0(format->procmode));
+
+	/* Stage 1: Pixel Reconstructor (for custom data formats) <-- Skipped */
+
+	/* Configure Channel Selector. */
+	for (vc = 0; vc < 4; vc++) {
+		u8 ch = vc + 4;
+		u8 dt = format->datatype;
+
+		/* Stage 2: VC Filter */
+		risp_write(isp, ISPCS_FILTER_ID_CH_REG(ch), BIT(vc));
+
+		/* Stage 3: DT_CODE Filter */
+		risp_write(isp, ISPCS_DT_CODE03_CH_REG(ch),
+			   ISPCS_DT_CODE03_EN3 | ISPCS_DT_CODE03_DT3(dt) |
+			   ISPCS_DT_CODE03_EN2 | ISPCS_DT_CODE03_DT2(dt) |
+			   ISPCS_DT_CODE03_EN1 | ISPCS_DT_CODE03_DT1(dt) |
+			   ISPCS_DT_CODE03_EN0 | ISPCS_DT_CODE03_DT0(dt));
+
+		/* Stage 4: Line count ID <-- Skipped */
+
+		/* Stage 5: Line count Filter <-- Skipped */
+
+		/* Stage 6: Horizontal Clipping <-- Skipped */
+
+		/* Stage 7: Vertical Clipping <-- Skipped */
+
+		/* Stage 8: De-Interleaveing Filter <-- Skipped */
+	}
+
+	/* FIFO enable for CSI */
+	risp_write(isp, ISPFIFOCTL,
+			   risp_read(isp, ISPFIFOCTL) | ISPFIFOCTL_FIFO_PUSH);
+
+	/* Select CSI-2 input source. */
+	if (isp->csi_input == RISP_CSI_INPUT1)
+		sel_csi = ISPINPUTSEL0_SEL_CSI0;
+
+	risp_write(isp, ISPINPUTSEL0_REG,
+		   risp_read(isp, ISPINPUTSEL0_REG) | sel_csi);
+}
+
+static void risp_start_gen5(struct rcar_isp *isp, const struct rcar_isp_format *format)
+{
+	unsigned int vc;
+
+	/* Stage 1: Pixel Reconstructor (for MIPI CSI-2 based data types) */
+	risp_write(isp, ISPPROCMODE_DT_REG(format->datatype),
+		   ISPPROCMODE_DT_PROC_MODE_VC3(format->procmode) |
+		   ISPPROCMODE_DT_PROC_MODE_VC2(format->procmode) |
+		   ISPPROCMODE_DT_PROC_MODE_VC1(format->procmode) |
+		   ISPPROCMODE_DT_PROC_MODE_VC0(format->procmode));
+
+	/* Stage 1: Pixel Reconstructor (for custom data formats) <-- Skipped */
+
+	/* Configure Channel Selector. */
+	for (vc = 0; vc < 4; vc++) {
+		u8 ch = vc + 4;
+		u8 dt = format->datatype;
+
+		/* Stage 2: VC Filter */
+		risp_write(isp, ISPCS_FILTER_VC_EN_CH(ch), BIT(vc));
+
+		/* Stage 3: DT_CODE Filter */
+		risp_write(isp, ISPCS_DT_CODE03_CH_REG(ch),
+			   ISPCS_DT_CODE03_EN3 | ISPCS_DT_CODE03_DT3(dt) |
+			   ISPCS_DT_CODE03_EN2 | ISPCS_DT_CODE03_DT2(dt) |
+			   ISPCS_DT_CODE03_EN1 | ISPCS_DT_CODE03_DT1(dt) |
+			   ISPCS_DT_CODE03_EN0 | ISPCS_DT_CODE03_DT0(dt));
+
+		/* Stage 4: LUT based Line Filter */
+
+		/* Stage 5: Horizontal Clipping Filter */
+
+		/* Stage 6: Vertical Clipping Filter */
+
+		/* Stage 7: LUT based Pixel Filter */
+
+		/* Stage 8: LUT based Frame Filter */
+	}
+
+	/* FIFO enable for CSI */
+	risp_write(isp, ISPFIFOCTL,
+			   risp_read(isp, ISPFIFOCTL) | ISPFIFOCTL_FIFO_PUSH);
+
+	/* Select CSI-2 input source. <-- Skipped */
+}
+
 static int risp_start(struct rcar_isp *isp)
 {
 	const struct rcar_isp_format *format;
-	unsigned int vc;
-	u32 sel_csi = 0;
 	int ret;
 
 	format = risp_code_to_fmt(isp->mf.code);
@@ -201,35 +329,7 @@ static int risp_start(struct rcar_isp *isp)
 		return ret;
 	}
 
-	/* Select CSI-2 input source. */
-	if (isp->csi_input == RISP_CSI_INPUT1)
-		sel_csi = ISPINPUTSEL0_SEL_CSI0;
-
-	risp_write(isp, ISPINPUTSEL0_REG,
-		   risp_read(isp, ISPINPUTSEL0_REG) | sel_csi);
-
-	/* Configure Channel Selector. */
-	for (vc = 0; vc < 4; vc++) {
-		u8 ch = vc + 4;
-		u8 dt = format->datatype;
-
-		if((enum rcar_soc_type)of_device_get_match_data(isp->dev) == R8A78000)
-			risp_write(isp, ISPCS_FILTER_VC_EN_CH(ch), BIT(vc));
-		else
-			risp_write(isp, ISPCS_FILTER_ID_CH_REG(ch), BIT(vc));
-		risp_write(isp, ISPCS_DT_CODE03_CH_REG(ch),
-			   ISPCS_DT_CODE03_EN3 | ISPCS_DT_CODE03_DT3(dt) |
-			   ISPCS_DT_CODE03_EN2 | ISPCS_DT_CODE03_DT2(dt) |
-			   ISPCS_DT_CODE03_EN1 | ISPCS_DT_CODE03_DT1(dt) |
-			   ISPCS_DT_CODE03_EN0 | ISPCS_DT_CODE03_DT0(dt));
-	}
-
-	/* Setup processing method. */
-	risp_write(isp, ISPPROCMODE_DT_REG(format->datatype),
-		   ISPPROCMODE_DT_PROC_MODE_VC3(format->procmode) |
-		   ISPPROCMODE_DT_PROC_MODE_VC2(format->procmode) |
-		   ISPPROCMODE_DT_PROC_MODE_VC1(format->procmode) |
-		   ISPPROCMODE_DT_PROC_MODE_VC0(format->procmode));
+	isp->info->risp_start(isp, format);
 
 	/* Start ISP. */
 	risp_write(isp, ISPSTART_REG, ISPSTART_START);
@@ -389,7 +489,7 @@ static int risp_parse_dt(struct rcar_isp *isp)
 	unsigned int id;
 	int ret;
 
-	for (id = 0; id < 2; id++) {
+	for (id = 0; id < isp->info->max_csi_input; id++) {
 		ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(isp->dev),
 						     0, id, 0);
 		if (ep)
@@ -401,6 +501,7 @@ static int risp_parse_dt(struct rcar_isp *isp)
 		return -EINVAL;
 	}
 
+	 /* for Gen3/4 only */
 	if (id == 1)
 		isp->csi_input = RISP_CSI_INPUT1;
 
@@ -451,10 +552,31 @@ static int risp_probe_resources(struct rcar_isp *isp,
 	return 0;
 }
 
+static const struct rcar_isp_info rcar_isp_info_r8a779a0 = {
+	.soc_id = R8A779A0,
+	.risp_start = risp_start_gen3,
+	.max_csi_input = 4,
+	.num_vin_conn_bridge = 8
+};
+
+static const struct rcar_isp_info rcar_isp_info_r8a779g0 = {
+	.soc_id = R8A779G0,
+	.risp_start = risp_start_gen3,
+	.max_csi_input = 4,
+	.num_vin_conn_bridge = 8
+};
+
+static const struct rcar_isp_info rcar_isp_info_r8a78000 = {
+	.soc_id = R8A78000,
+	.risp_start = risp_start_gen5,
+	.max_csi_input = 4,
+	.num_vin_conn_bridge = 24
+};
+
 static const struct of_device_id risp_of_id_table[] = {
-	{ .compatible = "renesas,r8a779a0-isp", .data = (void *)R8A779A0 },
-	{ .compatible = "renesas,r8a779g0-isp", .data = (void *)R8A779G0 },
-	{ .compatible = "renesas,r8a78000-isp", .data = (void *)R8A78000 },
+	{ .compatible = "renesas,r8a779a0-isp", .data = &rcar_isp_info_r8a779a0 },
+	{ .compatible = "renesas,r8a779g0-isp", .data = &rcar_isp_info_r8a779g0 },
+	{ .compatible = "renesas,r8a78000-isp", .data = &rcar_isp_info_r8a78000 },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, risp_of_id_table);
@@ -468,6 +590,8 @@ static int risp_probe(struct platform_device *pdev)
 	isp = devm_kzalloc(&pdev->dev, sizeof(*isp), GFP_KERNEL);
 	if (!isp)
 		return -ENOMEM;
+
+	isp->info = of_device_get_match_data(&pdev->dev);
 
 	isp->dev = &pdev->dev;
 
@@ -499,10 +623,10 @@ static int risp_probe(struct platform_device *pdev)
 	isp->subdev.entity.ops = &risp_entity_ops;
 
 	isp->pads[RCAR_ISP_SINK].flags = MEDIA_PAD_FL_SINK;
-	for (i = RCAR_ISP_PORT0; i < RCAR_ISP_NUM_PADS; i++)
+	for (i = RCAR_ISP_PORT0; i <= isp->info->num_vin_conn_bridge; i++)
 		isp->pads[i].flags = MEDIA_PAD_FL_SOURCE;
 
-	ret = media_entity_pads_init(&isp->subdev.entity, RCAR_ISP_NUM_PADS,
+	ret = media_entity_pads_init(&isp->subdev.entity, isp->info->num_vin_conn_bridge,
 				     isp->pads);
 	if (ret)
 		goto error_notifier;
