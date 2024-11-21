@@ -50,6 +50,14 @@
 
 #define ISPCS_FILTER_VC_EN_CH(n)			(0x3014 + (0x100 * n))
 
+#define ISPCS_LUT_FILTER_CTRL_CH(n)			(0x3040+(0x100 * n))
+#define CPLX								BIT(31)
+#define LINE_FILTER_LUT_LENGTH_MINUS1		GENMASK(22,16)
+#define FRAME_FILTER_LUT_LENGTH_MINUS1		GENMASK(30,24)
+#define ENABLE_FRAME_FILTER					BIT(13)
+#define ENABLE_LINE_FILTER					BIT(12)
+#define PIXEL_FILTER_LUT_LENGTH_MINUS1		GENMASK(8,0)
+
 #define MAX_NUM_PAD 25
 
 enum rcar_soc_type {
@@ -295,14 +303,17 @@ static void risp_start_gen5(struct rcar_isp *isp, const struct rcar_isp_format *
 			   ISPCS_DT_CODE03_EN0 | ISPCS_DT_CODE03_DT0(dt));
 
 		/* Stage 4: LUT based Line Filter */
+		risp_write(isp, ISPCS_LUT_FILTER_CTRL_CH(ch),
+					risp_read(isp, ISPCS_LUT_FILTER_CTRL_CH(ch)) &
+					~CPLX & ~ENABLE_LINE_FILTER &~ENABLE_FRAME_FILTER);
 
-		/* Stage 5: Horizontal Clipping Filter */
+		/* Stage 5: Horizontal Clipping Filter <-- Skipped */
 
-		/* Stage 6: Vertical Clipping Filter */
+		/* Stage 6: Vertical Clipping Filter <-- Skipped */
 
-		/* Stage 7: LUT based Pixel Filter */
+		/* Stage 7: LUT based Pixel Filter <-- Skipped */
 
-		/* Stage 8: LUT based Frame Filter */
+		/* Stage 8: LUT based Frame Filter <-- Skipped */
 	}
 
 	/* FIFO enable for CSI */
