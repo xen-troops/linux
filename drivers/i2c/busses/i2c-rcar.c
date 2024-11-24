@@ -1191,20 +1191,22 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 
 	/* R-Car Gen3+ needs a reset before every transfer */
 	if (priv->devtype >= I2C_RCAR_GEN3) {
-		if (priv->devtype == I2C_RCAR_GEN5)
+		if (priv->devtype != I2C_RCAR_GEN5) {
+			priv->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+			if (IS_ERR(priv->rstc)) {
+				ret = PTR_ERR(priv->rstc);
+				goto out_pm_put;
+			}
+
+			ret = reset_control_status(priv->rstc);
+			if (ret < 0)
+				goto out_pm_put;
+
+			/* hard reset disturbs HostNotify local target, so disable it */
+			priv->flags &= ~ID_P_HOST_NOTIFY;
+		} else {
 			irqflags |= IRQF_SHARED;
-		priv->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
-		if (IS_ERR(priv->rstc)) {
-			ret = PTR_ERR(priv->rstc);
-			goto out_pm_put;
 		}
-
-		ret = reset_control_status(priv->rstc);
-		if (ret < 0)
-			goto out_pm_put;
-
-		/* hard reset disturbs HostNotify local target, so disable it */
-		priv->flags &= ~ID_P_HOST_NOTIFY;
 	}
 
 	ret = platform_get_irq(pdev, 0);
