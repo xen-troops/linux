@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
+#include <linux/i3c/target.h>
 
 #define PRTS			0x00
 #define PRTS_PRTMD		BIT(0)
@@ -126,6 +127,8 @@
 
 #define BIDLCDT			0x84
 #define BIDLCDT_IDLCYC(x)	(((x) & 0x3ffff) << 0)
+
+#define TMOCTL                  0x90
 
 #define ACKCTL			0xa0
 #define ACKCTL_ACKR		BIT(0)
@@ -292,10 +295,10 @@
 #define I3C_BUS_AVAL_TIME_NS	1000		/* 1us */
 #define I3C_BUS_IDLE_TIME_NS	200000		/* 200us */
 
-#define RCAR_I3C_MAX_DEVS	8
+#define RCAR_I3C_MAX_DEVS	1
 #define I2C_INIT_MSG		-1
 #define XFER_TIMEOUT		(msecs_to_jiffies(1000))
-#define NTDTBP0_DEPTH		16
+#define NTDTBP0_DEPTH		32
 
 #include "i3c-rcar.h"
 
@@ -350,33 +353,44 @@ struct rcar_i3c_i2c_dev_data {
 	u8 index;
 };
 
-static u8 i3c_address_parity_cal(u8 addr)
+inline void i3c_reg_update(u32 mask, u32 val, u32 __iomem *reg)
 {
-	u8 par = addr | BIT(7);
-	u8 i;
+	u32 data = readl(reg);
 
-	for (i = 1; i < 8; i++)
-		par ^= ((addr << i) & BIT(7));
+	data &= ~mask;
+	data |= (val & mask);
+	writel(data, reg);
+}
 
-	return par;
+inline u32 i3c_reg_read(void __iomem *base, u32 offset)
+{
+	return readl(base + (offset));
+}
+
+inline void i3c_reg_write(void __iomem *base, u32 offset, u32 val)
+{
+	writel(val, base + (offset));
+}
+
+void i3c_reg_set_bit(void __iomem *base, u32 reg, u32 val)
+{
+	i3c_reg_update(val, val, base + (reg));
+}
+
+void i3c_reg_clear_bit(void __iomem *base, u32 reg, u32 val)
+{
+	i3c_reg_update(val, 0, base + (reg));
+}
+
+void i3c_reg_update_bit(void __iomem *base, u32 reg, u32 mask, u32 val)
+{
+	i3c_reg_update(mask, val, base + (reg));
 }
 
 static inline struct rcar_i3c_master *
 to_rcar_i3c_master(struct i3c_master_controller *master)
 {
 	return container_of(master, struct rcar_i3c_master, base);
-}
-
-static int rcar_i3c_master_get_addr_pos(struct rcar_i3c_master *master, u8 addr)
-{
-	int pos;
-
-	for (pos = 0; pos < master->maxdevs; pos++) {
-		if (addr == master->addrs[pos])
-			return pos;
-	}
-
-	return -EINVAL;
 }
 
 static int rcar_i3c_master_get_free_pos(struct rcar_i3c_master *master)
@@ -411,6 +425,7 @@ static void rcar_i3c_master_free_xfer(struct rcar_i3c_xfer *xfer)
 static void rcar_i3c_master_write_to_tx_fifo(struct rcar_i3c_master *master,
 					     const u8 *data, int nbytes)
 {
+	usleep_range(15, 20);
 	writesl(master->regs + NTDTBP0, data, nbytes / 4);
 	if (nbytes & 3) {
 		u32 tmp = 0;
@@ -418,6 +433,8 @@ static void rcar_i3c_master_write_to_tx_fifo(struct rcar_i3c_master *master,
 		memcpy(&tmp, data + (nbytes & ~3), nbytes & 3);
 		writesl(master->regs + NTDTBP0, &tmp, 1);
 	}
+	/* Clear the Transmit Buffer Empty status flag. */
+	i3c_reg_clear_bit(master->regs, NTST, NTST_TDBEF0);
 }
 
 static void rcar_i3c_master_read_from_rx_fifo(struct rcar_i3c_master *master,
@@ -489,7 +506,7 @@ static void rcar_i3c_master_start_xfer_locked(struct rcar_i3c_master *master)
 		 * then it will be written in the Write Buffer Empty IRQ.
 		 */
 		if (cmd->len > NTDTBP0_DEPTH * sizeof(u32)) {
-			/* Enable the Write Buffer Empty IRQ. */
+		/* Enable the Write Buffer Empty IRQ. */
 			i3c_reg_set_bit(master->regs, NTIE, NTIE_TDBEIE0);
 		}
 	}
@@ -539,7 +556,7 @@ static void rcar_i3c_master_bus_enable(struct i3c_master_controller *m, bool i3c
 		/* I3C protocol mode */
 		i3c_reg_write(master->regs, PRTS, 0);
 		i3c_reg_set_bit(master->regs, BCTL, BCTL_HJACKCTL | BCTL_INCBA);
-		i3c_reg_set_bit(master->regs, MSDVAD, MSDVAD_MDYADV);
+		i3c_reg_update_bit(master->regs, MSDVAD, MSDVAD_MDYADV, MSDVAD_MDYADV);
 		i3c_reg_write(master->regs, STDBR, master->STDBR_I3C_MODE);
 	} else {
 		/* I2C protocol mode */
@@ -624,11 +641,7 @@ static int rcar_i3c_master_bus_init(struct i3c_master_controller *m)
 
 	/* Setting Standard bit rate */
 	double_SBR = od_low_ticks > 0xFF ? true : false;
-	master->STDBR_I3C_MODE = (double_SBR ? STDBR_DSBRPO : 0) |
-			STDBR_SBRLO(double_SBR, od_low_ticks) |
-			STDBR_SBRHO(double_SBR, od_high_ticks) |
-			STDBR_SBRLP(pp_low_ticks) |
-			STDBR_SBRHP(pp_high_ticks);
+	master->STDBR_I3C_MODE =  0x08080808;
 
 	od_low_ticks -= scl_falling_ns / (1000000000 / rate) + 1;
 	od_high_ticks -= scl_rising_ns / (1000000000 / rate) + 1;
@@ -640,12 +653,9 @@ static int rcar_i3c_master_bus_init(struct i3c_master_controller *m)
 	i3c_reg_write(master->regs, STDBR, master->STDBR_I3C_MODE);
 
 	/* Extended Bit Rate setting */
-	i3c_reg_write(master->regs, EXTBR, EXTBR_EBRLO(od_low_ticks) |
-					   EXTBR_EBRHO(od_high_ticks) |
-					   EXTBR_EBRLP(pp_low_ticks) |
-					   EXTBR_EBRHP(pp_high_ticks));
+	i3c_reg_write(master->regs, EXTBR, 0x3F3FFFFF);
 
-	i3c_reg_write(master->regs, REFCKCTL, REFCKCTL_IREFCKS(cks));
+	i3c_reg_write(master->regs, REFCKCTL, 0);
 
 	/* Disable Slave Mode */
 	i3c_reg_write(master->regs, SVCTL, 0);
@@ -656,17 +666,17 @@ static int rcar_i3c_master_bus_init(struct i3c_master_controller *m)
 
 	/* The only supported configuration is two entries*/
 	i3c_reg_write(master->regs, NTBTHCTL0, 0);
+
 	/* Interrupt when there is one entry in the queue */
 	i3c_reg_write(master->regs, NRQTHCTL, 0);
 
 	/* Enable all Bus/Transfer Status Flags. */
 	i3c_reg_write(master->regs, BSTE, BSTE_ALL_FLAG);
 	i3c_reg_write(master->regs, NTSTE, NTSTE_ALL_FLAG);
-
-	i3c_reg_write(master->regs, INSTE, INSTE_INEE);
+	//i3c_reg_write(master->regs, INSTE, INSTE_INEE);
 
 	/* Interrupt enable settings */
-	i3c_reg_write(master->regs, INIE, INIE_INEIE);
+	//i3c_reg_write(master->regs, INIE, INIE_INEIE);
 	i3c_reg_write(master->regs, BIE, BIE_NACKDIE | BIE_TENDIE);
 	i3c_reg_write(master->regs, NTIE, NTIE_RSQFIE |
 		      NTIE_IBIQEFIE | NTIE_RDBFIE0);
@@ -684,15 +694,12 @@ static int rcar_i3c_master_bus_init(struct i3c_master_controller *m)
 
 	i3c_reg_write(master->regs, SCSTLCTL, 0);
 	i3c_reg_set_bit(master->regs, SCSTRCTL, SCSTRCTL_ACKTWE);
+	i3c_reg_write(master->regs, TMOCTL, 0x00000033);
 
 	/* Setting bus condition detection timing */
-	val = DIV_ROUND_UP(I3C_BUS_FREE_TIME_NS, 1000000000 / rate);
+	val =  0x5;
 	i3c_reg_write(master->regs, BFRECDT, BFRECDT_FRECYC(val));
-
-	val = DIV_ROUND_UP(I3C_BUS_AVAL_TIME_NS, 1000000000 / rate);
 	i3c_reg_write(master->regs, BAVLCDT, BAVLCDT_AVLCYC(val));
-
-	val = DIV_ROUND_UP(I3C_BUS_IDLE_TIME_NS, 1000000000 / rate);
 	i3c_reg_write(master->regs, BIDLCDT, BIDLCDT_IDLCYC(val));
 
 	/* Get an address for I3C master. */
@@ -703,7 +710,6 @@ static int rcar_i3c_master_bus_init(struct i3c_master_controller *m)
 	/* Setting Master Dynamic Address. */
 	i3c_reg_write(master->regs, MSDVAD,
 		      MSDVAD_MDYAD(ret) | MSDVAD_MDYADV);
-
 	memset(&info, 0, sizeof(info));
 	info.dyn_addr = ret;
 	ret = i3c_master_set_info(&master->base, &info);
@@ -749,12 +755,9 @@ static int rcar_i3c_master_daa(struct i3c_master_controller *m)
 		ret = i3c_master_get_free_addr(m, last_addr + 1);
 		if (ret < 0)
 			return -ENOSPC;
-
 		master->addrs[pos] = ret;
 		last_addr = ret;
-
-		i3c_reg_write(master->regs, DATBAS(pos),
-			      DATBAS_DVDYAD(i3c_address_parity_cal(ret)));
+		i3c_reg_write(master->regs, DATBAS(pos), 0x10000);
 	}
 
 	xfer = rcar_i3c_master_alloc_xfer(master, 1);
@@ -764,8 +767,8 @@ static int rcar_i3c_master_daa(struct i3c_master_controller *m)
 	init_completion(&xfer->comp);
 	cmd = xfer->cmds;
 	cmd->rx_count = 0;
-
 	pos = rcar_i3c_master_get_free_pos(master);
+
 	if (pos < 0) {
 		rcar_i3c_master_free_xfer(xfer);
 		return pos;
@@ -850,7 +853,7 @@ static int rcar_i3c_master_send_ccc_cmd(struct i3c_master_controller *m,
 	init_completion(&xfer->comp);
 
 	if (ccc->id & I3C_CCC_DIRECT) {
-		pos = rcar_i3c_master_get_addr_pos(master, ccc->dests[0].addr);
+		pos = 0;
 		if (pos < 0)
 			return pos;
 	} else {
@@ -972,12 +975,11 @@ static int rcar_i3c_master_attach_i3c_dev(struct i3c_dev_desc *dev)
 		return -ENOMEM;
 
 	data->index = pos;
-	master->addrs[pos] = dev->info.dyn_addr ? : dev->info.static_addr;
+
+	master->addrs[pos] = 1;
 	master->free_pos &= ~BIT(pos);
 
-	i3c_reg_write(master->regs, DATBAS(pos),
-		      DATBAS_DVSTAD(dev->info.static_addr) |
-		      DATBAS_DVDYAD(i3c_address_parity_cal(master->addrs[pos])));
+	i3c_reg_write(master->regs, DATBAS(pos), 0x10000);
 	i3c_dev_set_master_data(dev, data);
 
 	return 0;
@@ -990,8 +992,7 @@ static int rcar_i3c_master_reattach_i3c_dev(struct i3c_dev_desc *dev,
 	struct i3c_master_controller *m = i3c_dev_get_master(dev);
 	struct rcar_i3c_master *master = to_rcar_i3c_master(m);
 
-	master->addrs[data->index] = dev->info.dyn_addr ? dev->info.dyn_addr :
-							dev->info.static_addr;
+	master->addrs[data->index] = 1;
 
 	return 0;
 }
@@ -1108,7 +1109,7 @@ static irqreturn_t rcar_i3c_master_resp_isr(struct rcar_i3c_master *master, u32 
 {
 	struct rcar_i3c_xfer *xfer = master->xferqueue.cur;
 	struct rcar_i3c_cmd *cmd = xfer->cmds;
-	int ret = 0;
+	int ret, read_bytes = 0;
 	u32 bytes_remaining = 0;
 	u32 resp, data_len;
 
@@ -1116,13 +1117,20 @@ static irqreturn_t rcar_i3c_master_resp_isr(struct rcar_i3c_master *master, u32 
 	resp = i3c_reg_read(master->regs, NRSPQP);
 	/* Clear the Respone Queue Full status flag*/
 	i3c_reg_clear_bit(master->regs, NTST, NTST_RSPQFF);
-
 	/* Read the DATA_LENGTH field in the response descriptor. */
 	data_len = NRSPQP_DATA_LEN(resp);
 	switch (master->internal_state) {
 	case I3C_INTERNAL_STATE_MASTER_ENTDAA:
-		cmd->rx_count = data_len;
-		break;
+		read_bytes = NDBSTLV0_RDBLV(i3c_reg_read(master->regs, NDBSTLV0)) * sizeof(u32);
+		i3c_reg_set_bit(master->regs, NTIE, NTIE_RSPQFIE);
+		/* Read PID, BCR, DCR data */
+		i3c_reg_read(master->regs, NTDTBP0);
+		i3c_reg_read(master->regs, NTDTBP0);
+		read_bytes -= 8;
+		cmd->rx_count++;
+		if (cmd->rx_count == NRSPQP_DATA_LEN(resp))
+			return IRQ_HANDLED;
+	break;
 	case I3C_INTERNAL_STATE_MASTER_WRITE:
 	case I3C_INTERNAL_STATE_MASTER_COMMAND_WRITE:
 		/* Disable the transmit IRQ if it hasn't been disabled already. */
@@ -1227,6 +1235,7 @@ static irqreturn_t rcar_i3c_master_rx_isr(struct rcar_i3c_master *master, u32 is
 		read_bytes = NDBSTLV0_RDBLV(i3c_reg_read(master->regs, NDBSTLV0)) * sizeof(u32);
 		if (master->internal_state == I3C_INTERNAL_STATE_MASTER_ENTDAA && read_bytes == 8) {
 			i3c_reg_set_bit(master->regs, NTIE, NTIE_RSPQFIE);
+			/* Read PID, BCR, DCR data */
 			i3c_reg_read(master->regs, NTDTBP0);
 			i3c_reg_read(master->regs, NTDTBP0);
 			cmd->rx_count++;
@@ -1395,9 +1404,38 @@ int rcar_i3c_master_remove(struct platform_device *pdev)
 	clk_disable_unprepare(master->tclk);
 	clk_disable_unprepare(master->pclk);
 
+	dev_info(&pdev->dev, "removed successfully\n");
 	return 0;
 }
 
+static const struct of_device_id rcar_i3c_master_of_ids[] = {
+	{ .compatible = "renesas,rcar-i3c-master"},
+	{ /* sentinel */ },
+};
+
+MODULE_DEVICE_TABLE(of, rcar_i3c_master_of_ids);
+
+static struct platform_driver rcar_i3c_master_driver = {
+	.probe = rcar_i3c_master_probe,
+	.remove = rcar_i3c_master_remove,
+	.driver = {
+		.name = "rcar-i3c-master",
+		.of_match_table = rcar_i3c_master_of_ids,
+	},
+};
+
+static int __init rcar_i3c_master_init(void)
+{
+	return platform_driver_register(&rcar_i3c_master_driver);
+}
+
+static void __exit rcar_i3c_master_exit(void)
+{
+	platform_driver_unregister(&rcar_i3c_master_driver);
+}
+
+module_init(rcar_i3c_master_init);
+module_exit(rcar_i3c_master_exit);
+
 MODULE_DESCRIPTION("Renesas R-Car I3C master driver");
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("platform:rcar-i3c-master");

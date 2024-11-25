@@ -61,7 +61,7 @@
 #define INIE			0x38
 #define INIE_INEIE		BIT(10)
 
-#define TMOCTL			0x58
+#define TMOCTL			0x90
 
 #define SVCTL			0x64
 #define SVCTL_GCAE		BIT(0)
@@ -324,7 +324,7 @@
 #define I3C_BUS_IDEL_TIME_NS	200000		/* 200us */
 
 #define XFER_TIMEOUT		(msecs_to_jiffies(1000))
-#define NTDTBP0_DEPTH		16
+#define NTDTBP0_DEPTH		32
 #define RCAR_I3C_MAX_SLVS	3
 
 struct rcar_i3c_target {
@@ -452,7 +452,7 @@ static int rcar_i3c_target_enable(struct i3c_target_ctrl *ctrl)
 	i3c_reg_write(target->regs, BST, 0);
 
 	/* Baudrate setting is not used */
-	i3c_reg_write(target->regs, STDBR, 0);
+	i3c_reg_write(target->regs, STDBR, 0x3f000000);
 
 	/* Configure Normal Queue Threshold */
 	i3c_reg_write(target->regs, NTBTHCTL0,  NTBTHCTL0_TXDBTH(0) | NTBTHCTL0_RXDBTH(0) |
@@ -461,13 +461,9 @@ static int rcar_i3c_target_enable(struct i3c_target_ctrl *ctrl)
 	i3c_reg_write(target->regs, NRQTHCTL, 0);
 
 	/* Bus condition timing */
-	val = DIV_ROUND_UP(I3C_BUS_FREE_TIME_NS, 1000000000 / rate);
+	val = 0x5;
 	i3c_reg_write(target->regs, BFRECDT, BFRECDT_FRECYC(val));
-
-	val = DIV_ROUND_UP(I3C_BUS_AVAL_TIME_NS, 1000000000 / rate);
 	i3c_reg_write(target->regs, BAVLCDT, BAVLCDT_AVLCYC(val));
-
-	val = DIV_ROUND_UP(I3C_BUS_IDEL_TIME_NS, 1000000000 / rate);
 	i3c_reg_write(target->regs, BIDLCDT, BIDLCDT_IDLCYC(val));
 
 	/* Disable Timeout Detection */
@@ -1120,11 +1116,6 @@ int rcar_i3c_target_probe(struct platform_device *pdev)
 	if (IS_ERR(target->regs))
 		return PTR_ERR(target->regs);
 
-	/* Clock for SFRs 100MHz
-	target->pclkrw = devm_clk_get(&pdev->dev, "pclkrw");
-	if (IS_ERR(target->pclkrw))
-		return PTR_ERR(target->pclkrw);*/
-
 	/* Bus clock 100 MHz*/
 	target->pclk = devm_clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(target->pclk))
@@ -1133,28 +1124,6 @@ int rcar_i3c_target_probe(struct platform_device *pdev)
 	target->tclk = devm_clk_get(&pdev->dev, "tclk");
 	if (IS_ERR(target->tclk))
 		return PTR_ERR(target->tclk);
-
-	/* APB interface reset signal/SCAN reset signal
-	treset = devm_reset_control_get_optional_exclusive(&pdev->dev, "tresetn");
-	if (IS_ERR(treset))
-		return dev_err_probe(&pdev->dev, PTR_ERR(treset),
-					 "Error: missing tresetn ctrl\n");
-
-	ret = reset_control_deassert(treset);
-	if (ret)
-		return ret;*/
-	/*Reset signal
-	preset = devm_reset_control_get_optional_exclusive(&pdev->dev, "presetn");
-	if (IS_ERR(preset))
-		return dev_err_probe(&pdev->dev, PTR_ERR(preset),
-					 "Error: missing presetn ctrl\n");
-
-	ret = reset_control_deassert(preset);
-	if (ret)
-		return ret;*/
-	/* ret = clk_prepare_enable(target->pclkrw);
-	if (ret)
-		return ret;*/
 
 	ret = clk_prepare_enable(target->pclk);
 	if (ret)

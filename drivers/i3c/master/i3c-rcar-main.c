@@ -60,33 +60,28 @@ static bool rcar_i3c_is_master(struct device *dev)
 
 static int rcar_i3c_probe(struct platform_device *pdev)
 {
-	if (rcar_i3c_is_master(&pdev->dev))
-		return rcar_i3c_master_probe(pdev);
-
 	return rcar_i3c_target_probe(pdev);
 }
 
 static int rcar_i3c_remove(struct platform_device *pdev)
 {
-	if (rcar_i3c_is_master(&pdev->dev))
-		return rcar_i3c_master_remove(pdev);
-
 	return rcar_i3c_target_remove(pdev);
 }
 
-static const struct of_device_id rcar_i3c_master_of_ids[] = {
-	{ .compatible = "renesas,rcar-i3c-master"},
+static const struct of_device_id rcar_i3c_slave_of_ids[] = {
+	{ .compatible = "renesas,rcar-i3c-slave"},
 	{ /* sentinel */ },
 };
 
-MODULE_DEVICE_TABLE(of, rcar_i3c_master_of_match);
+MODULE_DEVICE_TABLE(of, rcar_i3c_slave_of_ids);
 
-static struct platform_driver rcar_i3c_master_driver = {
+static struct platform_driver rcar_i3c_slave_driver = {
 	.probe = rcar_i3c_probe,
 	.remove = rcar_i3c_remove,
 	.driver = {
-		.name = "rcar-i3c-master",
-		.of_match_table = rcar_i3c_master_of_ids,
+		.name = "rcar-i3c-slave",
+		.of_match_table = rcar_i3c_slave_of_ids,
 	},
 };
-module_platform_driver(rcar_i3c_master_driver);
+
+module_platform_driver(rcar_i3c_slave_driver);
