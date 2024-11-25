@@ -25,7 +25,7 @@ static struct tty_driver *i3c_tty_driver;
 #define I3C_TTY_MINORS		8
 
 #define I3C_TX_NOEMPTY		BIT(0)
-#define I3C_TTY_TRANS_SIZE	16
+#define I3C_TTY_TRANS_SIZE	32
 #define I3C_TTY_IBI_TX		BIT(0)
 
 struct ttyi3c_port {
@@ -430,8 +430,8 @@ static int __init i3c_tty_init(void)
 {
 	int ret;
 
-	i3c_tty_driver = tty_alloc_driver(
-		I3C_TTY_MINORS, TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV);
+	i3c_tty_driver = tty_alloc_driver(I3C_TTY_MINORS,
+					  TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV);
 
 	if (IS_ERR(i3c_tty_driver))
 		return PTR_ERR(i3c_tty_driver);
