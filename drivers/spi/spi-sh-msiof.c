@@ -39,7 +39,12 @@ struct sh_msiof_chipdata {
 	u16 ctlr_flags;
 	u16 min_div_pow;
 	u32 flags;
+	bool gen5;
 };
+
+#ifdef CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG
+#define TRANSFAR_SYNC_DELAY (CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG_MSLEEP)
+#endif /* CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG */
 
 struct sh_msiof_spi_priv {
 	struct spi_controller *ctlr;
@@ -955,6 +960,11 @@ static int sh_msiof_transfer_one(struct spi_controller *ctlr,
 		if (tx_buf)
 			copy32(p->tx_dma_page, tx_buf, l / 4);
 
+#ifdef CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG
+		if (!spi_controller_is_slave(p->ctlr))
+			msleep(TRANSFAR_SYNC_DELAY);
+#endif /* CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG */
+
 		ret = sh_msiof_dma_once(p, tx_buf, rx_buf, l);
 		if (ret == -EAGAIN) {
 			dev_warn_once(&p->pdev->dev,
@@ -1027,6 +1037,11 @@ static int sh_msiof_transfer_one(struct spi_controller *ctlr,
 	words = len / bytes_per_word;
 
 	while (words > 0) {
+#ifdef CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG
+		if (!spi_controller_is_slave(p->ctlr))
+			msleep(TRANSFAR_SYNC_DELAY);
+#endif /* CONFIG_SPI_SH_MSIOF_TRANSFER_SYNC_DEBUG */
+
 		n = sh_msiof_spi_txrx_once(p, tx_fifo, rx_fifo, tx_buf, rx_buf,
 					   words, bits);
 		if (n < 0)
@@ -1086,6 +1101,16 @@ static const struct sh_msiof_chipdata rcar_r8a7795_data = {
 	.flags = SH_MSIOF_FLAG_FIXED_DTDL_200,
 };
 
+static const struct sh_msiof_chipdata rcar_gen5_data = {
+	.bits_per_word_mask = SPI_BPW_MASK(8) | SPI_BPW_MASK(16) |
+			      SPI_BPW_MASK(24) | SPI_BPW_MASK(32),
+	.tx_fifo_size = 256,
+	.rx_fifo_size = 256,
+	.ctlr_flags = SPI_CONTROLLER_MUST_TX,
+	.min_div_pow = 1,
+	.gen5 = true,
+};
+
 static const struct of_device_id sh_msiof_match[] = {
 	{ .compatible = "renesas,sh-mobile-msiof", .data = &sh_data },
 	{ .compatible = "renesas,msiof-r8a7743",   .data = &rcar_gen2_data },
@@ -1100,6 +1125,7 @@ static const struct of_device_id sh_msiof_match[] = {
 	{ .compatible = "renesas,msiof-r8a7796",   .data = &rcar_gen3_data },
 	{ .compatible = "renesas,rcar-gen3-msiof", .data = &rcar_gen3_data },
 	{ .compatible = "renesas,rcar-gen4-msiof", .data = &rcar_gen3_data },
+	{ .compatible = "renesas,rcar-gen5-msiof", .data = &rcar_gen5_data },
 	{ .compatible = "renesas,sh-msiof",        .data = &sh_data }, /* Deprecated */
 	{},
 };
@@ -1278,6 +1304,7 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 	struct sh_msiof_spi_info *info;
 	struct sh_msiof_spi_priv *p;
 	unsigned long clksrc;
+	struct clk *ref_clk;
 	int i;
 	int ret;
 
@@ -1323,6 +1350,17 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
+	/* MSIOF module clock setup */
+	ref_clk = devm_clk_get(&pdev->dev, "mso");
+	if (!IS_ERR(ref_clk)) {
+		clksrc = clk_get_rate(ref_clk);
+		if (clksrc) {
+			clk_prepare_enable(p->clk);
+			clk_set_rate(p->clk, clksrc);
+			clk_disable_unprepare(p->clk);
+		}
+	}
+
 	i = platform_get_irq(pdev, 0);
 	if (i < 0) {
 		ret = i;
@@ -1335,8 +1373,13 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
-	ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, 0,
-			       dev_name(&pdev->dev), p);
+	if (chipdata->gen5) {
+		ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, IRQF_SHARED,
+				       dev_name(&pdev->dev), p);
+	} else {
+		ret = devm_request_irq(&pdev->dev, i, sh_msiof_spi_irq, 0,
+				       dev_name(&pdev->dev), p);
+	}
 	if (ret) {
 		dev_err(&pdev->dev, "unable to request irq\n");
 		goto err1;
