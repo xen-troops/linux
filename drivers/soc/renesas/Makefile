@@ -36,3 +36,14 @@ obj-$(CONFIG_RST_RCAR)		+= rcar-rst.o
 obj-$(CONFIG_SYSC_RCAR)		+= rcar-sysc.o
 obj-$(CONFIG_SYSC_RCAR_GEN4)	+= rcar-gen4-sysc.o
 obj-$(CONFIG_SYSC_RMOBILE)	+= rmobile-sysc.o
+
+# EMS for R-Car Gen3
+obj-$(CONFIG_RCAR_THERMAL_EMS)	+= rcar_ems_ctrl.o
+
+# WCRC for R-Car Gen5
+#obj-y += crc-drv.o kcrc-drv.o crc-wrapper.o
+rcar-wcrc-y := crc-drv.o kcrc-drv.o crc-wrapper.o
+obj-${CONFIG_RCAR_WCRC} += rcar-wcrc.o
+#obj-${CONFIG_RCAR_WCRC} += crc-wrapper.o
+#obj-${CONFIG_RCAR_CRC} += crc-drv.o
+#obj-${CONFIG_RCAR_KCRC} += kcrc-drv.o
