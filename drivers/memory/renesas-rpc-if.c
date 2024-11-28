@@ -15,6 +15,7 @@
 #include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
+#include <linux/sys_soc.h>
 
 #include <memory/renesas-rpc-if.h>
 
@@ -136,7 +137,8 @@
 #define RPCIF_PHYCNT_DDRCAL	BIT(19)
 #define RPCIF_PHYCNT_HS		BIT(18)
 #define RPCIF_PHYCNT_CKSEL(v)	(((v) & 0x3) << 16) /* valid only for RZ/G2L */
-#define RPCIF_PHYCNT_STRTIM(v)	(((v) & 0x7) << 15) /* valid for R-Car and RZ/G2{E,H,M,N} */
+#define RPCIF_PHYCNT_STRTIM(v)	(((v) & 0x7) << 15 | \
+								 ((v) & 0x8) << 24) /* valid for R-Car and RZ/G2{E,H,M,N} */
 #define RPCIF_PHYCNT_WBUF2	BIT(4)
 #define RPCIF_PHYCNT_WBUF	BIT(2)
 #define RPCIF_PHYCNT_PHYMEM(v)	(((v) & 0x3) << 0)
@@ -162,6 +164,10 @@ static const struct regmap_access_table rpcif_volatile_table = {
 	.n_yes_ranges	= ARRAY_SIZE(rpcif_volatile_ranges),
 };
 
+struct rpcif_info {
+	u8 strtim;
+};
+
 struct rpcif_priv {
 	struct device *dev;
 	void __iomem *base;
@@ -174,6 +180,7 @@ struct rpcif_priv {
 	enum rpcif_data_dir dir;
 	u8 bus_size;
 	u8 xfer_size;
+	u8 strtim;
 	void *buffer;
 	u32 xferlen;
 	u32 smcr;
@@ -274,6 +281,32 @@ static const struct regmap_config rpcif_regmap_config = {
 	.volatile_table	= &rpcif_volatile_table,
 };
 
+static const struct rpcif_info rpcif_info_r8a7795_es1 = {
+	.strtim = 0,
+};
+
+static const struct rpcif_info rpcif_info_r8a7796_es1 = {
+	.strtim = 6,
+};
+
+static const struct rpcif_info rpcif_info_gen3 = {
+	.strtim = 7,
+};
+
+static const struct rpcif_info rpcif_info_gen4 = {
+	.strtim = 15,
+};
+
+static const struct rpcif_info rpcif_info_gen5 = {
+	.strtim = 15,
+};
+
+static const struct soc_device_attribute rpcif_quirks_match[]  = {
+	{ .soc_id = "r8a7795", .revision = "ES1.*", .data = &rpcif_info_r8a7795_es1 },
+	{ .soc_id = "r8a7796", .revision = "ES1.*", .data = &rpcif_info_r8a7796_es1 },
+	{ /* Sentinel. */ }
+};
+
 int rpcif_sw_init(struct rpcif *rpcif, struct device *dev)
 {
 	struct rpcif_priv *rpc = dev_get_drvdata(dev);
@@ -324,7 +357,10 @@ int rpcif_hw_init(struct rpcif *rpcif, bool hyperflash)
 
 	if (rpc->type == RPCIF_RCAR_GEN3)
 		regmap_update_bits(rpc->regmap, RPCIF_PHYCNT,
-				   RPCIF_PHYCNT_STRTIM(7), RPCIF_PHYCNT_STRTIM(7));
+				   RPCIF_PHYCNT_STRTIM(7), RPCIF_PHYCNT_STRTIM(rpc->strtim));
+	else if ((rpc->type == RPCIF_RCAR_GEN4) || (rpc->type == RPCIF_RCAR_GEN5))
+		regmap_update_bits(rpc->regmap, RPCIF_PHYCNT,
+				   RPCIF_PHYCNT_STRTIM(15), RPCIF_PHYCNT_STRTIM(rpc->strtim));
 
 	regmap_update_bits(rpc->regmap, RPCIF_PHYOFFSET1, RPCIF_PHYOFFSET1_DDRTMG(3),
 			   RPCIF_PHYOFFSET1_DDRTMG(3));
@@ -430,8 +466,7 @@ void rpcif_prepare(struct rpcif *rpcif, const struct rpcif_op *op, u64 *offs,
 
 	if (op->dummy.buswidth) {
 		rpc->enable |= RPCIF_SMENR_DME;
-		rpc->dummy = RPCIF_SMDMCR_DMCYC(op->dummy.ncycles /
-						op->dummy.buswidth);
+		rpc->dummy = RPCIF_SMDMCR_DMCYC(op->dummy.ncycles);
 	}
 
 	if (op->option.buswidth) {
@@ -653,7 +688,8 @@ ssize_t rpcif_dirmap_read(struct rpcif *rpcif, u64 offs, size_t len, void *buf)
 	pm_runtime_get_sync(rpc->dev);
 
 	regmap_update_bits(rpc->regmap, RPCIF_CMNCR, RPCIF_CMNCR_MD, 0);
-	regmap_write(rpc->regmap, RPCIF_DRCR, 0);
+	regmap_write(rpc->regmap, RPCIF_DRCR,
+		     RPCIF_DRCR_RBURST(32) | RPCIF_DRCR_RBE);
 	regmap_write(rpc->regmap, RPCIF_DRCMR, rpc->command);
 	regmap_write(rpc->regmap, RPCIF_DREAR,
 		     RPCIF_DREAR_EAV(offs >> 25) | RPCIF_DREAR_EAC(1));
@@ -683,6 +719,8 @@ static int rpcif_probe(struct platform_device *pdev)
 	struct resource *res;
 	const char *name;
 	int ret;
+	const struct soc_device_attribute *attr;
+	const struct rpcif_info *info;
 
 	flash = of_get_next_child(pdev->dev.of_node, NULL);
 	if (!flash) {
@@ -734,6 +772,19 @@ static int rpcif_probe(struct platform_device *pdev)
 
 	rpc->dev = &pdev->dev;
 	rpc->vdev = vdev;
+
+	/* Set strtim for appropriate SoCs */
+	if (rpc->type == RPCIF_RCAR_GEN4)
+		info = &rpcif_info_gen4;
+	else if (rpc->type == RPCIF_RCAR_GEN5)
+		info = &rpcif_info_gen5;
+	else
+		info = &rpcif_info_gen3;
+	attr = soc_device_match(rpcif_quirks_match);
+	if (attr)
+		info = attr->data;
+	rpc->strtim = info->strtim;
+
 	platform_set_drvdata(pdev, rpc);
 
 	ret = platform_device_add(vdev);
@@ -756,6 +807,8 @@ static int rpcif_remove(struct platform_device *pdev)
 
 static const struct of_device_id rpcif_of_match[] = {
 	{ .compatible = "renesas,rcar-gen3-rpc-if", .data = (void *)RPCIF_RCAR_GEN3 },
+	{ .compatible = "renesas,rcar-gen4-rpc-if", .data = (void *)RPCIF_RCAR_GEN4 },
+	{ .compatible = "renesas,rcar-gen5-rpc-if", .data = (void *)RPCIF_RCAR_GEN5 },
 	{ .compatible = "renesas,rzg2l-rpc-if", .data = (void *)RPCIF_RZ_G2L },
 	{},
 };
