@@ -2919,6 +2919,8 @@ static int sci_init_single(struct platform_device *dev,
 		sci_port->rx_trigger = 1;
 		break;
 	}
+	// XXX: GEN5: Temporary workaround for Receive-data-ready malfunction.
+	sci_port->rx_trigger = 1;
 
 	sci_port->rx_fifo_timeout = 0;
 	sci_port->hscif_tot = 0;
@@ -2961,6 +2963,8 @@ static int sci_init_single(struct platform_device *dev,
 	 */
 	port->irq		= sci_port->irqs[SCIx_RXI_IRQ];
 	port->irqflags		= 0;
+	// XXX: GEN5: Temporary workaround for single IRQ assigned to multi channel.
+	port->irqflags		= IRQF_SHARED;
 
 	port->serial_in		= sci_serial_in;
 	port->serial_out	= sci_serial_out;
@@ -3172,6 +3176,9 @@ static const struct of_device_id of_sci_match[] = {
 	}, {
 		.compatible = "renesas,rcar-gen4-scif",
 		.data = SCI_OF_DATA(PORT_SCIF, SCIx_SH4_SCIF_BRG_REGTYPE),
+	}, {
+		.compatible = "renesas,rcar-gen5-scif",
+		.data = SCI_OF_DATA(PORT_SCIF, SCIx_SH4_SCIF_BRG_REGTYPE),
 	},
 	/* Generic types */
 	{
@@ -3382,8 +3389,11 @@ static __maybe_unused int sci_suspend(struct device *dev)
 {
 	struct sci_port *sport = dev_get_drvdata(dev);
 
-	if (sport)
+	if (sport) {
+		pm_runtime_get_sync(sport->port.dev);
 		uart_suspend_port(&sci_uart_driver, &sport->port);
+		pm_runtime_put(sport->port.dev);
+	}
 
 	return 0;
 }
@@ -3392,8 +3402,11 @@ static __maybe_unused int sci_resume(struct device *dev)
 {
 	struct sci_port *sport = dev_get_drvdata(dev);
 
-	if (sport)
+	if (sport) {
+		pm_runtime_get_sync(sport->port.dev);
 		uart_resume_port(&sci_uart_driver, &sport->port);
+		pm_runtime_put(sport->port.dev);
+	}
 
 	return 0;
 }
