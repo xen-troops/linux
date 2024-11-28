@@ -529,6 +529,12 @@ static void sh_cmt_set_next(struct sh_cmt_channel *ch, unsigned long delta)
 static irqreturn_t sh_cmt_interrupt(int irq, void *dev_id)
 {
 	struct sh_cmt_channel *ch = dev_id;
+	u32 value;
+
+	value = sh_cmt_read_cmcsr(ch);
+	value &= SH_CMT32_CMCSR_CMR_IRQ;
+	if (value != SH_CMT32_CMCSR_CMR_IRQ)
+		return IRQ_NONE;
 
 	/* clear flags */
 	sh_cmt_write_cmcsr(ch, sh_cmt_read_cmcsr(ch) &
@@ -811,6 +817,7 @@ static int sh_cmt_register_clockevent(struct sh_cmt_channel *ch,
 				      const char *name)
 {
 	struct clock_event_device *ced = &ch->ced;
+	struct device_node *np = ch->cmt->pdev->dev.of_node;
 	int irq;
 	int ret;
 
@@ -818,9 +825,15 @@ static int sh_cmt_register_clockevent(struct sh_cmt_channel *ch,
 	if (irq < 0)
 		return irq;
 
-	ret = request_irq(irq, sh_cmt_interrupt,
-			  IRQF_TIMER | IRQF_IRQPOLL | IRQF_NOBALANCING,
-			  dev_name(&ch->cmt->pdev->dev), ch);
+	if (of_find_property(np, "rcar_gen5", NULL)) {
+		ret = request_irq(irq, sh_cmt_interrupt,
+				  IRQF_TIMER | IRQF_IRQPOLL | IRQF_NOBALANCING | IRQF_SHARED,
+				  dev_name(&ch->cmt->pdev->dev), ch);
+	} else {
+		ret = request_irq(irq, sh_cmt_interrupt,
+				  IRQF_TIMER | IRQF_IRQPOLL | IRQF_NOBALANCING,
+				  dev_name(&ch->cmt->pdev->dev), ch);
+	}
 	if (ret) {
 		dev_err(&ch->cmt->pdev->dev, "ch%u: failed to request irq %d\n",
 			ch->index, irq);
@@ -1003,6 +1016,14 @@ static const struct of_device_id sh_cmt_of_table[] __maybe_unused = {
 	},
 	{
 		.compatible = "renesas,rcar-gen4-cmt1",
+		.data = &sh_cmt_info[SH_CMT1_RCAR_GEN2]
+	},
+	{
+		.compatible = "renesas,rcar-gen5-cmt0",
+		.data = &sh_cmt_info[SH_CMT0_RCAR_GEN2]
+	},
+	{
+		.compatible = "renesas,rcar-gen5-cmt1",
 		.data = &sh_cmt_info[SH_CMT1_RCAR_GEN2]
 	},
 	{ }
