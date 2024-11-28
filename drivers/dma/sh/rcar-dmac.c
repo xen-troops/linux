@@ -89,6 +89,7 @@ struct rcar_dmac_desc {
 
 	unsigned int size;
 	bool cyclic;
+	bool repeat;
 };
 
 #define to_rcar_dmac_desc(d)	container_of(d, struct rcar_dmac_desc, async_tx)
@@ -194,6 +195,10 @@ struct rcar_dmac_chan {
  * @n_channels: number of available channels
  * @channels: array of DMAC channels
  * @channels_mask: bitfield of which DMA channels are managed by this driver
+ * @fixed_source: fixed source address mode
+ * @fixed_dest: fixed destination address mode
+ * @rate_rd: bus read rate control
+ * @rate_wr: bus write rate control
  * @modules: bitmask of client modules in use
  */
 struct rcar_dmac {
@@ -205,6 +210,13 @@ struct rcar_dmac {
 	unsigned int n_channels;
 	struct rcar_dmac_chan *channels;
 	u32 channels_mask;
+
+	bool fixed_source;
+	bool fixed_dest;
+	bool audma_vdk;
+
+	u32 rate_rd;
+	u32 rate_wr;
 
 	DECLARE_BITMAP(modules, 256);
 };
@@ -219,10 +231,13 @@ struct rcar_dmac {
  * struct rcar_dmac_of_data - This driver's OF data
  * @chan_offset_base: DMAC channels base offset
  * @chan_offset_stride: DMAC channels offset stride
+ * @rate_control: Support status of bus rate control
  */
 struct rcar_dmac_of_data {
 	u32 chan_offset_base;
 	u32 chan_offset_stride;
+	bool rate_control;
+	bool gen5;
 };
 
 /* -----------------------------------------------------------------------------
@@ -282,6 +297,7 @@ struct rcar_dmac_of_data {
 #define RCAR_DMACHCRB_DPTR_MASK		(0xff << 16)
 #define RCAR_DMACHCRB_DPTR_SHIFT	16
 #define RCAR_DMACHCRB_DRST		(1 << 15)
+#define RCAR_DMACHCRB_DSIEEN		(1 << 10)
 #define RCAR_DMACHCRB_DTS		(1 << 8)
 #define RCAR_DMACHCRB_SLM_NORMAL	(0 << 4)
 #define RCAR_DMACHCRB_SLM_CLK(n)	((8 | (n)) << 4)
@@ -301,6 +317,9 @@ struct rcar_dmac_of_data {
 
 /* For R-Car Gen4 */
 #define RCAR_GEN4_DMACHCLR		0x0100
+#define RCAR_RATE_RD			0x00f4
+#define RCAR_RATE_WR			0x00f8
+#define RCAR_RATE_CNT_EN		(1 << 31)
 
 /* Hardcode the MEMCPY transfer size to 4 bytes. */
 #define RCAR_DMAC_MEMCPY_XFER_SIZE	4
@@ -370,13 +389,18 @@ static void rcar_dmac_chan_clear_all(struct rcar_dmac *dmac)
 static bool rcar_dmac_chan_is_busy(struct rcar_dmac_chan *chan)
 {
 	u32 chcr = rcar_dmac_chan_read(chan, RCAR_DMACHCR);
+	struct rcar_dmac_desc *desc = chan->desc.running;
 
-	return !!(chcr & (RCAR_DMACHCR_DE | RCAR_DMACHCR_TE));
+	if (desc->cyclic && desc->repeat)
+		return !!(chcr & RCAR_DMACHCR_TE);
+	else
+		return !!(chcr & (RCAR_DMACHCR_DE | RCAR_DMACHCR_TE));
 }
 
 static void rcar_dmac_chan_start_xfer(struct rcar_dmac_chan *chan)
 {
 	struct rcar_dmac_desc *desc = chan->desc.running;
+	struct rcar_dmac *dmac = to_rcar_dmac(chan->chan.device);
 	u32 chcr = desc->chcr;
 
 	WARN_ON_ONCE(rcar_dmac_chan_is_busy(chan));
@@ -406,7 +430,7 @@ static void rcar_dmac_chan_start_xfer(struct rcar_dmac_chan *chan)
 				     RCAR_DMADPBASE_SEL);
 		rcar_dmac_chan_write(chan, RCAR_DMACHCRB,
 				     RCAR_DMACHCRB_DCNT(desc->nchunks - 1) |
-				     RCAR_DMACHCRB_DRST);
+				     RCAR_DMACHCRB_DRST | RCAR_DMACHCRB_DSIEEN);
 
 		/*
 		 * Errata: When descriptor memory is accessed through an IOMMU
@@ -415,8 +439,10 @@ static void rcar_dmac_chan_start_xfer(struct rcar_dmac_chan *chan)
 		 * should. Initialize it manually with the destination address
 		 * of the first chunk.
 		 */
-		rcar_dmac_chan_write(chan, RCAR_DMADAR,
-				     chunk->dst_addr & 0xffffffff);
+		if (!dmac->audma_vdk) {
+			rcar_dmac_chan_write(chan, RCAR_DMADAR,
+					     chunk->dst_addr & 0xffffffff);
+		}
 
 		/*
 		 * Program the descriptor stage interrupt to occur after the end
@@ -435,9 +461,11 @@ static void rcar_dmac_chan_start_xfer(struct rcar_dmac_chan *chan)
 			chcr |= RCAR_DMACHCR_DPM_ENABLED | RCAR_DMACHCR_IE;
 		/*
 		 * If the descriptor is cyclic and has a callback enable the
-		 * descriptor stage interrupt in infinite repeat mode.
+		 * descriptor stage interrupt in cyclic mode.
 		 */
-		else if (desc->async_tx.callback)
+		else if (desc->async_tx.callback && desc->repeat)
+			chcr |= RCAR_DMACHCR_DPM_REPEAT | RCAR_DMACHCR_DSIE | RCAR_DMACHCR_IE;
+		else if (desc->async_tx.callback && !desc->repeat)
 			chcr |= RCAR_DMACHCR_DPM_INFINITE | RCAR_DMACHCR_DSIE;
 		/*
 		 * Otherwise just select infinite repeat mode without any
@@ -487,6 +515,12 @@ static int rcar_dmac_init(struct rcar_dmac *dmac)
 		dev_warn(dmac->dev, "DMAOR initialization failed.\n");
 		return -EIO;
 	}
+
+	if (dmac->rate_rd)
+		rcar_dmac_write(dmac, RCAR_RATE_RD, RCAR_RATE_CNT_EN | dmac->rate_rd);
+
+	if (dmac->rate_wr)
+		rcar_dmac_write(dmac, RCAR_RATE_WR, RCAR_RATE_CNT_EN | dmac->rate_wr);
 
 	return 0;
 }
@@ -761,6 +795,7 @@ static int rcar_dmac_fill_hwdesc(struct rcar_dmac_chan *chan,
 {
 	struct rcar_dmac_xfer_chunk *chunk;
 	struct rcar_dmac_hw_desc *hwdesc;
+	struct rcar_dmac *dmac = to_rcar_dmac(chan->chan.device);
 
 	rcar_dmac_realloc_hwdesc(chan, desc, desc->nchunks * sizeof(*hwdesc));
 
@@ -769,9 +804,15 @@ static int rcar_dmac_fill_hwdesc(struct rcar_dmac_chan *chan,
 		return -ENOMEM;
 
 	list_for_each_entry(chunk, &desc->chunks, node) {
-		hwdesc->sar = chunk->src_addr;
-		hwdesc->dar = chunk->dst_addr;
-		hwdesc->tcr = chunk->size >> desc->xfer_shift;
+		if (dmac->audma_vdk) {
+			hwdesc->sar = __builtin_bswap32(chunk->src_addr);
+			hwdesc->dar = __builtin_bswap32(chunk->dst_addr);
+			hwdesc->tcr = __builtin_bswap32(chunk->size >> desc->xfer_shift);
+		} else {
+			hwdesc->sar = chunk->src_addr;
+			hwdesc->dar = chunk->dst_addr;
+			hwdesc->tcr = chunk->size >> desc->xfer_shift;
+		}
 		hwdesc++;
 	}
 
@@ -876,8 +917,8 @@ static int rcar_dmac_chan_pause(struct dma_chan *chan)
  * Descriptors preparation
  */
 
-static void rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
-					  struct rcar_dmac_desc *desc)
+static int rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
+					 struct rcar_dmac_desc *desc)
 {
 	static const u32 chcr_ts[] = {
 		RCAR_DMACHCR_TS_1B, RCAR_DMACHCR_TS_2B,
@@ -888,6 +929,7 @@ static void rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
 
 	unsigned int xfer_size;
 	u32 chcr;
+	struct rcar_dmac *dmac = to_rcar_dmac(chan->chan.device);
 
 	switch (desc->direction) {
 	case DMA_DEV_TO_MEM:
@@ -904,14 +946,23 @@ static void rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
 
 	case DMA_MEM_TO_MEM:
 	default:
-		chcr = RCAR_DMACHCR_DM_INC | RCAR_DMACHCR_SM_INC
+		chcr = RCAR_DMACHCR_DM_FIXED | RCAR_DMACHCR_SM_FIXED
 		     | RCAR_DMACHCR_RS_AUTO;
+		if (!dmac->fixed_source)
+			chcr = chcr | RCAR_DMACHCR_SM_INC;
+		if (!dmac->fixed_dest)
+			chcr = chcr | RCAR_DMACHCR_DM_INC;
 		xfer_size = RCAR_DMAC_MEMCPY_XFER_SIZE;
 		break;
 	}
 
+	if (xfer_size > 0x40)	/* bus width */
+		return -EINVAL;
+
 	desc->xfer_shift = ilog2(xfer_size);
 	desc->chcr = chcr | chcr_ts[desc->xfer_shift];
+
+	return 0;
 }
 
 /*
@@ -938,6 +989,7 @@ rcar_dmac_chan_prep_sg(struct rcar_dmac_chan *chan, struct scatterlist *sgl,
 	unsigned int full_size = 0;
 	bool cross_boundary = false;
 	unsigned int i;
+	int ret;
 #ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
 	u32 high_dev_addr;
 	u32 high_mem_addr;
@@ -952,8 +1004,14 @@ rcar_dmac_chan_prep_sg(struct rcar_dmac_chan *chan, struct scatterlist *sgl,
 
 	desc->cyclic = cyclic;
 	desc->direction = dir;
+	if (dma_flags & DMA_PREP_REPEAT)
+		desc->repeat = true;
 
-	rcar_dmac_chan_configure_desc(chan, desc);
+	ret = rcar_dmac_chan_configure_desc(chan, desc);
+	if (ret) {
+		rcar_dmac_desc_put(chan, desc);
+		return NULL;
+	}
 
 	max_chunk_size = RCAR_DMATCR_MASK << desc->xfer_shift;
 
@@ -1492,6 +1550,7 @@ static void rcar_dmac_device_synchronize(struct dma_chan *chan)
 static irqreturn_t rcar_dmac_isr_desc_stage_end(struct rcar_dmac_chan *chan)
 {
 	struct rcar_dmac_desc *desc = chan->desc.running;
+	struct rcar_dmac *dmac = to_rcar_dmac(chan->chan.device);
 	unsigned int stage;
 
 	if (WARN_ON(!desc || !desc->cyclic)) {
@@ -1506,6 +1565,10 @@ static irqreturn_t rcar_dmac_isr_desc_stage_end(struct rcar_dmac_chan *chan)
 	/* Program the interrupt pointer to the next stage. */
 	stage = (rcar_dmac_chan_read(chan, RCAR_DMACHCRB) &
 		 RCAR_DMACHCRB_DPTR_MASK) >> RCAR_DMACHCRB_DPTR_SHIFT;
+
+	if (dmac->audma_vdk)
+		stage = stage == (desc->nchunks - 1) ? 0 : (stage + 1);
+
 	rcar_dmac_chan_write(chan, RCAR_DMADPCR, RCAR_DMADPCR_DIPT(stage));
 
 	return IRQ_WAKE_THREAD;
@@ -1554,6 +1617,12 @@ static irqreturn_t rcar_dmac_isr_transfer_end(struct rcar_dmac_chan *chan)
 						 node);
 			goto done;
 		}
+	} else if (desc->repeat) {
+		desc->running =
+			list_first_entry(&desc->chunks,
+					 struct rcar_dmac_xfer_chunk,
+					 node);
+		return ret;
 	}
 
 	/* The descriptor is complete, move it to the done list. */
@@ -1600,8 +1669,10 @@ static irqreturn_t rcar_dmac_isr_channel(int irq, void *dev)
 	}
 
 	if (chcr & RCAR_DMACHCR_TE)
-		mask |= RCAR_DMACHCR_DE;
+		if (!(chan->desc.running->cyclic && chan->desc.running->repeat))
+			mask |= RCAR_DMACHCR_DE;
 	rcar_dmac_chan_write(chan, RCAR_DMACHCR, chcr & ~mask);
+
 	if (mask & RCAR_DMACHCR_DE)
 		rcar_dmac_chcr_de_barrier(chan);
 
@@ -1812,7 +1883,8 @@ static int rcar_dmac_chan_probe(struct rcar_dmac *dmac,
 
 #define RCAR_DMAC_MAX_CHANNELS	32
 
-static int rcar_dmac_parse_of(struct device *dev, struct rcar_dmac *dmac)
+static int rcar_dmac_parse_of(struct device *dev, struct rcar_dmac *dmac,
+			      const struct rcar_dmac_of_data *data)
 {
 	struct device_node *np = dev->of_node;
 	int ret;
@@ -1840,6 +1912,39 @@ static int rcar_dmac_parse_of(struct device *dev, struct rcar_dmac *dmac)
 
 	/* If the property has out-of-channel mask, this driver clears it */
 	dmac->channels_mask &= GENMASK(dmac->n_channels - 1, 0);
+
+	/* Checking fixed address optional property */
+	dmac->fixed_source = of_property_read_bool(np, "fixed-source");
+	dmac->fixed_dest = of_property_read_bool(np, "fixed-dest");
+
+	/* Checking Bus read rate control optional property */
+	ret = of_property_read_u32(np, "rate-read", &dmac->rate_rd);
+	if (!ret) {
+		if (data->rate_control) {
+			if (dmac->rate_rd < 0x03 || dmac->rate_rd > 0xff)
+				dmac->rate_rd = 0;
+		} else {
+			dmac->rate_rd = 0;
+		}
+	} else {
+		dmac->rate_rd = 0;
+	}
+
+	/* Checking Bus write rate control optional property */
+	ret = of_property_read_u32(np, "rate-write", &dmac->rate_wr);
+	if (!ret) {
+		if (data->rate_control) {
+			if (dmac->rate_wr < 0x03 || dmac->rate_wr > 0xff)
+				dmac->rate_wr = 0;
+		} else {
+			dmac->rate_wr = 0;
+		}
+	} else {
+		dmac->rate_wr = 0;
+	}
+
+	/* Checking audio dmac vdk optional property */
+	dmac->audma_vdk = of_property_read_bool(np, "audio-dmac-vdk");
 
 	return 0;
 }
@@ -1876,7 +1981,7 @@ static int rcar_dmac_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = rcar_dmac_parse_of(&pdev->dev, dmac);
+	ret = rcar_dmac_parse_of(&pdev->dev, dmac, data);
 	if (ret < 0)
 		return ret;
 
@@ -1888,7 +1993,7 @@ static int rcar_dmac_probe(struct platform_device *pdev)
 	 * level we can't disable it selectively, so ignore channel 0 for now if
 	 * the device is part of an IOMMU group.
 	 */
-	if (device_iommu_mapped(&pdev->dev))
+	if (device_iommu_mapped(&pdev->dev) && !data->gen5)
 		dmac->channels_mask &= ~BIT(0);
 
 	dmac->channels = devm_kcalloc(&pdev->dev, dmac->n_channels,
@@ -2012,13 +2117,23 @@ static void rcar_dmac_shutdown(struct platform_device *pdev)
 static const struct rcar_dmac_of_data rcar_dmac_data = {
 	.chan_offset_base	= 0x8000,
 	.chan_offset_stride	= 0x80,
+	.rate_control		= false,
+	.gen5			= false,
 };
 
 static const struct rcar_dmac_of_data rcar_gen4_dmac_data = {
 	.chan_offset_base	= 0x0,
 	.chan_offset_stride	= 0x1000,
+	.rate_control		= true,
+	.gen5			= false,
 };
 
+static const struct rcar_dmac_of_data rcar_gen5_dmac_data = {
+	.chan_offset_base	= 0x0,
+	.chan_offset_stride	= 0x1000,
+	.rate_control		= true,
+	.gen5			= true,
+};
 static const struct of_device_id rcar_dmac_of_ids[] = {
 	{
 		.compatible = "renesas,rcar-dmac",
@@ -2029,6 +2144,9 @@ static const struct of_device_id rcar_dmac_of_ids[] = {
 	}, {
 		.compatible = "renesas,dmac-r8a779a0",
 		.data = &rcar_gen4_dmac_data,
+	}, {
+		.compatible = "renesas,rcar-gen5-dmac",
+		.data = &rcar_gen5_dmac_data,
 	},
 	{ /* Sentinel */ }
 };

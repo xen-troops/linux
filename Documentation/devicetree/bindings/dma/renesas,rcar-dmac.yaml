@@ -47,6 +47,8 @@ properties:
               - renesas,dmac-r8a779f0     # R-Car S4-8
               - renesas,dmac-r8a779g0     # R-Car V4H
           - const: renesas,rcar-gen4-dmac # R-Car Gen4
+      - items:
+          - const: renesas,rcar-gen5-dmac # R-Car X5H
 
   reg: true
 
@@ -103,6 +105,24 @@ properties:
 
   resets:
     maxItems: 1
+
+  fixed-source:
+    description: To enable fixed source address mode.
+    type: boolean
+
+  fixed-dest:
+    description: To enable fixed destination address mode.
+    type: boolean
+
+  rate-read:
+    description: Read rate control (slow speed mode), only available on R-Car Gen4
+    mininum: 0x03
+    maximum: 0xff
+
+  rate-write:
+    description: Write rate control (slow speed mode), only available on R-Car Gen4
+    mininum: 0x03
+    maximum: 0xff
 
 required:
   - compatible
@@ -171,4 +191,6 @@ examples:
         resets = <&cpg 219>;
         #dma-cells = <1>;
         dma-channels = <15>;
+	fixed-source;
+	fixed-dest;
     };
