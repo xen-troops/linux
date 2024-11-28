@@ -2,7 +2,7 @@
 /*
  * vsp1_rpf.c  --  R-Car VSP1 Read Pixel Formatter
  *
- * Copyright (C) 2013-2014 Renesas Electronics Corporation
+ * Copyright (C) 2013-2018 Renesas Electronics Corporation
  *
  * Contact: Laurent Pinchart (laurent.pinchart@ideasonboard.com)
  */
@@ -69,6 +69,7 @@ static void rpf_configure_stream(struct vsp1_entity *entity,
 	unsigned int top = 0;
 	u32 pstride;
 	u32 infmt;
+	u32 alph_sel = 0;
 
 	/* Stride */
 	pstride = format->plane_fmt[0].bytesperline
@@ -109,6 +110,58 @@ static void rpf_configure_stream(struct vsp1_entity *entity,
 	vsp1_rpf_write(rpf, dlb, VI6_RPF_INFMT, infmt);
 	vsp1_rpf_write(rpf, dlb, VI6_RPF_DSWAP, fmtinfo->swap);
 
+	if (entity->vsp1->info->gen == 4) {
+		u32 ext_infmt0;
+		u32 ext_infmt1;
+		u32 ext_infmt2;
+
+		switch (fmtinfo->fourcc) {
+		case V4L2_PIX_FMT_RGBX1010102:
+			ext_infmt0 = VI6_RPF_EXT_INFMT0_BYPP_M1_RGB10;
+			ext_infmt1 = VI6_RPF_EXT_INFMT1_PACK_CPOS(0, 10, 20, 0);
+			ext_infmt2 = VI6_RPF_EXT_INFMT2_PACK_CLEN(10, 10, 10, 0);
+			break;
+
+		case V4L2_PIX_FMT_RGBA1010102:
+			ext_infmt0 = VI6_RPF_EXT_INFMT0_BYPP_M1_RGB10;
+			ext_infmt1 = VI6_RPF_EXT_INFMT1_PACK_CPOS(0, 10, 20, 30);
+			ext_infmt2 = VI6_RPF_EXT_INFMT2_PACK_CLEN(10, 10, 10, 2);
+			break;
+
+		case V4L2_PIX_FMT_ARGB2101010:
+			ext_infmt0 = VI6_RPF_EXT_INFMT0_BYPP_M1_RGB10;
+			ext_infmt1 = VI6_RPF_EXT_INFMT1_PACK_CPOS(2, 12, 22, 0);
+			ext_infmt2 = VI6_RPF_EXT_INFMT2_PACK_CLEN(10, 10, 10, 2);
+			break;
+
+		case V4L2_PIX_FMT_Y210:
+			ext_infmt0 = VI6_RPF_EXT_INFMT0_F2B |
+				     VI6_RPF_EXT_INFMT0_IPBD_Y_10 |
+				     VI6_RPF_EXT_INFMT0_IPBD_C_10;
+			ext_infmt1 = 0x0;
+			ext_infmt2 = 0x0;
+			break;
+
+		case V4L2_PIX_FMT_Y212:
+			ext_infmt0 = VI6_RPF_EXT_INFMT0_F2B |
+				     VI6_RPF_EXT_INFMT0_IPBD_Y_12 |
+				     VI6_RPF_EXT_INFMT0_IPBD_C_12;
+			ext_infmt1 = 0x0;
+			ext_infmt2 = 0x0;
+			break;
+
+		default:
+			ext_infmt0 = 0;
+			ext_infmt1 = 0;
+			ext_infmt2 = 0;
+			break;
+		}
+
+		vsp1_rpf_write(rpf, dlb, VI6_RPF_EXT_INFMT0, ext_infmt0);
+		vsp1_rpf_write(rpf, dlb, VI6_RPF_EXT_INFMT1, ext_infmt1);
+		vsp1_rpf_write(rpf, dlb, VI6_RPF_EXT_INFMT2, ext_infmt2);
+	}
+
 	/* Output location. */
 	if (pipe->brx) {
 		const struct v4l2_rect *compose;
@@ -133,39 +186,65 @@ static void rpf_configure_stream(struct vsp1_entity *entity,
 	 * a fixed alpha value set through the V4L2_CID_ALPHA_COMPONENT control
 	 * otherwise.
 	 *
-	 * The Gen3 RPF has extended alpha capability and can both multiply the
+	 * The Gen3+ RPF has extended alpha capability and can both multiply the
 	 * alpha channel by a fixed global alpha value, and multiply the pixel
 	 * components to convert the input to premultiplied alpha.
 	 *
 	 * As alpha premultiplication is available in the BRx for both Gen2 and
-	 * Gen3 we handle it there and use the Gen3 alpha multiplier for global
+	 * Gen3+ we handle it there and use the Gen3 alpha multiplier for global
 	 * alpha multiplication only. This however prevents conversion to
 	 * premultiplied alpha if no BRx is present in the pipeline. If that use
 	 * case turns out to be useful we will revisit the implementation (for
 	 * Gen3 only).
 	 *
-	 * We enable alpha multiplication on Gen3 using the fixed alpha value
+	 * We enable alpha multiplication on Gen3+ using the fixed alpha value
 	 * set through the V4L2_CID_ALPHA_COMPONENT control when the input
 	 * contains an alpha channel. On Gen2 the global alpha is ignored in
 	 * that case.
 	 *
 	 * In all cases, disable color keying.
 	 */
-	vsp1_rpf_write(rpf, dlb, VI6_RPF_ALPH_SEL, VI6_RPF_ALPH_SEL_AEXT_EXT |
-		       (fmtinfo->alpha ? VI6_RPF_ALPH_SEL_ASEL_PACKED
-				       : VI6_RPF_ALPH_SEL_ASEL_FIXED));
+	switch (fmtinfo->fourcc) {
+	case V4L2_PIX_FMT_ARGB555:
+		if (CONFIG_VIDEO_RENESAS_VSP_ALPHA_BIT_ARGB1555 == 0)
+			alph_sel = VI6_RPF_ALPH_SEL_ASEL_SELECT |
+				   VI6_RPF_ALPH_SEL_AEXT_EXT |
+				   VI6_RPF_ALPH_SEL_ALPHA1_MASK |
+				   (rpf->alpha &
+				   VI6_RPF_ALPH_SEL_ALPHA0_MASK);
+		else
+			alph_sel = VI6_RPF_ALPH_SEL_ASEL_SELECT |
+				   VI6_RPF_ALPH_SEL_AEXT_EXT |
+				   ((rpf->alpha & 0xff) << 8) |
+				   VI6_RPF_ALPH_SEL_ALPHA0_MASK;
+		break;
+	case V4L2_PIX_FMT_ARGB444:
+		alph_sel = VI6_RPF_ALPH_SEL_AEXT_ONE;
+		break;
+	case V4L2_PIX_FMT_ABGR32:
+	case V4L2_PIX_FMT_ARGB32:
+		break;
+	default:
+		alph_sel = VI6_RPF_ALPH_SEL_AEXT_EXT |
+			   (fmtinfo->alpha ? VI6_RPF_ALPH_SEL_ASEL_PACKED
+			   : VI6_RPF_ALPH_SEL_ASEL_FIXED);
+		break;
+	}
 
-	if (entity->vsp1->info->gen == 3) {
+	vsp1_rpf_write(rpf, dlb, VI6_RPF_ALPH_SEL, alph_sel);
+
+	if (entity->vsp1->info->gen >= 3) {
 		u32 mult;
 
-		if (fmtinfo->alpha) {
+		if (fmtinfo->alpha &&
+		    fmtinfo->fourcc != V4L2_PIX_FMT_ARGB555) {
 			/*
 			 * When the input contains an alpha channel enable the
 			 * alpha multiplier. If the input is premultiplied we
 			 * need to multiply both the alpha channel and the pixel
 			 * components by the global alpha value to keep them
 			 * premultiplied. Otherwise multiply the alpha channel
-			 * only.
+			 * only. The alpha multiplier is disabled in ARGB1555.
 			 */
 			bool premultiplied = format->flags
 					   & V4L2_PIX_FMT_FLAG_PREMUL_ALPHA;
@@ -189,8 +268,15 @@ static void rpf_configure_stream(struct vsp1_entity *entity,
 	}
 
 	vsp1_rpf_write(rpf, dlb, VI6_RPF_MSK_CTRL, 0);
-	vsp1_rpf_write(rpf, dlb, VI6_RPF_CKEY_CTRL, 0);
 
+	if (rpf->colorkey_en) {
+		vsp1_rpf_write(rpf, dlb, VI6_RPF_CKEY_SET0,
+			       (rpf->colorkey_alpha << 24) | rpf->colorkey);
+		vsp1_rpf_write(rpf, dlb, VI6_RPF_CKEY_CTRL,
+			       VI6_RPF_CKEY_CTRL_SAPE0);
+	} else {
+		vsp1_rpf_write(rpf, dlb, VI6_RPF_CKEY_CTRL, 0);
+	}
 }
 
 static void vsp1_rpf_configure_autofld(struct vsp1_rwpf *rpf,
@@ -249,6 +335,14 @@ static void rpf_configure_partition(struct vsp1_entity *entity,
 	const struct vsp1_format_info *fmtinfo = rpf->fmtinfo;
 	const struct v4l2_pix_format_mplane *format = &rpf->format;
 	struct v4l2_rect crop;
+	u32 i;
+
+	if (pipe->vmute_flag) {
+		for (i = 0; i < vsp1->info->rpf_count; ++i)
+			vsp1_rpf_write(rpf, dlb, VI6_DPR_RPF_ROUTE(i),
+				       VI6_DPR_NODE_UNUSED);
+		return;
+	}
 
 	/*
 	 * Source size and crop offsets.
@@ -301,10 +395,10 @@ static void rpf_configure_partition(struct vsp1_entity *entity,
 	}
 
 	/*
-	 * On Gen3 hardware the SPUVS bit has no effect on 3-planar
+	 * On Gen3+ hardware the SPUVS bit has no effect on 3-planar
 	 * formats. Swap the U and V planes manually in that case.
 	 */
-	if (vsp1->info->gen == 3 && format->num_planes == 3 &&
+	if (vsp1->info->gen >= 3 && format->num_planes == 3 &&
 	    fmtinfo->swap_uv)
 		swap(mem.addr[1], mem.addr[2]);
 
