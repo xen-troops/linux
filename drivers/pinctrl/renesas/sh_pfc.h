@@ -32,11 +32,15 @@ enum {
 #define SH_PFC_PIN_CFG_IO_VOLTAGE	(1 << 4)
 #define SH_PFC_PIN_CFG_DRIVE_STRENGTH	(1 << 5)
 
+#define SH_PFC_PIN_CFG_IO_VOLTAGE_LEVEL	GENMASK(7, 6)
 #define SH_PFC_PIN_VOLTAGE_18_33	(0 << 6)
 #define SH_PFC_PIN_VOLTAGE_25_33	(1 << 6)
+#define SH_PFC_PIN_VOLTAGE_18_25	(2 << 6)
 
 #define SH_PFC_PIN_CFG_IO_VOLTAGE_18_33	(SH_PFC_PIN_CFG_IO_VOLTAGE | \
 					 SH_PFC_PIN_VOLTAGE_18_33)
+#define SH_PFC_PIN_CFG_IO_VOLTAGE_18_25	(SH_PFC_PIN_CFG_IO_VOLTAGE | \
+					 SH_PFC_PIN_VOLTAGE_18_25)
 #define SH_PFC_PIN_CFG_IO_VOLTAGE_25_33	(SH_PFC_PIN_CFG_IO_VOLTAGE | \
 					 SH_PFC_PIN_VOLTAGE_25_33)
 
@@ -75,6 +79,21 @@ struct sh_pfc_pin {
  * An optional 'suffix' argument is accepted, to be used when the same group
  * can appear on a different set of pins.
  */
+#define BUS_DATA_PIN_GROUP(base, n, ...)				\
+	SH_PFC_PIN_GROUP_SUBSET(base##n##__VA_ARGS__, base##__VA_ARGS__, 0, n)
+
+/*
+ * Define a pin group referring to a subset of an array of pins.
+ */
+#define SH_PFC_PIN_GROUP_SUBSET(_name, data, first, n) {		\
+	.name = #_name,							\
+	.pins = data##_pins + first,					\
+	.mux = data##_mux + first,					\
+	.nr_pins = n +							\
+	BUILD_BUG_ON_ZERO(first + n > ARRAY_SIZE(data##_pins)) +	\
+	BUILD_BUG_ON_ZERO(first + n > ARRAY_SIZE(data##_mux)),		\
+}
+
 #define BUS_DATA_PIN_GROUP(base, n, ...)				\
 	SH_PFC_PIN_GROUP_SUBSET(base##n##__VA_ARGS__, base##__VA_ARGS__, 0, n)
 
@@ -326,6 +345,9 @@ extern const struct sh_pfc_soc_info r8a77995_pinmux_info;
 extern const struct sh_pfc_soc_info r8a779a0_pinmux_info;
 extern const struct sh_pfc_soc_info r8a779f0_pinmux_info;
 extern const struct sh_pfc_soc_info r8a779g0_pinmux_info;
+extern const struct sh_pfc_soc_info r8a779f0_pinmux_info;
+extern const struct sh_pfc_soc_info r8a779h0_pinmux_info;
+extern const struct sh_pfc_soc_info r8a78000_pinmux_info;
 extern const struct sh_pfc_soc_info sh7203_pinmux_info;
 extern const struct sh_pfc_soc_info sh7264_pinmux_info;
 extern const struct sh_pfc_soc_info sh7269_pinmux_info;
@@ -429,6 +451,16 @@ extern const struct sh_pfc_soc_info shx3_pinmux_info;
  */
 #define PINMUX_IPSR_PHYS(ipsr, fn, psel) \
 	PINMUX_DATA(fn##_MARK, FN_##psel, FN_##ipsr)
+
+/*
+ * Describe a pinmux configuration in which a pin is physically multiplexed
+ * with other pins and has no representation in a Peripheral Function Select
+ * Register (IPSR)
+ *   - fn: Function name
+ *   - psel: Physical multiplexing selector
+ */
+#define PINMUX_IPSR_PHYS_NOFN(fn, psel) \
+	PINMUX_DATA(fn##_MARK, FN_##psel)
 
 /*
  * Describe a pinmux configuration for a single-function pin with GPIO
