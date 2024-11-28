@@ -14,6 +14,8 @@
 #define __RCAR_VIN__
 
 #include <linux/kref.h>
+#include <linux/clk.h>
+#include <linux/reset.h>
 
 #include <media/v4l2-async.h>
 #include <media/v4l2-ctrls.h>
@@ -22,6 +24,8 @@
 #include <media/v4l2-fwnode.h>
 #include <media/videobuf2-v4l2.h>
 
+#define DRV_NAME "rcar-vin"
+
 /* Number of HW buffers */
 #define HW_BUFFER_NUM 3
 
@@ -29,7 +33,11 @@
 #define HW_BUFFER_MASK 0x7f
 
 /* Max number on VIN instances that can be in a system */
-#define RCAR_VIN_NUM 32
+#define RCAR_VIN_NUM 96
+
+#define MSTP_WAIT_TIME 1
+
+struct rvin_dev;
 
 struct rvin_group;
 
@@ -38,6 +46,8 @@ enum model_id {
 	RCAR_M1,
 	RCAR_GEN2,
 	RCAR_GEN3,
+	RCAR_GEN4,
+	RCAR_GEN5,
 };
 
 enum rvin_csi_id {
@@ -155,6 +165,7 @@ struct rvin_group_route {
  * @max_height:		max input height the VIN supports
  * @routes:		list of possible routes from the CSI-2 recivers to
  *			all VINs. The list mush be NULL terminated.
+ * @scaler:		Optional scaler
  */
 struct rvin_info {
 	enum model_id model;
@@ -165,6 +176,9 @@ struct rvin_info {
 	unsigned int max_width;
 	unsigned int max_height;
 	const struct rvin_group_route *routes;
+	void (*scaler)(struct rvin_dev *vin);
+
+	unsigned int num_channel;
 };
 
 /**
@@ -179,6 +193,8 @@ struct rvin_info {
  * @notifier:		V4L2 asynchronous subdevs notifier
  *
  * @parallel:		parallel input subdevice descriptor
+ * @rstc:		CPG reset/release control
+ * @clk:		CPG clock control
  *
  * @group:		Gen3 CSI group
  * @id:			Gen3 group id for this VIN
@@ -203,7 +219,7 @@ struct rvin_info {
  *
  * @crop:		active cropping
  * @compose:		active composing
- * @src_rect:		active size of the video source
+ * @scaler:		Optional scaler
  * @std:		active video standard of the video source
  *
  * @alpha:		Alpha component to fill in for supported pixel formats
@@ -219,6 +235,8 @@ struct rvin_dev {
 	struct v4l2_async_notifier notifier;
 
 	struct rvin_parallel_entity parallel;
+	struct reset_control *rstc;
+	struct clk *clk;
 
 	struct rvin_group *group;
 	unsigned int id;
@@ -247,7 +265,7 @@ struct rvin_dev {
 
 	struct v4l2_rect crop;
 	struct v4l2_rect compose;
-	struct v4l2_rect src_rect;
+	void (*scaler)(struct rvin_dev *vin);
 	v4l2_std_id std;
 
 	unsigned int alpha;
@@ -304,6 +322,8 @@ const struct rvin_video_format *rvin_format_from_pixel(struct rvin_dev *vin,
 
 
 /* Cropping, composing and scaling */
+void rvin_scaler_gen2(struct rvin_dev *vin);
+void rvin_scaler_gen3(struct rvin_dev *vin);
 void rvin_crop_scale_comp(struct rvin_dev *vin);
 
 int rvin_set_channel_routing(struct rvin_dev *vin, u8 chsel);

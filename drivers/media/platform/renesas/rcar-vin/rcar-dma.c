@@ -10,9 +10,15 @@
  * Based on the soc-camera rcar_vin driver
  */
 
+#ifdef CONFIG_VIDEO_RCAR_VIN_DEBUG
+#define DEBUG
+#endif
+
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/clk-provider.h>
 
 #include <media/videobuf2-dma-contig.h>
 
@@ -74,6 +80,10 @@
 
 /* Register offsets specific for Gen3 */
 #define VNCSI_IFMD_REG		0x20 /* Video n CSI2 Interface Mode Register */
+#define VNUDS_CTRL_REG		0x80 /* Video n scaling control register */
+#define VNUDS_SCALE_REG		0x84 /* Video n scaling factor register */
+#define VNUDS_PASS_BWIDTH_REG	0x90 /* Video n passband register */
+#define VNUDS_CLIP_SIZE_REG	0xa4 /* Video n UDS output size clipping reg */
 
 /* Register bit fields for R-Car VIN */
 /* Video n Main Control Register bits */
@@ -90,6 +100,7 @@
 #define VNMC_INF_YUV16		(5 << 16)
 #define VNMC_INF_RGB888		(6 << 16)
 #define VNMC_INF_RGB666		(7 << 16)
+#define VNMC_INF_RAWX_RGB565	(7 << 16)
 #define VNMC_VUP		(1 << 10)
 #define VNMC_IM_ODD		(0 << 3)
 #define VNMC_IM_ODD_EVEN	(1 << 3)
@@ -112,6 +123,12 @@
 /* Video n Interrupt Enable Register bits */
 #define VNIE_FIE		(1 << 4)
 #define VNIE_EFE		(1 << 1)
+#define VNIE_FOE		(1 << 0)
+
+/* Video n Interrupt Status Register bits */
+#define VNINTS_FIS		(1 << 4)
+#define VNINTS_EFS		(1 << 1)
+#define VNINTS_FOS		(1 << 0)
 
 /* Video n Interrupt Status Register bits */
 #define VNINTS_FIS		(1 << 4)
@@ -119,6 +136,12 @@
 /* Video n Data Mode Register bits */
 #define VNDMR_A8BIT(n)		(((n) & 0xff) << 24)
 #define VNDMR_A8BIT_MASK	(0xff << 24)
+#define VNDMR_RMODE_RAW8	(0 << 19)
+#define VNDMR_RMODE_RAW10	(2 << 19)
+#define VNDMR_RMODE_RAW12	(3 << 19)
+#define VNDMR_RMODE_RAW14	(4 << 19)
+#define VNDMR_RMODE_RAW20	(5 << 19)
+#define VNDMR_YC_THR		(1 << 11)
 #define VNDMR_YMODE_Y8		(1 << 12)
 #define VNDMR_EXRGB		(1 << 8)
 #define VNDMR_BPSM		(1 << 4)
@@ -140,6 +163,9 @@
 #define VNCSI_IFMD_DES0		(1 << 25)
 #define VNCSI_IFMD_CSI_CHSEL(n) (((n) & 0xf) << 0)
 
+/* Video n scaling control register (Gen3) */
+#define VNUDS_CTRL_AMD		(1 << 30)
+
 struct rvin_buffer {
 	struct vb2_v4l2_buffer vb;
 	struct list_head list;
@@ -148,6 +174,38 @@ struct rvin_buffer {
 #define to_buf_list(vb2_buffer) (&container_of(vb2_buffer, \
 					       struct rvin_buffer, \
 					       vb)->list)
+
+#define VIN_UT_IRQ	0x01
+
+static int vin_debug;
+module_param_named(debug, vin_debug, int, 0600);
+static int overflow_video[RCAR_VIN_NUM];
+module_param_array(overflow_video, int, NULL, 0600);
+
+#ifdef CONFIG_VIDEO_RCAR_VIN_DEBUG
+#define VIN_IRQ_DEBUG(fmt, args...)					\
+	do {								\
+		if (unlikely(vin_debug & VIN_UT_IRQ))			\
+			vin_ut_debug_printk(__func__, fmt, ##args);	\
+	} while (0)
+
+static void vin_ut_debug_printk(const char *function_name,
+				const char *format, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	va_start(args, format);
+	vaf.fmt = format;
+	vaf.va = &args;
+
+	pr_debug("[" DRV_NAME ":%s] %pV", function_name, &vaf);
+
+	va_end(args);
+}
+#else
+#define VIN_IRQ_DEBUG(fmt, args...)
+#endif
 
 static void rvin_write(struct rvin_dev *vin, u32 value, u32 offset)
 {
@@ -160,8 +218,16 @@ static u32 rvin_read(struct rvin_dev *vin, u32 offset)
 }
 
 /* -----------------------------------------------------------------------------
- * Crop and Scaling Gen2
+ * Crop and Scaling
  */
+
+static bool rvin_scaler_needed(const struct rvin_dev *vin)
+{
+	return !(vin->crop.width == vin->format.width &&
+		 vin->compose.width == vin->format.width &&
+		 vin->crop.height == vin->format.height &&
+		 vin->compose.height == vin->format.height);
+}
 
 struct vin_coeff {
 	unsigned short xs_value;
@@ -535,7 +601,7 @@ static void rvin_set_coeff(struct rvin_dev *vin, unsigned short xs)
 	rvin_write(vin, p_set->coeff_set[23], VNC8C_REG);
 }
 
-static void rvin_crop_scale_comp_gen2(struct rvin_dev *vin)
+void rvin_scaler_gen2(struct rvin_dev *vin)
 {
 	unsigned int crop_height;
 	u32 xs, ys;
@@ -583,6 +649,69 @@ static void rvin_crop_scale_comp_gen2(struct rvin_dev *vin)
 		0, 0);
 }
 
+static unsigned int rvin_uds_scale_ratio(unsigned int in, unsigned int out)
+{
+	unsigned int ratio;
+
+	ratio = in * 4096 / out;
+	return ratio >= 0x10000 ? 0xffff : ratio;
+}
+
+static unsigned int rvin_uds_filter_width(unsigned int ratio)
+{
+	if (ratio >= 0x1000)
+		return 64 * (ratio & 0xf000) / ratio;
+
+	return 64;
+}
+
+void rvin_scaler_gen3(struct rvin_dev *vin)
+{
+	unsigned int ratio_h, ratio_v;
+	unsigned int bwidth_h, bwidth_v;
+	u32 vnmc, clip_size;
+
+	vnmc = rvin_read(vin, VNMC_REG);
+
+	/* Disable scaler if not needed. */
+	if (!rvin_scaler_needed(vin)) {
+		rvin_write(vin, vnmc & ~VNMC_SCLE, VNMC_REG);
+		return;
+	}
+
+	ratio_h = rvin_uds_scale_ratio(vin->crop.width, vin->compose.width);
+	bwidth_h = rvin_uds_filter_width(ratio_h);
+
+	ratio_v = rvin_uds_scale_ratio(vin->crop.height, vin->compose.height);
+	bwidth_v = rvin_uds_filter_width(ratio_v);
+
+	clip_size = vin->compose.width << 16;
+
+	switch (vin->format.field) {
+	case V4L2_FIELD_INTERLACED_TB:
+	case V4L2_FIELD_INTERLACED_BT:
+	case V4L2_FIELD_INTERLACED:
+	case V4L2_FIELD_SEQ_TB:
+	case V4L2_FIELD_SEQ_BT:
+		clip_size |= vin->compose.height / 2;
+		break;
+	default:
+		clip_size |= vin->compose.height;
+		break;
+	}
+
+	rvin_write(vin, vnmc | VNMC_SCLE, VNMC_REG);
+	rvin_write(vin, VNUDS_CTRL_AMD, VNUDS_CTRL_REG);
+	rvin_write(vin, (ratio_h << 16) | ratio_v, VNUDS_SCALE_REG);
+	rvin_write(vin, (bwidth_h << 16) | bwidth_v, VNUDS_PASS_BWIDTH_REG);
+	rvin_write(vin, clip_size, VNUDS_CLIP_SIZE_REG);
+
+	vin_dbg(vin, "Pre-Clip: %ux%u@%u:%u Post-Clip: %ux%u@%u:%u\n",
+		vin->crop.width, vin->crop.height, vin->crop.left,
+		vin->crop.top, vin->compose.width, vin->compose.height,
+		vin->compose.left, vin->compose.top);
+}
+
 void rvin_crop_scale_comp(struct rvin_dev *vin)
 {
 	const struct rvin_video_format *fmt;
@@ -590,13 +719,17 @@ void rvin_crop_scale_comp(struct rvin_dev *vin)
 
 	/* Set Start/End Pixel/Line Pre-Clip */
 	rvin_write(vin, vin->crop.left, VNSPPRC_REG);
-	rvin_write(vin, vin->crop.left + vin->crop.width - 1, VNEPPRC_REG);
+	if (vin->format.pixelformat == V4L2_PIX_FMT_Y10)
+		rvin_write(vin, vin->crop.left + (vin->crop.width * 2) - 1,
+				VNEPPRC_REG);
+	else
+		rvin_write(vin, vin->crop.left + vin->crop.width - 1,
+				VNEPPRC_REG);
 	rvin_write(vin, vin->crop.top, VNSLPRC_REG);
 	rvin_write(vin, vin->crop.top + vin->crop.height - 1, VNELPRC_REG);
 
-	/* TODO: Add support for the UDS scaler. */
-	if (vin->info->model != RCAR_GEN3)
-		rvin_crop_scale_comp_gen2(vin);
+	if (vin->scaler)
+		vin->scaler(vin);
 
 	fmt = rvin_format_from_pixel(vin, vin->format.pixelformat);
 	stride = vin->format.bytesperline / fmt->bpp;
@@ -625,7 +758,7 @@ void rvin_crop_scale_comp(struct rvin_dev *vin)
 
 static int rvin_setup(struct rvin_dev *vin)
 {
-	u32 vnmc, dmr, dmr2, interrupts;
+	u32 vnmc, dmr = 0, dmr2, interrupts;
 	bool progressive = false, output_is_yuv = false, input_is_yuv = false;
 
 	switch (vin->format.field) {
@@ -703,12 +836,15 @@ static int rvin_setup(struct rvin_dev *vin)
 	case MEDIA_BUS_FMT_Y8_1X8:
 		vnmc |= VNMC_INF_RAW8;
 		break;
+	case MEDIA_BUS_FMT_Y10_1X10:
+		vnmc |= VNMC_INF_RAWX_RGB565;
+		break;
 	default:
 		break;
 	}
 
 	/* Make sure input interface and input format is valid. */
-	if (vin->info->model == RCAR_GEN3) {
+	if (vin->info->model >= RCAR_GEN3) {
 		switch (vnmc & VNMC_INF_MASK) {
 		case VNMC_INF_YUV8_BT656:
 		case VNMC_INF_YUV10_BT656:
@@ -731,7 +867,7 @@ static int rvin_setup(struct rvin_dev *vin)
 	}
 
 	/* Enable VSYNC Field Toggle mode after one VSYNC input */
-	if (vin->info->model == RCAR_GEN3)
+	if (vin->info->model >= RCAR_GEN3)
 		dmr2 = VNDMR2_FTEV;
 	else
 		dmr2 = VNDMR2_FTEV | VNDMR2_VLV(1);
@@ -803,6 +939,9 @@ static int rvin_setup(struct rvin_dev *vin)
 	case V4L2_PIX_FMT_SRGGB8:
 		dmr = 0;
 		break;
+	case V4L2_PIX_FMT_Y10:
+		dmr = VNDMR_RMODE_RAW10 | VNDMR_YC_THR;
+		break;
 	case V4L2_PIX_FMT_GREY:
 		if (input_is_yuv) {
 			dmr = VNDMR_DTMD_YCSEP | VNDMR_YMODE_Y8;
@@ -825,7 +964,7 @@ static int rvin_setup(struct rvin_dev *vin)
 		if (input_is_yuv == output_is_yuv)
 			vnmc |= VNMC_BPS;
 
-		if (vin->info->model == RCAR_GEN3) {
+		if (vin->info->model >= RCAR_GEN3) {
 			/* Select between CSI-2 and parallel input */
 			if (vin->is_csi)
 				vnmc &= ~VNMC_DPINE;
@@ -836,6 +975,15 @@ static int rvin_setup(struct rvin_dev *vin)
 
 	/* Progressive or interlaced mode */
 	interrupts = progressive ? VNIE_FIE : VNIE_EFE;
+
+	if (vin->format.field == V4L2_FIELD_ALTERNATE)
+		interrupts = VNIE_FIE;
+
+	/* Enable Overflow */
+	if (vin_debug) {
+		vin_dbg(vin, "Enable Overflow\n");
+		interrupts |= VNIE_FOE;
+	}
 
 	/* Ack interrupts */
 	rvin_write(vin, interrupts, VNINTS_REG);
@@ -982,11 +1130,11 @@ static int rvin_capture_start(struct rvin_dev *vin)
 	for (slot = 0; slot < HW_BUFFER_NUM; slot++)
 		rvin_fill_hw_slot(vin, slot);
 
-	rvin_crop_scale_comp(vin);
-
 	ret = rvin_setup(vin);
 	if (ret)
 		return ret;
+
+	rvin_crop_scale_comp(vin);
 
 	vin_dbg(vin, "Starting to capture\n");
 
@@ -1011,7 +1159,7 @@ static void rvin_capture_stop(struct rvin_dev *vin)
  * DMA Functions
  */
 
-#define RVIN_TIMEOUT_MS 100
+#define RVIN_TIMEOUT_MS 1
 #define RVIN_RETRIES 10
 
 static irqreturn_t rvin_irq(int irq, void *data)
@@ -1034,6 +1182,14 @@ static irqreturn_t rvin_irq(int irq, void *data)
 	/* Nothing to do if nothing was captured. */
 	if (!(int_status & VNINTS_FIS))
 		goto done;
+
+	/* overflow occurs */
+	if (vin_debug && (int_status & VNINTS_FOS)) {
+		VIN_IRQ_DEBUG("overflow occurrs num[%d] at VIN (%s)\n",
+			      ++overflow_video[vin->id],
+			      dev_name(vin->v4l2_dev.dev));
+		goto done;
+	}
 
 	/* Nothing to do if capture status is 'STOPPED' */
 	if (vin->state == STOPPED) {
@@ -1171,6 +1327,7 @@ static int rvin_mc_validate_format(struct rvin_dev *vin, struct v4l2_subdev *sd,
 	case MEDIA_BUS_FMT_UYVY8_1X16:
 	case MEDIA_BUS_FMT_UYVY8_2X8:
 	case MEDIA_BUS_FMT_UYVY10_2X10:
+	case MEDIA_BUS_FMT_Y10_1X10:
 	case MEDIA_BUS_FMT_RGB888_1X24:
 		break;
 	case MEDIA_BUS_FMT_SBGGR8_1X8:
@@ -1232,9 +1389,27 @@ static int rvin_mc_validate_format(struct rvin_dev *vin, struct v4l2_subdev *sd,
 		return -EPIPE;
 	}
 
-	if (fmt.format.width != vin->format.width ||
-	    fmt.format.height != vin->format.height ||
-	    fmt.format.code != vin->mbus_code)
+	if (rvin_scaler_needed(vin)) {
+		/* Gen3 can't scale NV12 */
+		if (vin->info->model >= RCAR_GEN3 &&
+		    vin->format.pixelformat == V4L2_PIX_FMT_NV12)
+			return -EPIPE;
+
+		if (!vin->scaler)
+			return -EPIPE;
+	} else {
+		if (vin->format.pixelformat == V4L2_PIX_FMT_NV12) {
+			if (ALIGN(fmt.format.width, 32) != vin->format.width ||
+			    ALIGN(fmt.format.height, 32) != vin->format.height)
+				return -EPIPE;
+		} else {
+			if (fmt.format.width != vin->format.width ||
+			    fmt.format.height != vin->format.height)
+				return -EPIPE;
+		}
+	}
+
+	if (fmt.format.code != vin->mbus_code)
 		return -EPIPE;
 
 	return 0;
@@ -1287,6 +1462,9 @@ int rvin_start_streaming(struct rvin_dev *vin)
 	unsigned long flags;
 	int ret;
 
+	if (vin->info->use_mc)
+		pm_runtime_get_sync(vin->dev);
+
 	ret = rvin_set_stream(vin, 1);
 	if (ret)
 		return ret;
@@ -1296,12 +1474,16 @@ int rvin_start_streaming(struct rvin_dev *vin)
 	vin->sequence = 0;
 
 	ret = rvin_capture_start(vin);
-	if (ret)
+	if (ret) {
 		rvin_set_stream(vin, 0);
+		if (vin->info->use_mc)
+			pm_runtime_put(vin->dev);
+		return ret;
+	}
 
 	spin_unlock_irqrestore(&vin->qlock, flags);
 
-	return ret;
+	return 0;
 }
 
 static int rvin_start_streaming_vq(struct vb2_queue *vq, unsigned int count)
@@ -1403,6 +1585,28 @@ void rvin_stop_streaming(struct rvin_dev *vin)
 
 	/* disable interrupts */
 	rvin_disable_interrupts(vin);
+
+	if (vin->info->use_mc) {
+		u32 timeout = MSTP_WAIT_TIME;
+
+		pm_runtime_put_sync(vin->dev);
+
+		while (1) {
+#ifndef SIM_VDK
+			bool enable;
+
+			enable = __clk_is_enabled(vin->clk);
+			if (!enable)
+				break;
+#endif
+			if (!timeout) {
+				dev_warn(vin->dev, "MSTP status timeout\n");
+				break;
+			}
+			usleep_range(10, 15);
+			timeout--;
+		}
+	}
 }
 
 static void rvin_stop_streaming_vq(struct vb2_queue *vq)
@@ -1415,7 +1619,7 @@ static void rvin_stop_streaming_vq(struct vb2_queue *vq)
 	dma_free_coherent(vin->dev, vin->format.sizeimage, vin->scratch,
 			  vin->scratch_phys);
 
-	return_unused_buffers(vin, VB2_BUF_STATE_ERROR);
+	return_unused_buffers(vin, VB2_BUF_STATE_DONE);
 }
 
 static const struct vb2_ops rvin_qops = {
@@ -1457,7 +1661,7 @@ int rvin_dma_register(struct rvin_dev *vin, int irq)
 
 	/* buffer queue */
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	q->io_modes = VB2_MMAP | VB2_READ | VB2_DMABUF;
+	q->io_modes = VB2_MMAP | VB2_READ | VB2_DMABUF | VB2_USERPTR;
 	q->lock = &vin->lock;
 	q->drv_priv = vin;
 	q->buf_struct_size = sizeof(struct rvin_buffer);
@@ -1480,6 +1684,8 @@ int rvin_dma_register(struct rvin_dev *vin, int irq)
 		vin_err(vin, "failed to request irq\n");
 		goto error;
 	}
+
+	vin_debug = 0;
 
 	return 0;
 error:
