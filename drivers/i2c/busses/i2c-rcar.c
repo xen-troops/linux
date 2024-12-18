@@ -1019,6 +1019,9 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 			ret = reset_control_status(priv->rstc);
 			if (ret < 0)
 				priv->rstc = ERR_PTR(-ENOTSUPP);
+			ret = reset_control_reset(priv->rstc);
+			if (ret)
+				priv->rstc = ERR_PTR(-ENOTSUPP);
 		}
 	}
 
