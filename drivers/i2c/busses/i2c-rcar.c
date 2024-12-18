@@ -996,6 +996,8 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	priv->dma_rx = priv->dma_tx = ERR_PTR(-EPROBE_DEFER);
 
 	/* Activate device for clock calculation */
+	pm_runtime_set_autosuspend_delay(dev, 1000);
+	pm_runtime_use_autosuspend(dev);
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
 	ret = rcar_i2c_clock_calculate(priv);
