@@ -138,6 +138,20 @@ struct taurus_rvgc_ioc_layer_release_out {
 } __packed;
 
 
+#define RVGC_PROTOCOL_IOC_LAYER_SET_FMT                 ((TAURUS_PROTOCOL_RVGC_ID << 24) | 0xF00009)
+
+struct taurus_rvgc_ioc_layer_set_fmt_in {
+	uint64_t    cookie;
+	uint32_t    display;
+	uint32_t    layer;
+	uint32_t    format;
+} __packed;
+
+struct taurus_rvgc_ioc_layer_set_fmt_out {
+	uint64_t    cookie;
+	uint64_t    res;
+} __packed;
+
 /*******************************************************/
 
 struct taurus_rvgc_cmd_msg {
@@ -152,6 +166,7 @@ struct taurus_rvgc_cmd_msg {
 		struct taurus_rvgc_ioc_display_flush_in ioc_display_flush;
 		struct taurus_rvgc_ioc_display_init_in ioc_display_init;
 		struct taurus_rvgc_ioc_display_get_info_in ioc_display_get_info;
+		struct taurus_rvgc_ioc_layer_set_fmt_in ioc_layer_set_fmt;
 	} params;
 };
 
@@ -167,6 +182,7 @@ struct taurus_rvgc_res_msg {
 		struct taurus_rvgc_ioc_display_flush_out ioc_display_flush;
 		struct taurus_rvgc_ioc_display_init_out ioc_display_init;
 		struct taurus_rvgc_ioc_display_get_info_out ioc_display_get_info;
+		struct taurus_rvgc_ioc_layer_set_fmt_out ioc_layer_set_fmt;
 	} params;
 };
 

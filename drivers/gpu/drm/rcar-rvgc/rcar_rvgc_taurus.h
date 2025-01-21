@@ -49,4 +49,10 @@ int rvgc_taurus_layer_set_pos(struct rcar_rvgc_device* rcrvgc,
 			      uint32_t pos_y,
 			      struct taurus_rvgc_res_msg* res_msg);
 
+int rvgc_taurus_layer_set_fmt(struct rcar_rvgc_device *rcrvgc,
+			      uint32_t display,
+			      uint32_t layer,
+			      uint32_t format,
+			      struct taurus_rvgc_res_msg *res_msg);
+
 #endif /* __RCAR_RVGC_TAURUS_H__ */

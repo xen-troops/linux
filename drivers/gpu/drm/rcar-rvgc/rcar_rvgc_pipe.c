@@ -18,6 +18,7 @@
 #include <drm/drm_vblank.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_fourcc.h>
 
 #include "rcar_rvgc_taurus.h"
 #include "r_taurus_rvgc_protocol.h"
@@ -391,6 +392,7 @@ static void rvgc_plane_atomic_update(struct drm_plane* plane,
 	bool pos_z_via_pvr = false;
 	int pos_x,pos_y,size_w,size_h;
 	int ret = 0;
+	u32 format = DRM_FORMAT_ARGB8888;
 
 	/* Accomodate as many use case as possible by fdt/powervr.ini overrides */
 	if (rvgc_plane->no_scan) {
@@ -417,8 +419,13 @@ static void rvgc_plane_atomic_update(struct drm_plane* plane,
 
 		/* determine why we're here...*/
 		if (!old_state->fb && plane->state->fb) {
-			dev_info(rcrvgc->dev, "Reserve id=%d, layer=%d (via %s):%sx=%d, y=%d, %sw=%d, h=%d\n",
-				 plane->base.id, hw_plane, (pos_z_via_pvr) ? "PVR":"FDT",
+			if (fb->format != NULL)
+				format = fb->format->format;
+			else
+				dev_err(rcrvgc->dev, "NULL format");
+
+			dev_info(rcrvgc->dev, "Reserve id=%d, layer=%d, format=0x%x (via %s):%sx=%d, y=%d, %sw=%d, h=%d\n",
+				 plane->base.id, hw_plane, format, (pos_z_via_pvr) ? "PVR":"FDT",
 				 (rvgc_plane->pos_override) ? "Force Pos,":"", pos_x, pos_y,
 				 (rvgc_plane->size_override) ? "Force Size,":"", size_w, size_h);
 			/* enabling */
@@ -434,6 +441,15 @@ static void rvgc_plane_atomic_update(struct drm_plane* plane,
 			}
 			rvgc_plane->plane_reserved = true;
 
+			ret = rvgc_taurus_layer_set_fmt(rcrvgc,
+							display_idx,
+							hw_plane,
+							format,
+							&res_msg);
+			if (ret) {
+				dev_err(rcrvgc->dev, "%s(): rvgc_taurus_layer_set_fmt(display=%d, id=%d, layer=%d, format=0x%x) failed\n",
+				__func__, display_idx, plane->base.id, hw_plane, format);
+			}
 			ret = rvgc_taurus_layer_set_size(rcrvgc,
 							 display_idx,
 							 hw_plane,

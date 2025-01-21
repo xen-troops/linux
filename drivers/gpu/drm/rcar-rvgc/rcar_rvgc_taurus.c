@@ -337,3 +337,37 @@ int rvgc_taurus_layer_release(struct rcar_rvgc_device* rcrvgc,
 
 	return 0;
 }
+
+int rvgc_taurus_layer_set_fmt(struct rcar_rvgc_device *rcrvgc,
+			      uint32_t display,
+			      uint32_t layer,
+			      uint32_t format,
+			      struct taurus_rvgc_res_msg *res_msg)
+{
+	struct taurus_rvgc_cmd_msg cmd_msg;
+	int ret;
+
+	if (!res_msg)
+		return -EINVAL;
+
+	cmd_msg.hdr.Id = rvgc_taurus_get_uniq_id();
+	cmd_msg.hdr.Channel = RVGC_TAURUS_CHANNEL;
+	cmd_msg.hdr.Cmd = R_TAURUS_CMD_IOCTL;
+	cmd_msg.hdr.Par1 = RVGC_PROTOCOL_IOC_LAYER_SET_FMT;
+	cmd_msg.type = RVGC_PROTOCOL_IOC_LAYER_SET_FMT;
+	cmd_msg.params.ioc_layer_set_fmt.cookie =  cmd_msg.hdr.Id;
+	cmd_msg.params.ioc_layer_set_fmt.display = display;
+	cmd_msg.params.ioc_layer_set_fmt.layer = layer;
+	cmd_msg.params.ioc_layer_set_fmt.format = format;
+
+	ret = rvgc_taurus_send_command(rcrvgc, &cmd_msg, res_msg);
+	if (ret)
+		return -EPIPE;
+
+	if ((res_msg->hdr.Result != R_TAURUS_RES_COMPLETE) ||
+	    (res_msg->params.ioc_layer_set_fmt.res != 0)) {
+		return -EIO;
+	}
+
+	return 0;
+}
