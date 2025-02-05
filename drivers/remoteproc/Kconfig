@@ -304,6 +304,22 @@ config RCAR_CR7_REMOTEPROC
 	  rcar_cr7_fw_name=<filename>, and if not specified will default
 	  to "rproc-cr7-fw".
 
+config RCAR_CR52_REMOTEPROC
+	tristate "R-Car Gen4 Cortex-R52 remoteproc support"
+	depends on RCAR_MFIS
+	depends on DMA_CMA
+	depends on RPMSG_VIRTIO
+	help
+	  Say y here to support ARM Cortex-R52 remote processors via the
+	  remote processor framework on R-Car Gen4 SOCs.
+
+	  This module controls the name of the firmware file that is
+	  executed by the CR52.
+	  This file must reside in the /lib/firmware directory.  It
+	  can be specified via the module parameter
+	  rcar_cr52_fw_name=<filename>, and if not specified will default
+	  to "rproc-cr52-fw".
+
 endif # REMOTEPROC
 
 endmenu

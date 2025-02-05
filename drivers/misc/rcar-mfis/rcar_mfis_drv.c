@@ -1,7 +1,7 @@
 /*************************************************************************/ /*
  rcar_mfis_drv.c -- R-Car MFIS
 
- Copyright (C) 2021-2022 Renesas Electronics Corporation
+ Copyright (C) 2021-2023 Renesas Electronics Corporation
 
  License        Dual MIT/GPLv2
 
@@ -73,10 +73,15 @@
 #include "rcar_mfis_drv.h"
 #include <misc/rcar-mfis/rcar_mfis_public.h>
 
+#if 0
 #define IICR(n) (0x0400 + n * 0x8)
 #define EICR(n) (0x0404 + n * 0x8)
 #define IMBR(n) (0x0440 + n * 0x4)
 #define EMBR(n) (0x0460 + n * 0x4)
+#else // For V4H2
+#define IICR(k) (0x1400 + 0x1008 * 0 + 0x20 * k)
+#define EICR(i) (0x9404 + 0x1020 * 0 + 0x8 * i)
+#endif
 
 static struct rcar_mfis_dev* rcmfis_dev = NULL;
 
@@ -95,8 +100,8 @@ static irqreturn_t mfis_irq_handler(int irq, void *data)
 	value = rcar_mfis_reg_read(rcmfis_dev, EICR(ch));
 	if (value & 0x1)
 	{
-		msg.mbr = rcar_mfis_reg_read(rcmfis_dev, EMBR(ch));
-		msg.icr = value >> 1; //get rid of EIR bit
+		//msg.mbr = rcar_mfis_reg_read(rcmfis_dev, EMBR(ch));
+		//msg.icr = value >> 1; //get rid of EIR bit
 
 		atomic_notifier_call_chain(&rcar_mfis_ch->notifier_head, msg.icr, rcar_mfis_ch->notifier_data);
 
@@ -143,7 +148,7 @@ int rcar_mfis_trigger_interrupt(int channel, struct rcar_mfis_msg msg)
 		return -EBUSY;
 	}
 
-	rcar_mfis_reg_write(rcmfis_dev, IMBR(channel), msg.mbr);
+	//rcar_mfis_reg_write(rcmfis_dev, IMBR(channel), msg.mbr);
 	rcar_mfis_reg_write(rcmfis_dev, IICR(channel), (msg.icr << 1) | 1);
 
 	return ret;
