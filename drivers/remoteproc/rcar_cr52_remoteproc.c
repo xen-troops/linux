@@ -53,10 +53,8 @@ MODULE_PARM_DESC(rcar_cr52_fw_name,
 #define CR52_WBPWRCTLR_OFFSET    0x00000F80
 #define CR52_WBCTLR_OFFSET       0x00000000
 
-//#define CR52_RST_ADDRESS         0x7FFFFC00
 #define CR52_RST_ADDRESS         0x7FF00000
-#define CR52_RST_SIZE            204
-
+#define CR52_RST_SIZE            1024
 
 /**
  * struct rcar_cr52_rproc - rcar_cr52 remote processor instance state
@@ -175,14 +173,11 @@ static int rcar_cr52_rproc_elf_load_segments(struct rproc *rproc,
 
 static int rcar_cr52_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
 {
-	// Use fixed address
-	//struct resource_table *table = CR52_RST_ADDRESS;
 	struct resource_table *table = ioremap(CR52_RST_ADDRESS, CR52_RST_SIZE);
 	size_t tablesz = CR52_RST_SIZE;
 	rproc->cached_table = kmemdup(table, tablesz, GFP_KERNEL);
-        rproc->table_ptr = rproc->cached_table;
-        rproc->table_sz = tablesz;
-
+	rproc->table_ptr = rproc->cached_table;
+	rproc->table_sz = tablesz;
 	return 0;
 }
 
@@ -191,7 +186,7 @@ rcar_cr52_rproc_elf_find_loaded_rsc_table(struct rproc *rproc,
 				         const struct firmware *fw)
 {
 	// Use fixed address
-        u64 sh_addr, sh_size;
+	u64 sh_addr, sh_size;
 	sh_addr = CR52_RST_ADDRESS;
 	sh_size = CR52_RST_SIZE;
 	return rproc_da_to_va(rproc, sh_addr, sh_size);
