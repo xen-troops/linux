@@ -58,12 +58,14 @@
 #define TAURUS_CAMERA_RES_ERR_CIO                        (3)
 #define TAURUS_CAMERA_RES_ERR_THREAD                     (4)
 #define TAURUS_CAMERA_RES_ERR_REINIT                     (5)
+#define TAURUS_CAMERA_RES_ERR_MUTEX                      (6)
 
 
 struct taurus_camera_channel_info {
     uint32_t    vacant_buf_cell_cnt;
     uint32_t    width;
     uint32_t    height;
+    uint32_t    bytesperline;
 } __packed;
 typedef struct taurus_camera_channel_info taurus_camera_channel_info_t;
 
@@ -154,7 +156,8 @@ struct taurus_camera_ioc_channel_release_out {
     uint64_t    res;
 } __packed;
 
-#define CAMERA_PROTOCOL_IOC_GET_CHANNEL_INFO    ((TAURUS_PROTOCOL_CAMERA_ID << 24) | 0xF00006)
+
+#define CAMERA_PROTOCOL_IOC_GET_CHANNEL_INFO     ((TAURUS_PROTOCOL_CAMERA_ID << 24) | 0xF00006)
 
 struct taurus_camera_ioc_get_channel_info_in {
     uint64_t                cookie;
@@ -166,8 +169,8 @@ struct taurus_camera_ioc_get_channel_info_out {
     uint64_t    res;
     uint32_t    width;
     uint32_t    height;
+    uint32_t    bytesperline;
 } __packed;
-
 
 struct taurus_camera_cmd_msg {
     R_TAURUS_CmdMsg_t   hdr;

@@ -16,7 +16,7 @@
 /* Address alignment mask for HW buffers */
 #define HW_BUFFER_MASK 0x7f
 
-#define VIVID_DEFAULT_FORMAT		V4L2_PIX_FMT_ABGR32
+#define VIVID_DEFAULT_FORMAT		V4L2_PIX_FMT_XBGR32
 #define VIVID_DEFAULT_WIDTH		800
 #define VIVID_DEFAULT_HEIGHT		600
 #define VIVID_DEFAULT_FIELD		V4L2_FIELD_NONE
@@ -73,11 +73,6 @@ static struct vivid_pix_format to_vivid_format(struct v4l2_pix_format pix)
 }
 #endif
 
-static u32 vivid_format_bytesperline(struct v4l2_pix_format *pix)
-{
-    return pix->width * get_bpp_from_format(pix->pixelformat);
-}
-
 static u32 vivid_format_sizeimage(struct v4l2_pix_format *pix)
 {
     if (pix->pixelformat == V4L2_PIX_FMT_NV16)
@@ -108,7 +103,6 @@ static void __vivid_format_aling_update(struct vivid_v4l2_device *vivid,
     v4l_bound_align_image(&pix->width, 5, VIVID_MAX_WIDTH, walign,
                   &pix->height, 2, VIVID_MAX_HEIGHT, 0, 0);
 
-    pix->bytesperline = vivid_format_bytesperline(pix);
     pix->sizeimage = vivid_format_sizeimage(pix);
 }
 
@@ -297,12 +291,13 @@ static int vivid_try_fmt_vid_cap(struct file *file, void *priv,
 	/* Right now only support 1 format
 	 * w:720, h:480, pf: 875713089(ABGR32), field: 1(NONE)
 	 */
-	pr_err("Support only: %dx%d, format:%d(ABGR32), field:%d(NONE)\n",
+	pr_err("Support only: %dx%d, format:%d(XBGR32), field:%d(NONE)\n",
 		vivid->format.width, vivid->format.height,
 		vivid->format.pixelformat, vivid->format.field);
         return -EPIPE;
     }
     f->fmt.pix.colorspace = vivid->format.colorspace;
+    f->fmt.pix.bytesperline = vivid->format.bytesperline;
     return 0;
 }
 
@@ -553,6 +548,7 @@ static int vivid_start_streaming(struct vb2_queue *vq, unsigned int count)
         vivid_err(vivid, "Failed to allocate scratch buffer\n");
         return -ENOMEM;
     }
+    vivid_info(vivid, "%s: allocated buffer size %d\n", __func__, vivid->format.sizeimage);
 
     vivid->sequence = 0;
     ret = vivid_capture_start(vivid);
@@ -685,7 +681,7 @@ int rcar_vivid_v4l2_register(struct vivid_v4l2_device *vivid)
     video_set_drvdata(&vivid->vdev, vivid);
     v4l2_info(&vivid->v4l2_dev,"Device registered as %s\n",
           video_device_node_name(&vivid->vdev));
-    v4l2_info(&vivid->v4l2_dev,"format W:%d H:%d \n", vivid->format.width, vivid->format.height);
+    v4l2_info(&vivid->v4l2_dev,"format W:%d H:%d bytesperline:%d\n", vivid->format.width, vivid->format.height, vivid->format.bytesperline);
 
     if (vivid->buffer_thread)
         dev_warn(vivid->dev, "buffer_thread is already running\n");

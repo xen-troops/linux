@@ -329,5 +329,6 @@ int vivid_taurus_get_channel_info(struct vivid_v4l2_device *vivid,
     }
     vivid->format.width = res_msg->params.ioc_get_channel_info.width;
     vivid->format.height = res_msg->params.ioc_get_channel_info.height;
+    vivid->format.bytesperline = res_msg->params.ioc_get_channel_info.bytesperline;
     return 0;
 }
