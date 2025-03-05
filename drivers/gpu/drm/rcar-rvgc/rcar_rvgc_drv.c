@@ -85,7 +85,9 @@
 #include <linux/of_reserved_mem.h>
 #include "r_taurus_rvgc_protocol.h"
 
+#ifndef __clang__
 #pragma GCC optimize ("-Og")
+#endif
 
 //#define RCAR_RVGC_DRM_NAME     "rcar-rvgc"
 #define RCAR_RVGC_DRM_NAME     "rcar-du"

@@ -20,7 +20,7 @@
 #include "rcar_rvgc_taurus.h"
 #include "r_taurus_rvgc_protocol.h"
 
-#if 1
+#ifndef __clang__
 //#pragma GCC push_options
 #pragma GCC optimize ("-Og")
 //#pragma GCC pop_options
