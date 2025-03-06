@@ -25,7 +25,7 @@ struct taurus_rvgc_ioc_layer_set_addr_in {
 	uint64_t    cookie;
 	uint32_t    display;
 	uint32_t    layer;
-	uint32_t    paddr;
+	uint32_t    paddr[3];
 } __packed;
 
 struct taurus_rvgc_ioc_layer_set_addr_out {

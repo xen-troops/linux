@@ -277,7 +277,7 @@ int rvgc_taurus_layer_set_pos(struct rcar_rvgc_device* rcrvgc,
 int rvgc_taurus_layer_set_addr(struct rcar_rvgc_device* rcrvgc,
 			       uint32_t display,
 			       uint32_t layer,
-			       uint32_t paddr,
+			       uint32_t paddr[3],
 			       struct taurus_rvgc_res_msg* res_msg) {
 	struct taurus_rvgc_cmd_msg cmd_msg;
 	int ret;
@@ -293,7 +293,9 @@ int rvgc_taurus_layer_set_addr(struct rcar_rvgc_device* rcrvgc,
 	cmd_msg.params.ioc_layer_set_addr.cookie =  cmd_msg.hdr.Id;
 	cmd_msg.params.ioc_layer_set_addr.display = display;
 	cmd_msg.params.ioc_layer_set_addr.layer = layer;
-	cmd_msg.params.ioc_layer_set_addr.paddr = paddr;
+	cmd_msg.params.ioc_layer_set_addr.paddr[0] = paddr[0];
+	cmd_msg.params.ioc_layer_set_addr.paddr[1] = paddr[1];
+	cmd_msg.params.ioc_layer_set_addr.paddr[2] = paddr[2];
 
 	ret = rvgc_taurus_send_command(rcrvgc, &cmd_msg, res_msg);
 	if (ret)

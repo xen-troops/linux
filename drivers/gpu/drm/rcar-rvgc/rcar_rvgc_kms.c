@@ -30,13 +30,73 @@
 /********** Fromat Info **********/
 static const struct rcar_rvgc_format_info rcar_rvgc_format_infos[] = {
 	{
+		.fourcc = DRM_FORMAT_ARGB8888,
+		.bpp = 32,
+		.planes = 1,
+	}, {
 		.fourcc = DRM_FORMAT_XRGB8888,
 		.bpp = 32,
 		.planes = 1,
 	}, {
-		.fourcc = DRM_FORMAT_ARGB8888,
-		.bpp = 32,
+		.fourcc = DRM_FORMAT_RGB332,
+		.bpp = 8,
 		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_ARGB4444,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_XRGB4444,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_ARGB1555,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_XRGB1555,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_RGB565,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_RGB888,
+		.bpp = 24,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_BGR888,
+		.bpp = 24,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_NV24,
+		.bpp = 24,
+		.planes = 2,
+	}, {
+		.fourcc = DRM_FORMAT_NV16,
+		.bpp = 16,
+		.planes = 2,
+	}, {
+		.fourcc = DRM_FORMAT_NV12,
+		.bpp = 12,
+		.planes = 2,
+	}, {
+		.fourcc = DRM_FORMAT_YUV420_8BIT,
+		.bpp = 8,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_YUV420,
+		.bpp = 12,
+		.planes = 3,
+	}, {
+		.fourcc = DRM_FORMAT_YUV422,
+		.bpp = 16,
+		.planes = 3,
+	}, {
+		.fourcc = DRM_FORMAT_YUV444,
+		.bpp = 24,
+		.planes = 3,
 	},
 };
 

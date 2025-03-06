@@ -27,7 +27,7 @@ int rvgc_taurus_display_flush(struct rcar_rvgc_device* rcrvgc,
 int rvgc_taurus_layer_set_addr(struct rcar_rvgc_device* rcrvgc,
 			       uint32_t display,
 			       uint32_t layer,
-			       uint32_t paddr,
+			       uint32_t paddr[3],
 			       struct taurus_rvgc_res_msg* res_msg);
 
 int rvgc_taurus_layer_release(struct rcar_rvgc_device* rcrvgc,

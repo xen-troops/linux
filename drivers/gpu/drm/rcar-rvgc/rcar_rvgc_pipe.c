@@ -5,6 +5,7 @@
 
 #include "rcar_rvgc_drv.h"
 #include "rcar_rvgc_pipe.h"
+#include "rcar_rvgc_kms.h"
 #include <drm/drm_simple_kms_helper.h>
 /* TODO: simple kms helper not needed anymore ?*/
 #include <drm/drm_atomic.h>
@@ -152,8 +153,23 @@ static struct drm_connector
 }
 
 static const u32 rvgc_formats[] = {
-	DRM_FORMAT_XRGB8888,
 	DRM_FORMAT_ARGB8888,
+	DRM_FORMAT_XRGB8888,
+	DRM_FORMAT_RGB332,
+	DRM_FORMAT_ARGB4444,
+	DRM_FORMAT_XRGB4444,
+	DRM_FORMAT_ARGB1555,
+	DRM_FORMAT_XRGB1555,
+	DRM_FORMAT_RGB565,
+	DRM_FORMAT_RGB888,
+	DRM_FORMAT_BGR888,
+	DRM_FORMAT_NV24,
+	DRM_FORMAT_NV16,
+	DRM_FORMAT_NV12,
+	DRM_FORMAT_YUV420_8BIT,
+	DRM_FORMAT_YUV420,
+	DRM_FORMAT_YUV422,
+	DRM_FORMAT_YUV444,
 };
 
 static const struct drm_encoder_funcs drm_simple_kms_encoder_funcs = {
@@ -379,15 +395,16 @@ static int check_refresh_primary(struct drm_plane* plane) {
 
 static void rvgc_plane_atomic_update(struct drm_plane* plane,
 				     struct drm_plane_state* old_state) {
-	struct drm_gem_cma_object* gem_obj;
 	struct taurus_rvgc_res_msg res_msg;
 
-	struct drm_framebuffer* fb              = plane->state->fb;
-	struct rcar_rvgc_plane* rvgc_plane      = container_of(plane, struct rcar_rvgc_plane,
-							       plane);
-	struct rcar_rvgc_pipe* rvgc_pipe       = rvgc_plane->pipe;
-	struct rcar_rvgc_device* rcrvgc          = rvgc_pipe->rcar_rvgc_dev;
-	unsigned int             display_idx     = rvgc_pipe->display_mapping;
+	struct drm_framebuffer*       fb              = plane->state->fb;
+	struct rcar_rvgc_plane*       rvgc_plane      = container_of(plane, struct rcar_rvgc_plane,
+														plane);
+	struct rcar_rvgc_pipe*        rvgc_pipe       = rvgc_plane->pipe;
+	struct rcar_rvgc_device*      rcrvgc          = rvgc_pipe->rcar_rvgc_dev;
+	unsigned int                  display_idx     = rvgc_pipe->display_mapping;
+	const struct rcar_rvgc_format_info* format_info;
+	uint32_t                      paddr[3];
 	int hw_plane;
 	bool pos_z_via_pvr = false;
 	int pos_x,pos_y,size_w,size_h;
@@ -490,9 +507,20 @@ static void rvgc_plane_atomic_update(struct drm_plane* plane,
 		}
 
 		if (plane->state->fb) {
+                        uint32_t i;
 			/* updating fb */
-			gem_obj = drm_fb_cma_get_gem_obj(fb, 0); //we support only single planar formats
-			ret = rvgc_taurus_layer_set_addr(rcrvgc, display_idx, hw_plane, gem_obj->paddr, &res_msg);
+			format_info = rcar_rvgc_format_info(fb->format->format);
+			if (format_info == NULL) {
+				dev_err(rcrvgc->dev, "%s(): rcar_rvgc_format_info(display=%d, id=%d, layer=%d) failed\n",
+					__FUNCTION__, display_idx, plane->base.id, hw_plane);
+				return;
+			}
+			for (i = 0; i < 3; i++) {
+				paddr[i] = (format_info->planes > i) ?
+					(uint32_t)((drm_fb_cma_get_gem_obj(fb, i))->paddr + fb->offsets[i]) :
+					0;
+			}
+			ret = rvgc_taurus_layer_set_addr(rcrvgc, display_idx, hw_plane, paddr, &res_msg);
 			if (ret) {
 				dev_err(rcrvgc->dev, "%s(): rvgc_taurus_layer_set_addr(display=%d, id=%d, layer=%d) failed\n",
 					__FUNCTION__, display_idx, plane->base.id, hw_plane);
