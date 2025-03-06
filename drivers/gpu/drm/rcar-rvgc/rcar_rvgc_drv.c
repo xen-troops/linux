@@ -297,7 +297,11 @@ static int rcar_rvgc_probe(struct rpmsg_device* rpdev) {
 	}
 
 	ddev->irq_enabled = 1;
-	ddev->dev->coherent_dma_mask = DMA_BIT_MASK(32);
+	ret = dma_coerce_mask_and_coherent(ddev->dev, DMA_BIT_MASK(32));
+	if (ret < 0) {
+		dev_err(&rpdev->dev, "Cannot coerce dma_mask and coherent_dma_mask to 32 bit");
+		goto error;
+	}
 
 	/*
 	 * Register the DRM device with the core and the connectors with
