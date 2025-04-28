@@ -1199,14 +1199,6 @@ static struct rswitch_device *get_dev_by_ip(struct rswitch_private *priv,
 					    u32 ip_search,
 					    bool use_mask);
 
-static bool is_route_to_vmq(struct rswitch_private *priv, u32 dst_ip)
-{
-	struct rswitch_device *rdev;
-
-	rdev = get_dev_by_ip(priv, dst_ip, true);
-	return rdev && rdev->rdev_type == RSWITCH_VMQ_BACK_DEV;
-}
-
 static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch_gwca_chain *c, bool learn_chain)
 {
 	struct rswitch_device *rdev = ndev_to_rdev(ndev);
@@ -1323,11 +1315,9 @@ static bool rswitch_rx_chain(struct net_device *ndev, int *quota, struct rswitch
 				/* The L2 broadcast packets shouldn't be routed */
 				if (!is_broadcast_ether_addr(ethhdr->h_dest)) {
 					iphdr = ip_hdr(skb);
-					if (!is_route_to_vmq(priv, be32_to_cpu(iphdr->daddr))) {
-						rswitch_add_ipv4_forward(priv, rdev,
-									 be32_to_cpu(iphdr->saddr),
-									 be32_to_cpu(iphdr->daddr));
-					}
+					rswitch_add_ipv4_forward(priv, rdev,
+								 be32_to_cpu(iphdr->saddr),
+								 be32_to_cpu(iphdr->daddr));
 				}
 			} else if (is_multicast_ether_addr(ethhdr->h_dest)) {
 				/* The multicast packets that are forwarded by L3 offload to
@@ -3241,8 +3231,7 @@ static void rswitch_fib_event_add(struct rswitch_fib_event_work *fib_work)
 		return;
 
 	rdev = get_dev_by_ip(fib_work->priv, be32_to_cpu(nh->nh_saddr), false);
-	/* Do not offload routes, related to VMQs (etha equal to NULL and not vlan device) */
-	if (!rdev || (!rdev->etha && !is_vlan_dev(rdev->ndev)))
+	if (!rdev)
 		return;
 
 	new_routing_list = kzalloc(sizeof(*new_routing_list), GFP_KERNEL);
@@ -4676,8 +4665,14 @@ static void rswitch_forward_work(struct work_struct *work)
 	if (rswitch_ipv4_resolve(rdev, fwd_work->dst_ip, mac))
 		goto free;
 
-	param.csd = 0;
-	param.enable_sub_dst = false;
+	if (rdev->rdev_type != RSWITCH_VMQ_BACK_DEV) {
+		param.csd = 0;
+		param.enable_sub_dst = false;
+	} else  {
+		param.csd = rdev->remote_chain;
+		param.enable_sub_dst = true;
+	}
+
 	memcpy(param.l23_info.dst_mac, mac, ETH_ALEN);
 	param.slv = 0x3F;
 	param.l23_info.priv = fwd_work->priv;
