@@ -264,6 +264,12 @@ static int rcar_vivid_probe(struct rpmsg_device *rpdev)
             goto error;
         }
 
+        ret = dma_coerce_mask_and_coherent(vivid[i]->dev, DMA_BIT_MASK(32));
+        if (ret < 0) {
+            dev_err(vivid[i]->dev, "Cannot coerce dma_mask and coherent_dma_mask to 32 bit");
+            goto error;
+        }
+
         ret = rcar_vivid_v4l2_register(vivid[i]);
 
         if (ret) {
