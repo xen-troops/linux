@@ -32,7 +32,7 @@
 #define vivid_err(d, fmt, arg...)		dev_err(d->dev, fmt, ##arg)
 
 /* Number of HW buffers */
-#define HW_BUFFER_NUM 3
+#define HW_BUFFER_NUM 1
 
 struct rcar_vivid_device;
 
