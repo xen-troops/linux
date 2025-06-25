@@ -42,24 +42,6 @@ static const struct vivid_pix_format vivid_default_format[]= {
     },
 };
 
-static int get_bpp_from_format(u32 pixelformat)
-{
-    switch (pixelformat) {
-        case V4L2_PIX_FMT_NV12:
-        case V4L2_PIX_FMT_NV16:
-        return 1;
-        case V4L2_PIX_FMT_YUYV:
-        case V4L2_PIX_FMT_UYVY:
-        case V4L2_PIX_FMT_RGB565:
-        case V4L2_PIX_FMT_ARGB555:
-        return 2;
-        case V4L2_PIX_FMT_ABGR32:
-        case V4L2_PIX_FMT_XBGR32:
-        return 4;
-        default:
-        return -EINVAL;
-    }
-}
 #if 0
 static struct vivid_pix_format to_vivid_format(struct v4l2_pix_format pix)
 {
