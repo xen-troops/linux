@@ -1,238 +1,235 @@
-// SPDX-License-Identifier: GPL-2.0+
-/* PHY driver for Qxxxx
+// SPDX-License-Identifier: GPL-2.0
+/* PHY driver for MVQ32xx
  *
  * Copyright (C) 2025 Renesas Electronics Corporation
  */
 
-#include <linux/bitfield.h>
-#include <linux/ctype.h>
-#include <linux/delay.h>
-#include <linux/hwmon.h>
-#include <linux/marvell_phy.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
 #include <linux/phy.h>
-#include <linux/sfp.h>
-#include <linux/netdevice.h>
+#include <linux/delay.h>
+#include <linux/mdio.h>
+#include <linux/ethtool.h>
+#include <linux/linkmode.h>
 
-#define Q3XXX_PHY_ID                    0x002b0b20
+#define Q32XX_MMD_PMA			MDIO_MMD_PMAPMD
+#define Q32XX_MMD_PCS			MDIO_MMD_PCS
+#define Q32XX_MMD_AN			MDIO_MMD_AN
 
-static bool loopback_enable = false;
-module_param(loopback_enable, bool, 0644);
-MODULE_PARM_DESC(loopback_enable, "Enable internal PCS loopback for testing");
-
-static int qxxxx_soft_reset(struct phy_device *phydev)
+static int mvq32xx_read32(struct phy_device *phydev, u32 regad)
 {
-	int val = phy_read_mmd(phydev, 0x03, 0x0000);
-	if (val < 0)
-		return val;
-	val |= BIT(15);
-	phy_write_mmd(phydev, 0x03, 0x0000, val);
-	return read_poll_timeout(phy_read_mmd, val, !(val & BIT(15)),
-				10, 100000, false, phydev, 0x03, 0x0000);
+	int low, high;
+
+	/* Set 32-bit register address */
+	if (phy_write_mmd(phydev, 0x1E, 0x28, regad & 0xFFFF) < 0)
+		return -EIO;
+	if (phy_write_mmd(phydev, 0x1E, 0x29, regad >> 16) < 0)
+		return -EIO;
+
+	/* Trigger read */
+	if (phy_write_mmd(phydev, 0x1E, 0x2C, 0) < 0)
+		return -EIO;
+
+	/* Read data */
+	low = phy_read_mmd(phydev, 0x1E, 0x2D);
+	if (low < 0)
+		return low;
+
+	high = phy_read_mmd(phydev, 0x1E, 0x2E);
+	if (high < 0)
+		return high;
+
+	return (high << 16) | (low & 0xFFFF);
 }
 
-static int qxxxx_set_loopback(struct phy_device *phydev, bool enable)
+static int mvq32xx_write32(struct phy_device *phydev, u32 regad, u32 val)
 {
-	int val = phy_read_mmd(phydev, 0x03, 0x0912);
-	if (val < 0)
-		return val;
+	/* Set 32-bit register address */
+	if (phy_write_mmd(phydev, 0x1E, 0x28, regad & 0xFFFF) < 0)
+		return -EIO;
+	if (phy_write_mmd(phydev, 0x1E, 0x29, regad >> 16) < 0)
+		return -EIO;
 
-	val &= ~BIT(14);
-	if (enable)
-		val |= BIT(14);
+	/* Set 32-bit data */
+	if (phy_write_mmd(phydev, 0x1E, 0x2A, val & 0xFFFF) < 0)
+		return -EIO;
+	if (phy_write_mmd(phydev, 0x1E, 0x2B, val >> 16) < 0)
+		return -EIO;
 
-	return phy_write_mmd(phydev, 0x03, 0x0912, val);
-}
-
-static int qxxxx_set_usx_aneg_enable(struct phy_device *phydev, bool enable)
-{
-	int val = phy_read_mmd(phydev, 0x1e, 0x0964);
-	if (val < 0)
-		return val;
-
-	val &= ~BIT(14);
-	if (enable)
-		val |= BIT(14);
-
-	return phy_write_mmd(phydev, 0x1e, 0x0964, val);
-}
-
-static int qxxxx_enable_restart_aneg(struct phy_device *phydev)
-{
-	int val = phy_read_mmd(phydev, 0x07, 0x0000);
-	if (val < 0)
-		return val;
-
-	val |= BIT(9);
-	return phy_write_mmd(phydev, 0x07, 0x0000, val);
-}
-
-static int qxxxx_config_an_adv2(struct phy_device *phydev)
-{
-	int val = 0;
-	val |= BIT(8);
-	val |= BIT(9);
-	val |= BIT(10);
-	val |= BIT(4);
-	return phy_write_mmd(phydev, 0x1e, 0x080C, val);
-}
-
-static int qxxxx_set_master_mode(struct phy_device *phydev, bool is_master)
-{
-	if (phydev->autoneg == AUTONEG_ENABLE)
-		return 0;
-
-	int val = phy_read_mmd(phydev, 0x01, 0x0834);
-	if (val < 0)
-		return val;
-	val = is_master ? (val | BIT(14)) : (val & ~BIT(14));
-	return phy_write_mmd(phydev, 0x01, 0x0834, val);
-}
-
-static int qxxxx_set_speed(struct phy_device *phydev, u8 speed_code)
-{
-	int val = phy_read_mmd(phydev, 0x03, 0x0000);
-	if (val < 0)
-		return val;
-
-	val |= BIT(13);
-	val |= BIT(6);
-	val &= ~GENMASK(5, 2);
-	val |= (speed_code << 2);
-	return phy_write_mmd(phydev, 0x03, 0x0000, val);
-}
-
-static int qxxxx_config_aneg(struct phy_device *phydev)
-{
-	int ret;
-
-	if (!phydev->autoneg)
-		return 0;
-
-	ret = qxxxx_set_usx_aneg_enable(phydev, true);
-	if (ret)
-		return ret;
+	/* Trigger write */
+	if (phy_write_mmd(phydev, 0x1E, 0x2C, 1) < 0)
+		return -EIO;
 
 	return 0;
 }
 
-static int qxxxx_config_init(struct phy_device *phydev)
+static void mvq32xx_update_bits32(struct phy_device *phydev, u32 regad, u32 mask, u32 val)
 {
-	int ret, val;
+	u32 tmp;
 
-	ret = qxxxx_soft_reset(phydev);
-	if (ret)
-		return ret;
-
-	val = phy_read_mmd(phydev, 0x03, 0x0000);
-	if (val >= 0 && (val & BIT(11))) {
-		val &= ~BIT(11);
-		phy_write_mmd(phydev, 0x03, 0x0000, val);
-		qxxxx_soft_reset(phydev);
-	}
-
-	val = BIT(15) |
-	      BIT(14) |
-	      BIT(10) |
-	      BIT(9) |
-	      BIT(8) |
-	      (1 << 7) |
-	      (3 << 4);
-	phy_write_mmd(phydev, 0x1E, 0x0964, val);
-
-	ret = qxxxx_set_master_mode(phydev, true);
-	if (ret)
-		return ret;
-
-	if (phydev->autoneg == AUTONEG_ENABLE) {
-		ret = qxxxx_config_an_adv2(phydev);
-		if (ret)
-			return ret;
-
-		ret = qxxxx_enable_restart_aneg(phydev);
-		if (ret)
-			return ret;
-	} else {
-		u8 speed_code;
-
-		switch (phydev->speed) {
-		case SPEED_10000:
-			speed_code = 0x00;
-			break;
-		case SPEED_5000:
-			speed_code = 0x08;
-			break;
-		case SPEED_2500:
-			speed_code = 0x07;
-			break;
-		default:
-			speed_code = 0x07;
-		}
-
-		ret = qxxxx_set_speed(phydev, speed_code);
-		if (ret)
-			return ret;
-	}
-
-	if (loopback_enable)
-		qxxxx_set_loopback(phydev, true);
-
-	val = phy_read_mmd(phydev, 0x03, 0x0000);
-	if (val >= 0)
-		dev_info(&phydev->mdio.dev, "[QXXXX] PCS_CTRL1 = 0x%04x\n", val);
-
-	return 0;
+	tmp = mvq32xx_read32(phydev, regad);;
+	tmp = (tmp & ~mask) | (val & mask);
+	mvq32xx_write32(phydev, regad, tmp);
 }
 
-static int qxxxx_read_status(struct phy_device *phydev)
+struct q32xx_priv {
+	DECLARE_BITMAP(supported, __ETHTOOL_LINK_MODE_MASK_NBITS);
+};
+
+static int mvq32xx_config_init(struct phy_device *phydev)
 {
 	int val;
 
-	phydev->link = 0;
-	phydev->speed = SPEED_UNKNOWN;
-	phydev->duplex = DUPLEX_UNKNOWN;
+	phydev_info(phydev, "%s: MV8322 init\n", __func__);
 
-	val = phy_read_mmd(phydev, 0x03, 0x0913);
-	if (val < 0)
-		return val;
+	/* Set master */
+	mvq32xx_update_bits32(phydev, 0x40780964, BIT(7) | BIT(15), BIT(7) | BIT(15));
+	/* Set T1 speed */
+	mvq32xx_update_bits32(phydev, 0x40780964, BIT(4) | BIT(5), BIT(4) | BIT(5));
+	/* Set Serdes speed */
+	mvq32xx_update_bits32(phydev, 0x40780964, BIT(0) | BIT(1) | BIT(2), BIT(0) | BIT(1) | BIT(2));
+	/* Exit from HCS state */
+	mvq32xx_update_bits32(phydev, 0x407809C8, BIT(1), BIT(1));
 
-	if (val & BIT(2))
-		phydev->link = 1;
-	else
-		return 0;
-
-	val = phy_read_mmd(phydev, 0x03, 0x0000);
-	if (((val >> 13) & 1) && ((val >> 6) & 1)) {
-		switch ((val >> 2) & 0xF) {
-		case 0x0:
-			phydev->speed = SPEED_10000;
-			break;
-		case 0x8:
-			phydev->speed = SPEED_5000;
-			break;
-		case 0x7:
-			phydev->speed = SPEED_2500;
-			break;
-		}
-	}
-
-	phydev->duplex = DUPLEX_FULL;
+	/* Disable System Interface Loopback */
+	val = phy_read_mmd(phydev, 3, 0x0912);
+	val &= ~BIT(14);
+	phy_write_mmd(phydev, 3, 0x0912, val);
 
 	return 0;
 }
 
-static struct phy_driver QXXXX_driver[] = {
+static int mvq32xx_read_status(struct phy_device *phydev)
+{
+	int val;
+	bool linkStatus = false;
+
+	/* 2) check T1 status */
+	for (int i = 0; i < 300; i++) {
+		val = phy_read_mmd(phydev, 1, 0x0906);
+		if ((val & BIT(0)) !=0) {
+			//printk("%s %d: MV3244 PMA (Line interface) Linkup OK\n",__func__,__LINE__);
+			phydev->link = 1;
+			phydev_dbg(phydev, "%s: MV3244 PMA (Line interface) Linkup OK\n",__func__);
+			linkStatus = true;
+			break;
+		}
+		usleep_range(1000, 2000);
+	}
+	if (linkStatus == false)
+		phydev_dbg(phydev, "%s: MV3244 PMA (Line interface) Linkup NG\n",__func__);
+
+	val = mvq32xx_read32(phydev, 0x40780964);
+	if (((val >> 7) &0x1) == 0x1) {
+		phydev_dbg(phydev, "%s: MV3244 Line Device Mode Master\n",__func__);
+	} else {
+		phydev_dbg(phydev, "%s: MV3244 Line Device Mode Slave\n",__func__);
+	}
+
+	val = mvq32xx_read32(phydev, 0x40780964);
+	switch (((val >> 4) & 0x3U)) {
+	case 1:
+		phydev_dbg(phydev, "%s: MV3244 Line Rate speed 2.5G\n", __func__);
+		break;
+	case 2:
+		phydev_dbg(phydev, "%s: MV3244 Line Rate speed 5G\n", __func__);
+		break;
+	case 3:
+		phydev_dbg(phydev, "%s: MV3244 Line Rate speed 10G\n", __func__);
+		break;
+	default:
+		phydev_dbg(phydev, "%s: MV3244 Line Rate speed Unknown\n", __func__);
+		break;
+	}
+
+	linkStatus = false;
+	for (int i = 0; i < 300; i++)
 	{
-		PHY_ID_MATCH_EXACT(Q3XXX_PHY_ID),
-		.name		= "PHY QXXXX",
-		.config_init	= qxxxx_config_init,
-		.config_aneg	= qxxxx_config_aneg,
-		.read_status	= qxxxx_read_status,
-		.soft_reset	= qxxxx_soft_reset,
-		.features	= PHY_10GBIT_FEATURES,
+		val = phy_read_mmd(phydev, 4, 0x3C7F);
+		if ((val & BIT(12)) !=0) {
+			phydev_dbg(phydev, "%s:MV3244 PCS (System Line) Linkup OK\n",__func__);
+			linkStatus = true;
+			break;
+		}
+	}
+	if (linkStatus == false) {
+		phydev_dbg(phydev, "%s: MV3244 PCS (System Line) Linkup NG\n",__func__);
+		phydev->speed = SPEED_UNKNOWN;
+		phydev->duplex = DUPLEX_UNKNOWN;
+	}
+
+	val = mvq32xx_read32(phydev, 0x40780964);
+	switch (((val >> 0) & 0x7U)) {
+	case 1:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 2500 BaseX\n", __func__);
+		break;
+	case 2:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 2.5G BaseX\n", __func__);
+		break;
+	case 3:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 5000 BaseR\n", __func__);
+		break;
+	case 4:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 5G BaseR\n", __func__);
+		break;
+	case 6:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 5G USXGMII\n", __func__);
+		break;
+	case 5:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 10G BaseR\n", __func__);
+		break;
+	case 7:
+		phydev->speed = SPEED_10000;
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed 10G USXGMII\n", __func__);
+		break;
+	default:
+		phydev_dbg(phydev, "%s: MV3244 System Interface Mode speed Unknow\n", __func__);
+		break;
+	}
+
+	phydev->duplex = DUPLEX_FULL;
+	phydev->autoneg = AUTONEG_ENABLE;
+
+	val = phy_read_mmd(phydev, 3, 0x0000);
+	if (((val >>14) & 0x1) == 0x1)
+		phydev_dbg(phydev, "%s: MV3244 TUNIT PCS System Loopback ENABLE\n", __func__);
+	else {
+		phydev_dbg(phydev, "%s: MV3244 TUNIT PCS System Loopback DISABLE\n", __func__);
+	}
+	return 0;
+}
+
+static int mvq32xx_probe(struct phy_device *phydev)
+{
+	struct q32xx_priv *priv;
+
+	priv = devm_kzalloc(&phydev->mdio.dev, sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+
+	bitmap_copy(priv->supported, phydev->supported, __ETHTOOL_LINK_MODE_MASK_NBITS);
+	phydev->priv = priv;
+	return 0;
+}
+
+static void mvq32xx_remove(struct phy_device *phydev)
+{
+	phydev->priv = NULL;
+}
+
+static struct phy_driver mvq32xx_driver[] = {
+	{
+		PHY_ID_MATCH_EXACT(0x002b0b20),
+		.name		= "MVQ32xx",
+		.probe		= mvq32xx_probe,
+		.remove		= mvq32xx_remove,
+		.config_init	= mvq32xx_config_init,
+		.read_status	= mvq32xx_read_status,
+		.features	= PHY_GBIT_FEATURES,
 	},
 };
 
-module_phy_driver(QXXXX_driver);
+module_phy_driver(mvq32xx_driver);
 
-MODULE_DESCRIPTION("Marvell QXXXX PHY driver");
+MODULE_DESCRIPTION("MVQ32xx PHY driver");
 MODULE_LICENSE("GPL");
