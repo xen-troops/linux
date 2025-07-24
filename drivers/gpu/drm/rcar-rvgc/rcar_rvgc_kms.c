@@ -210,6 +210,27 @@ int rcar_rvgc_modeset_init(struct rcar_rvgc_device* rcrvgc) {
 		goto exit;
 	}
 
+	/* Check if dts has the Display dimensions, if so use them */
+	ret = of_property_read_u32(displays_node, "min-width", &dev->mode_config.min_width);
+	if (ret && ret != -EINVAL)
+		dev_warn(rcrvgc->dev,
+			 "min-width entry in dts is not proper, display may not work %d\n", ret);
+
+	ret = of_property_read_u32(displays_node, "min-height", &dev->mode_config.min_height);
+	if (ret && ret != -EINVAL)
+		dev_warn(rcrvgc->dev,
+			 "min-height entry in dts is not proper, display may not work %d\n", ret);
+
+	ret = of_property_read_u32(displays_node, "max-width", &dev->mode_config.max_width);
+	if (ret && ret != -EINVAL)
+		dev_warn(rcrvgc->dev,
+			 "max-width entry in dts is not proper, display may not work %d\n", ret);
+
+	ret = of_property_read_u32(displays_node, "max-height", &dev->mode_config.max_height);
+	if (ret && ret != -EINVAL)
+		dev_warn(rcrvgc->dev,
+			 "max-height entry in dts is not proper, display may not work %d\n", ret);
+
 	/* count display nodes */
 	rcrvgc->nr_rvgc_pipes = 0;
 	for_each_child_of_node(displays_node, display_node) {
