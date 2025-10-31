@@ -2263,6 +2263,7 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
+	spin_lock_init(&priv->lock);
 
 	if (!parallel_mode)
 		parallel_mode = of_property_read_bool(pdev->dev.of_node, "parallel_mode");
