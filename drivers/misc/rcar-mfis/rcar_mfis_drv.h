@@ -41,7 +41,8 @@ static inline void rcar_mfis_reg_write(struct rcar_mfis_ch *chan, u32 reg, u32 d
 	unsigned long flags;
 
 	spin_lock_irqsave(&priv->lock, flags);
-	iowrite32(UNLOCK_WRITE_PROT, priv->unlock);
+	if (priv->unlock)
+		iowrite32(UNLOCK_WRITE_PROT, priv->unlock);
 	iowrite32(data, chan->base + reg);
 	spin_unlock_irqrestore(&priv->lock, flags);
 }

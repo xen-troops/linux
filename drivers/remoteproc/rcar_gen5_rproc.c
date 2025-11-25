@@ -206,7 +206,7 @@ static int rcar_gen5_rproc_probe(struct platform_device *pdev)
 
 	ret = rcar_mfis_register_notifier(priv->mfis_chan, &rcar_gen5_rproc_notifier_block, priv);
 	if (ret) {
-		dev_err(dev, "cannot register notifier on mfis channel %d\n", 0);
+		dev_err(dev, "cannot register notifier on mfis channel %d\n", priv->mfis_chan);
 		return ret;
 	}
 
