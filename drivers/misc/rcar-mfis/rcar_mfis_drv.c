@@ -135,12 +135,13 @@ static int rcar_mfis_probe(struct platform_device *pdev)
 	u32 value;
 	int ret, i;
 
-	num_mfis_channels = of_property_count_elems_of_size(dev->of_node, "renesas,mfis-channels",
+	ret = of_property_count_elems_of_size(dev->of_node, "renesas,mfis-channels",
 							    sizeof(u32));
-	if (value == -EINVAL) {
+	if (ret < 0 ) {
 		dev_err(dev, "can't find renesas,mfis-channels property\n");
-		return value;
+		return ret;
 	}
+	num_mfis_channels = ret;
 
 	/* Allocate device struct */
 	rcmfis_priv = kzalloc(sizeof(*rcmfis_priv), GFP_KERNEL);
@@ -151,15 +152,13 @@ static int rcar_mfis_probe(struct platform_device *pdev)
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "unlock_reg");
 	if (!res) {
-		dev_err(dev, "Failed to get write protection registger.\n");
-		ret = -EINVAL;
-		goto free_mfis_dev;
+		dev_warn(dev, "no write protection register in device node, skipping.\n");
+	} else {
+		/* Unlock register write protection */
+		unlock = ioremap(res->start, 4);
+		iowrite32(0xACC00001, unlock);
+		iounmap(unlock);
 	}
-
-	/* Unlock register write protection */
-	unlock = ioremap(res->start, 4);
-	iowrite32(0xACC00001, unlock);
-	iounmap(unlock);
 
 	for (i = 0; i < num_mfis_channels; i++) {
 		struct rcar_mfis_ch *mfis_ch;
@@ -172,7 +171,7 @@ static int rcar_mfis_probe(struct platform_device *pdev)
 		else if (value < 0 || value >= NUM_MFIS_CHANNELS)
 			continue;
 
-		mfis_ch = &rcmfis_priv->channels[value];
+		mfis_ch = &rcmfis_priv->channels[i];
 		if (mfis_ch->initialized) {
 			dev_warn(dev, "mfis channel %d is already initialized. Skipping.\n", value);
 			continue;
@@ -203,8 +202,8 @@ static int rcar_mfis_probe(struct platform_device *pdev)
 			continue;
 		}
 
-		/* Get IRQ resource */
-		irq = platform_get_irq(pdev, mfis_ch->id);
+		/* Get IRQ resource by "ch#<id>" name from DT */
+		irq = platform_get_irq_byname(pdev, pdev_chname);
 		if (!irq) {
 			dev_err(dev, "missing IRQ for channel %d. Skipping.\n", mfis_ch->id);
 			continue;
@@ -230,10 +229,6 @@ static int rcar_mfis_probe(struct platform_device *pdev)
 	}
 
 	return 0;
-
-free_mfis_dev:
-	kfree(rcmfis_priv);
-	return ret;
 }
 
 static int rcar_mfis_remove(struct platform_device *pdev)
