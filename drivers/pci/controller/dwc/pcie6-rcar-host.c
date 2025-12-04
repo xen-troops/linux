@@ -25,6 +25,8 @@ static int rcar_gen5_pcie6_host_init(struct dw_pcie6_rp *pp)
 	struct dw_pcie6 *pci = to_dw_pcie6_from_pp(pp);
 	struct rcar_pcie6 *rcar_pcie6 = to_rcar_gen5_pcie6(pci);
 	u32 val;
+
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	int ret;
 
 	if (reset_control_assert(rcar_pcie6->perst))
@@ -41,6 +43,16 @@ static int rcar_gen5_pcie6_host_init(struct dw_pcie6_rp *pp)
 
 	if (reset_control_assert(rcar_pcie6->perst))
 		dev_err(pci->dev, "Failed to assert PERST#");
+#endif
+
+#ifdef CONFIG_RCAR_PCIE6_EARLY_RETURN
+	if (reset_control_deassert(rcar_pcie6->perst))
+		dev_err(pci->dev, "Failed to deassert PERST#");
+	else
+		dev_info(pci->dev, "Power/clock init done, controller handed over to the guest\n");
+
+	return 0;
+#endif
 
 	/* 2. Set device type - RootComplex */
 	rcar_gen5_pcie6_set_device_type(rcar_pcie6, true);
@@ -163,8 +175,10 @@ static int rcar_gen5_pcie6_host_init(struct dw_pcie6_rp *pp)
 	writel(val, rcar_pcie6->phy_base + 0x8);
 
 	msleep(100);
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	if (reset_control_deassert(rcar_pcie6->perst))
 		dev_err(pci->dev, "Failed to deassert PERST#");
+#endif
 
 	/* DBI_RO_WR_DIS */
 	dw_pcie6_dbi_ro_wr_dis(pci);
@@ -189,6 +203,7 @@ static int rcar_add_pcie6_port(struct rcar_pcie6 *rcar_pcie6,
 	struct device *dev = &pdev->dev;
 	int ret;
 
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	for (int i = 0; i < PCIE6_RCAR_NUM_CLKS; i++) {
 		ret = clk_prepare_enable(rcar_pcie6->clks[i].clk);
 		if (ret) {
@@ -197,6 +212,7 @@ static int rcar_add_pcie6_port(struct rcar_pcie6 *rcar_pcie6,
 			return ret;
 		}
 	}
+#endif
 
 	pp->irq = platform_get_irq(pdev, 1);
 	if (pp->irq < 0)
@@ -239,12 +255,14 @@ static int pcie6_rcar_host_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	rcar_pcie6->perst = devm_reset_control_get(dev, "perst");
 	if (IS_ERR(rcar_pcie6->perst)) {
 		if (PTR_ERR(rcar_pcie6->perst) != -EPROBE_DEFER)
 			dev_err(dev, "Failed to get PERST#\n");
 		return PTR_ERR(rcar_pcie6->perst);
 	}
+#endif
 
 	pm_runtime_enable(dev);
 	ret = pm_runtime_get_sync(dev);
@@ -272,8 +290,14 @@ static int rcar_gen5_pcie6_suspend_noirq(struct device *dev)
 {
 	struct rcar_pcie6 *rcar_pcie6 = dev_get_drvdata(dev);
 
+#ifdef CONFIG_RCAR_PCIE6_EARLY_RETURN
+	return 0;
+#endif
+
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	for (int i = 0; i < PCIE6_RCAR_NUM_CLKS; i++)
 		clk_disable_unprepare(rcar_pcie6->clks[i].clk);
+#endif
 
 	if (rcar_pcie6->fw_dccm) {
 		release_firmware(rcar_pcie6->fw_dccm);
@@ -297,6 +321,7 @@ static int rcar_gen5_pcie6_resume_noirq(struct device *dev)
 	struct dw_pcie6_rp *pp = &pci->pp;
 	u32 val, ret;
 
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	for (int i = 0; i < PCIE6_RCAR_NUM_CLKS; i++) {
 		ret = clk_prepare_enable(rcar_pcie6->clks[i].clk);
 		if (ret) {
@@ -305,7 +330,9 @@ static int rcar_gen5_pcie6_resume_noirq(struct device *dev)
 			return ret;
 		}
 	}
+#endif
 
+#ifndef CONFIG_RCAR_PCIE6_EARLY_RETURN
 	ret = request_firmware(&rcar_pcie6->fw_dccm, PCIE6_FW_DATA_DCCM_NAME, dev);
 	if (ret < 0) {
 		dev_err(dev, "Failed to request firmware dccm: %d\n", ret);
@@ -317,6 +344,7 @@ static int rcar_gen5_pcie6_resume_noirq(struct device *dev)
 		dev_err(dev, "Failed to request firmware iccm: %d\n", ret);
 		return ret;
 	}
+#endif
 
 	/* Re-initialize Root Complex */
 	ret = rcar_gen5_pcie6_host_init(pp);
@@ -324,6 +352,10 @@ static int rcar_gen5_pcie6_resume_noirq(struct device *dev)
 		dev_err(dev, "Failed to init host: %d\n", ret);
 		return ret;
 	}
+
+#ifdef CONFIG_RCAR_PCIE6_EARLY_RETURN
+	return 0;
+#endif
 
 	ret = dw_pcie6_setup_rc(pp);
         if (ret < 0) {
