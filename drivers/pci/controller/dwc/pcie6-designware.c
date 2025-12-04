@@ -1033,7 +1033,6 @@ static int dw_pcie6_msi_host_init(struct dw_pcie6_rp *pp)
 	struct dw_pcie6 *pci = to_dw_pcie6_from_pp(pp);
 	struct device *dev = pci->dev;
 	struct platform_device *pdev = to_platform_device(dev);
-	u64 *msi_vaddr;
 	int ret;
 	u32 ctrl, num_ctrls;
 
@@ -1077,13 +1076,7 @@ static int dw_pcie6_msi_host_init(struct dw_pcie6_rp *pp)
 	if (ret)
 		dev_warn(dev, "Failed to set DMA mask to 32-bit. Devices with only 32-bit MSI support may not work properly\n");
 
-	msi_vaddr = dmam_alloc_coherent(dev, sizeof(u64), &pp->msi_data,
-					GFP_KERNEL);
-	if (!msi_vaddr) {
-		dev_err(dev, "Failed to alloc and map MSI data\n");
-		dw_pcie6_free_msi(pp);
-		return -ENOMEM;
-	}
+	pp->msi_data = CONFIG_RCAR_PCIE6_MSI_ADDR;
 
 	return 0;
 }
@@ -1099,6 +1092,14 @@ int dw_pcie6_host_init(struct dw_pcie6_rp *pp)
 	struct resource *res;
 	int ret;
 
+#ifdef CONFIG_RCAR_PCIE6_EARLY_RETURN
+	if (pp->ops->host_init) {
+		ret = pp->ops->host_init(pp);
+		if (ret)
+			return ret;
+	}
+	return 0;
+#endif
 	raw_spin_lock_init(&pp->lock);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "config");
