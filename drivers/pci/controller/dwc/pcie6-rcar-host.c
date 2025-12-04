@@ -26,13 +26,19 @@ static int rcar_gen5_pcie6_host_init(struct dw_pcie6_rp *pp)
 	struct rcar_pcie6 *rcar_pcie6 = to_rcar_gen5_pcie6(pci);
 	u32 val;
 
+#ifndef CONFIG_RCAR_PCIE6_EARLY_RETURN
 	val = readl(rcar_pcie6->base + PCIEMSR0);
 	val |= BIT(6);
 	writel(val, rcar_pcie6->base + PCIEMSR0);
+#endif
 
 	rcar_gen5_pcie6_module_reset(pci);
 	rcar_gen5_pcie6_module_run(pci);
 
+#ifdef CONFIG_RCAR_PCIE6_EARLY_RETURN
+    printk("Power initialization done, returning");
+	return 0;
+#endif
 	/* Set device type - RootComplex */
 	rcar_gen5_pcie6_set_device_type(rcar_pcie6, true);
 

@@ -180,6 +180,7 @@ void module_standby_change(u32 regno, u32 offsetnum, u32 state)
 
 void rcar_gen5_pcie6_module_reset(struct dw_pcie6 *pci)
 {
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	if (!mdlc_hscs_base) {
 		mdlc_hscs_base = ioremap(MDLC_HSCS_BASE, MDLC_HSCS_SIZE);
 		if (!mdlc_hscs_base) {
@@ -191,10 +192,12 @@ void rcar_gen5_pcie6_module_reset(struct dw_pcie6 *pci)
 	module_standby_change(PCIE601_REG_NO, PCIE601_BIT_NO, RESET);
 	module_standby_change(PCIE602_REG_NO, PCIE602_BIT_NO, RESET);
 	dev_info(pci->dev, "HSCS module powered and reset.\n");
+#endif
 }
 
 void rcar_gen5_pcie6_module_run(struct dw_pcie6 *pci)
 {
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	if (!mdlc_hscs_base) {
 		mdlc_hscs_base = ioremap(MDLC_HSCS_BASE, MDLC_HSCS_SIZE);
 		if (!mdlc_hscs_base) {
@@ -207,6 +210,7 @@ void rcar_gen5_pcie6_module_run(struct dw_pcie6 *pci)
 	module_standby_change(PCIE601_REG_NO, PCIE601_BIT_NO, RUN);
 	module_standby_change(PCIE602_REG_NO, PCIE602_BIT_NO, RUN);
 	dev_info(pci->dev, "HSCS module powered and run.\n");
+#endif
 }
 
 void rcar_gen5_pcie6_txpreset_coef_mapping(struct dw_pcie6 *pci)
