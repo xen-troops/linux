@@ -415,4 +415,14 @@ config PCIE6_RCAR_EP
 	  order to enable device-specific features PCIE6_RCAR_EP must be
 	  selected.
 
+config RCAR_PCIE6_SKIP_PM
+    bool "Skip power management and clocks setup in PCIe host controller"
+
+config RCAR_PCIE6_EARLY_RETURN
+    bool "Only setup clocks and power management R-Car R-Car PCIe host controller "
+
+config RCAR_PCIE6_MSI_ADDR
+    hex "Address for the internal MSI controller in R-Car PCIe6 controller"
+    default 0x42c000F0
+
 endmenu
