@@ -642,6 +642,7 @@ int rcar_gen5_pcie6_get_resources(struct rcar_pcie6 *rcar_pcie6,
 		}
 	}
 
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	for (int i = 0; i < PCIE6_RCAR_NUM_RSTS; i++)
 		rcar_pcie6->rsts[i].id = rcar_pcie6_reset_ids[i];
 
@@ -652,6 +653,7 @@ int rcar_gen5_pcie6_get_resources(struct rcar_pcie6 *rcar_pcie6,
 		dev_err(&pdev->dev, "Failed to get PCIe6 RESETS: %d\n", ret);
 		return ret;
 	}
+#endif
 
 	/* Renesas-specific registers */
 	rcar_pcie6->base = devm_platform_ioremap_resource_byname(pdev, "apb");
@@ -678,6 +680,7 @@ int rcar_gen5_pcie6_get_resources(struct rcar_pcie6 *rcar_pcie6,
 			return PTR_ERR(rcar_pcie6->base_shared);
 	}
 
+#ifndef CONFIG_RCAR_PCIE6_SKIP_PM
 	for (int i = 0; i < PCIE6_RCAR_NUM_CLKS; i++)
 		rcar_pcie6->clks[i].id = rcar_pcie6_clk_ids[i];
 
@@ -687,7 +690,9 @@ int rcar_gen5_pcie6_get_resources(struct rcar_pcie6 *rcar_pcie6,
 		dev_err(&pdev->dev, "Failed to get clocks: %d\n", ret);
 		return ret;
 	}
+#endif
 
+#ifndef CONFIG_RCAR_PCIE6_EARLY_RETURN
 	ret = request_firmware(&rcar_pcie6->fw_dccm, PCIE6_FW_DATA_DCCM_NAME, &pdev->dev);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to request firmware dccm: %d\n", ret);
@@ -699,6 +704,7 @@ int rcar_gen5_pcie6_get_resources(struct rcar_pcie6 *rcar_pcie6,
 		dev_err(&pdev->dev, "Failed to request firmware iccm: %d\n", ret);
 		return ret;
 	}
+#endif
 
 	return 0;
 }
