@@ -115,6 +115,7 @@ static int rcar_gen5_rproc_prepare(struct rproc *rproc)
 	struct reserved_mem *rmem;
 	u32 da;
 	struct rcar_rproc *priv = rproc->priv;
+	int index = 0;
 
 	/* Register associated reserved memory regions */
 	of_phandle_iterator_init(&it, np, "memory-region", NULL, 0);
@@ -127,13 +128,26 @@ static int rcar_gen5_rproc_prepare(struct rproc *rproc)
 			return -EINVAL;
 		}
 
-		da = rmem->base & 0xFFFFFFFF;
-		mem = rproc_mem_entry_init(dev, NULL,
-					   rmem->base,
-					   rmem->size, da,
-					   rcar_gen5_rproc_mem_alloc,
-					   rcar_gen5_rproc_mem_release,
-					   it.node->name);
+		if (rmem->base > U32_MAX) {
+			of_node_put(it.node);
+			return -EINVAL;
+		}
+
+		if (!strncmp(it.node->name, "vdev", sizeof("vdev"))) {
+			mem = rproc_of_resm_mem_entry_init(dev, index,
+							   rmem->size,
+							   rmem->base,
+							   it.node->name);
+		} else {
+			/* No need to translate pa to da, R-Car use same map */
+			da = rmem->base & 0xFFFFFFFF;
+			mem = rproc_mem_entry_init(dev, NULL,
+						   rmem->base,
+						   rmem->size, da,
+						   rcar_gen5_rproc_mem_alloc,
+						   rcar_gen5_rproc_mem_release,
+						   it.node->name);
+		}
 
 		if (!mem) {
 			of_node_put(it.node);
@@ -145,6 +159,7 @@ static int rcar_gen5_rproc_prepare(struct rproc *rproc)
 			priv->kick_va = devm_ioremap(dev, priv->kick_pa, rmem->size);
 		}
 
+		index++;
 		rproc_add_carveout(rproc, mem);
 	}
 
