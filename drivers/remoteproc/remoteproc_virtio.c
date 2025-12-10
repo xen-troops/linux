@@ -523,6 +523,7 @@ static int rproc_virtio_probe(struct platform_device *pdev)
 		dev_warn(dev, "Failed to set DMA mask %llx. Trying to continue... (%pe)\n",
 			 dma_get_mask(rproc->dev.parent), ERR_PTR(ret));
 	}
+	dev->dma_coherent = rproc->dev.parent->dma_coherent;
 
 	platform_set_drvdata(pdev, rvdev);
 	rvdev->pdev = pdev;
