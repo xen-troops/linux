@@ -76,6 +76,7 @@ static int rcar_gen5_rproc_prepare(struct rproc *rproc)
 	struct rproc_mem_entry *mem;
 	struct reserved_mem *rmem;
 	u32 da;
+	int index = 0;
 
 	/* Register associated reserved memory regions */
 	of_phandle_iterator_init(&it, np, "memory-region", NULL, 0);
@@ -93,20 +94,28 @@ static int rcar_gen5_rproc_prepare(struct rproc *rproc)
 			return -EINVAL;
 		}
 
-		/* No need to translate pa to da, R-Car use same map */
-		da = rmem->base;
-		mem = rproc_mem_entry_init(dev, NULL,
-					   rmem->base,
-					   rmem->size, da,
-					   rcar_gen5_rproc_mem_alloc,
-					   rcar_gen5_rproc_mem_release,
-					   it.node->name);
+		if (!strncmp(it.node->name, "vdev", sizeof("vdev"))) {
+			mem = rproc_of_resm_mem_entry_init(dev, index,
+							   rmem->size,
+							   rmem->base,
+							   it.node->name);
+		} else {
+			/* No need to translate pa to da, R-Car use same map */
+			da = rmem->base;
+			mem = rproc_mem_entry_init(dev, NULL,
+						   rmem->base,
+						   rmem->size, da,
+						   rcar_gen5_rproc_mem_alloc,
+						   rcar_gen5_rproc_mem_release,
+						   it.node->name);
+		}
 
 		if (!mem) {
 			of_node_put(it.node);
 			return -ENOMEM;
 		}
 
+		index++;
 		rproc_add_carveout(rproc, mem);
 	}
 
@@ -156,7 +165,7 @@ static void rcar_gen5_rproc_kick(struct rproc *rproc, int vqid)
 	} while (ret && n_tries--);
 
 	if (ret)
-		dev_info(dev, "%s failed\n", __func__);
+		dev_dbg(dev, "%s failed\n", __func__);
 }
 
 static int rcar_gen5_rproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
