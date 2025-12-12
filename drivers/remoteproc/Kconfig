@@ -301,7 +301,6 @@ config RCAR_REMOTEPROC
 
 config RCAR_GEN5_REMOTEPROC
 	tristate "Renesas R-Car Gen5 remoteproc support"
-	depends on ARCH_RENESAS || COMPILE_TEST
 	help
 	  Say y here to support R-Car Gen5 realtime processor via the
 	  remote processor framework.
