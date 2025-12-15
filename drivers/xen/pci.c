@@ -206,9 +206,6 @@ static struct notifier_block device_nb = {
 
 static int __init register_xen_pci_notifier(void)
 {
-	if (!xen_initial_domain())
-		return 0;
-
 	return bus_register_notifier(&pci_bus_type, &device_nb);
 }
 
