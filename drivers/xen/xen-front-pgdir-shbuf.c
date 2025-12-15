@@ -360,6 +360,7 @@ static void guest_fill_page_dir(struct xen_front_pgdir_shbuf *buf)
 {
 	unsigned char *ptr;
 	int cur_gref, grefs_left, to_copy, i, num_pages_dir;
+	void *dst;
 
 	ptr = buf->directory;
 	num_pages_dir = get_num_pages_dir(buf);
@@ -381,7 +382,9 @@ static void guest_fill_page_dir(struct xen_front_pgdir_shbuf *buf)
 			to_copy = XEN_NUM_GREFS_PER_PAGE;
 			page_dir->gref_dir_next_page = buf->grefs[i + 1];
 		}
-		memcpy(&page_dir->gref, &buf->grefs[cur_gref],
+
+		dst = &page_dir->gref;
+		memcpy(dst, &buf->grefs[cur_gref],
 		       to_copy * sizeof(grant_ref_t));
 		ptr += PAGE_SIZE;
 		grefs_left -= to_copy;
