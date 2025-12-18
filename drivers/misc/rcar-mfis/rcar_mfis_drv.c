@@ -50,7 +50,7 @@ static irqreturn_t mfis_irq_handler(int irq, void *data)
 
 static struct rcar_mfis_ch *rcar_mfis_channel_get(unsigned int channel)
 {
-	struct rcar_mfis_ch *rcar_mfis_ch;
+	struct rcar_mfis_ch *rcar_mfis_ch = NULL;
 	int i;
 
 	if (!rcmfis_priv)
@@ -72,7 +72,7 @@ static struct rcar_mfis_ch *rcar_mfis_channel_get(unsigned int channel)
 int rcar_mfis_trigger_interrupt(int channel, struct rcar_mfis_msg msg)
 {
 	struct rcar_mfis_ch *rcar_mfis_ch;
-	int ret;
+	int ret = 0;
 	u32 icr;
 
 	rcar_mfis_ch = rcar_mfis_channel_get(channel);
