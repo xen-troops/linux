@@ -369,42 +369,43 @@ static const struct dma_heap_ops cma_heap_ops = {
 	.allocate = cma_heap_allocate,
 };
 
-static int __add_cma_heap(struct cma *cma, void *data)
+static int __init cma_heap_register_area(struct cma *cma, void *data)
 {
-	struct cma_heap *cma_heap;
-	struct dma_heap_export_info exp_info;
+    struct cma_heap *cma_heap;
+    struct dma_heap_export_info exp_info;
+    const char *name;
 
-	cma_heap = kzalloc(sizeof(*cma_heap), GFP_KERNEL);
-	if (!cma_heap)
-		return -ENOMEM;
-	cma_heap->cma = cma;
+    name = cma_get_name(cma);
 
-	exp_info.name = cma_get_name(cma);
-	exp_info.ops = &cma_heap_ops;
-	exp_info.priv = cma_heap;
+    cma_heap = kzalloc(sizeof(*cma_heap), GFP_KERNEL);
+    if (!cma_heap)
+        return -ENOMEM;
 
-	cma_heap->heap = dma_heap_add(&exp_info);
-	if (IS_ERR(cma_heap->heap)) {
-		int ret = PTR_ERR(cma_heap->heap);
+    cma_heap->cma = cma;
 
-		kfree(cma_heap);
-		return ret;
-	}
+    exp_info.name = name;
+    exp_info.ops = &cma_heap_ops;
+    exp_info.priv = cma_heap;
 
-	return 0;
+    cma_heap->heap = dma_heap_add(&exp_info);
+    if (IS_ERR(cma_heap->heap)) {
+        int ret = PTR_ERR(cma_heap->heap);
+        kfree(cma_heap);
+        return ret;
+    }
+
+    pr_info("dma_heap: Registered CMA heap: %s\n", name);
+    return 0;
 }
 
-static int add_default_cma_heap(void)
+static int __init cma_heap_init(void)
 {
-	struct cma *default_cma = dev_get_cma_area(NULL);
-	int ret = 0;
+    cma_for_each_area(cma_heap_register_area, NULL);
 
-	if (default_cma)
-		ret = __add_cma_heap(default_cma, NULL);
-
-	return ret;
+    return 0;
 }
-module_init(add_default_cma_heap);
+
+module_init(cma_heap_init);
 MODULE_DESCRIPTION("DMA-BUF CMA Heap");
 MODULE_LICENSE("GPL v2");
 MODULE_IMPORT_NS(DMA_BUF);
