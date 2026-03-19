@@ -9,6 +9,7 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/remoteproc.h>
 #include <linux/delay.h>
+#include <linux/platform_device.h>
 
 #include "remoteproc_internal.h"
 #include <misc/rcar-mfis/rcar_mfis_public.h>
@@ -236,15 +237,13 @@ unregister_notifier:
 	return ret;
 }
 
-static int rcar_gen5_rproc_remove(struct platform_device *pdev)
+static void rcar_gen5_rproc_remove(struct platform_device *pdev)
 {
 	struct rcar_rproc *priv =  platform_get_drvdata(pdev);
 
 	rcar_mfis_unregister_notifier(priv->mfis_chan, &rcar_gen5_rproc_notifier_block);
 	flush_work(&priv->workqueue);
 	rproc_del(priv->rproc);
-
-	return 0;
 }
 
 static const struct of_device_id rcar_gen5_rproc_of_match[] = {
