@@ -232,14 +232,12 @@ static int rcar_mfis_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int rcar_mfis_remove(struct platform_device *pdev)
+static void rcar_mfis_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 
 	dev_info(dev, "R-Car MFIS remove\n");
 	kfree(rcmfis_priv);
-
-	return 0;
 }
 
 static const struct of_device_id rcar_mfis_of_match[] = {
