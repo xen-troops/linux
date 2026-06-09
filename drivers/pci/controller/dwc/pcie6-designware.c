@@ -1530,6 +1530,27 @@ static void dw_pcie6_host_request_msg_tlp_res(struct dw_pcie6_rp *pp)
 	}
 }
 
+void __iomem *renesas_xen_map_bus(struct pci_bus *bus, unsigned int devfn,
+			       int where)
+{
+	struct dw_pcie6_rp *pp = bus->sysdata;
+	const int bus_shift = 20;
+	unsigned int devfn_shift = bus_shift - 8;
+	unsigned int busn = bus->number;
+	void __iomem *base;
+
+	busn -= 1;
+
+	base = pp->va_cfg0_base + (busn << bus_shift);
+	return base + (devfn << devfn_shift) + where;
+}
+
+static struct pci_ops renesas_xen_child_ops = {
+	.map_bus = renesas_xen_map_bus,
+	.read = pci_generic_config_read,
+	.write = pci_generic_config_write,
+};
+
 int dw_pcie6_host_init(struct dw_pcie6_rp *pp)
 {
 	struct dw_pcie6 *pci = to_dw_pcie6_from_pp(pp);
@@ -1584,7 +1605,7 @@ int dw_pcie6_host_init(struct dw_pcie6_rp *pp)
 
 	/* Set default bus ops */
 	bridge->ops = &dw_pcie6_ops;
-	bridge->child_ops = &dw_child_pcie_ops;
+	bridge->child_ops = &renesas_xen_child_ops;
 
 	if (pp->ops->init) {
 		ret = pp->ops->init(pp);
@@ -1984,11 +2005,9 @@ int dw_pcie6_setup_rc(struct dw_pcie6_rp *pp)
 	 * the platform uses its own address translation component rather than
 	 * ATU, so we should not program the ATU here.
 	 */
-	if (pp->bridge->child_ops == &dw_child_pcie_ops) {
-		ret = dw_pcie6_iatu_setup(pp);
+    	ret = dw_pcie6_iatu_setup(pp);
 		if (ret)
 			return ret;
-	}
 
 	dw_pcie6_writel_dbi(pci, PCI_BASE_ADDRESS_0, 0);
 
